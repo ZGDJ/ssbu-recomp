@@ -1,0 +1,30 @@
+name: Project contract
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  planning:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Validate planning contract
+        run: python tools/check_project_docs.py
+      - name: Validator regression tests
+        run: python -m unittest discover -s tests -p test_project_docs.py -v
+      # Runtime fault-injection coverage is M7.9; this job makes no gameplay claim.
