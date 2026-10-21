@@ -453,4 +453,3 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Owner: unassigned
 - Next: Start here: choose narrow policy seam, document commands/compiler prerequisites, then assign M7 hardening packets.
 - Blocker: none
-
