@@ -2,6 +2,8 @@
 
 This is the OpenSmash fork at [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-recomp), replacing our earlier WindowSmash project. It is experimental; online rollback is still being hardened.
 
+For click-by-click instructions using a **Smash Ultimate** folder on the Desktop, see the [Discord setup instructions](docs/FAMILY-DISCORD.md).
+
 ## What you need
 
 - A Windows x64 PC with a compatible Vulkan graphics driver, internet, and roughly **30 GB of free space in addition to your game ZIP**. More space may be needed as the project grows.
@@ -10,11 +12,15 @@ This is the OpenSmash fork at [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-re
 
 ## Three steps
 
-1. Extract the **OpenSmash-Family** installer ZIP to a permanent folder you can write to, such as `C:\Users\YourName\Games`. Open the extracted `OpenSmash` folder. Do not run it from inside the ZIP or put it in Program Files.
+1. On your Desktop, right-click an empty space, choose **New → Folder**, and name it **Smash Ultimate**. Extract the **OpenSmash-Family** installer ZIP into that folder, then open its extracted `OpenSmash` folder. Do not run it from inside the ZIP.
 2. Double-click **Install OpenSmash.bat**, then select your prepared game ZIP. Leave the setup window open while it downloads tools, checks files and builds the game. No Git, compiler setup or administrator account is required.
 3. When setup reports success, use **OpenSmash Play** on your desktop. The first launch needs time to prepare shaders. **Z** confirms prompts; **F1** opens settings.
 
-Keep the extracted OpenSmash folder in its original location: the game reads its data there. Setup starts a new installation with online play and rollback disabled. It does not import or replace existing saves. Saves created by this installation live in `build/saves` inside that folder.
+Setup also offers an optional completion-save import. Choose Yes and select the separate **Smash-Ultimate-Completion-Save.zip** supplied by the maintainer, or choose No to keep your own progress. The installer expects a ZIP containing `save_data/system_data.bin`; it does not read 7z archives. The maintainer has converted the supplied 7z to ZIP without changing its save files.
+
+To import later, close the game and double-click **Import Save.bat**. Import replaces the game's `save_data` folder and keeps the previous folder under `artifacts/local/save-backups/<unique-id>`. Other user data is untouched. If import is interrupted, run Import Save again with the same ZIP; Play blocks until recovery completes. For manual restoration with the game closed, preserve the current `build/saves/save/save_data` elsewhere and copy the chosen backup directory back to that location as `save_data`.
+
+Keep the extracted OpenSmash folder in its original location: the game reads its data there. Setup starts a new installation with online play and rollback disabled. Save replacement happens only when you explicitly choose the optional import. Saves created by this installation live in `build/saves` inside that folder. Updates never import the completion save again.
 
 ## If setup stops
 
