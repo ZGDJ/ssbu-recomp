@@ -119,7 +119,7 @@ M7 completion means source failure regressions and production wiring are verifie
 - Acceptance: Actual 13.0.5 build and three complete fixture matches satisfy FSD-001 with identified artifacts.
 - Owner: unassigned
 - Next: Locate owner-provided 13.0.5 inputs and supported compiler; follow root BUILDING.md without auto-discovering unrelated private files.
-- Blocker: No private 13.0.5 inputs/build available in current checkout.
+- Blocker: Owner-supplied archive is now available and local setup is M1.5; formal identity/cache prerequisites M1.1/M1.4 and three fixture matches remain unverified.
 
 ### M1.3 - Critical hook validation
 - Status: todo
@@ -141,6 +141,17 @@ M7 completion means source failure regressions and production wiring are verifie
 - Acceptance: Audit OpenSmash compiler cache identity; changed source/header/compiler/config invalidates outputs; unchanged reuse, failure retry and isolation verified by source tests.
 - Owner: unassigned
 - Next: Inspect tools/lifter build paths and tests/build_opt_sched_test.py before proposing cache changes.
+- Blocker: none
+
+### M1.5 - Local OpenSmash setup from supplied inputs
+- Status: done
+- Depends: M0.1
+- Size: 3
+- Requirement: FSD-001, FSD-011
+- Evidence: evidence/2026-10-21-local-setup.md
+- Acceptance: Supplied archive integrity checked, 13.0.5 build completes with recorded runtime/compiler identities and self-test outcomes, launcher configured and startup smoke observed. This convenience setup does not close M1.1/M1.2 or any rollback qualification.
+- Owner: unassigned
+- Next: Use Play SSBU.bat for local play; proceed with M1.1/M1.4 and formal M1.2 fixtures before capability claims.
 - Blocker: none
 
 ## M2 - Controlled simulation
@@ -353,7 +364,7 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ## M7 - OpenSmash rollback hardening (source gates)
 
-See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1â€“M6 remain mandatory game-backed qualification.
+See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“M6 remain mandatory game-backed qualification.
 
 ### M7.1 - Complete-or-refuse native restoration
 - Status: todo

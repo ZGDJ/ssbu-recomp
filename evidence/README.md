@@ -3,6 +3,7 @@
 [Milestones](../milestones/README.md) own status; reports own observations. Use the [template](TEMPLATE.md) and [validation contract](../docs/VALIDATION.md).
 
 - [OpenSmash baseline](2026-10-21-opensmash-baseline.md): source findings and test limitations.
+- [Local OpenSmash setup](2026-10-21-local-setup.md): successful local build/self-tests and startup rendering; no rollback qualification.
 - [Hosted planning CI](2026-10-21-planning-ci.md): source contract checks on Windows.
 - [Planning migration](2026-10-21-migration.md): transferred contract, reopened work and checks.
 
