@@ -8,5 +8,10 @@ if exist deps\python\python.exe set "PY=%~dp0deps\python\python.exe"
 if not defined PY if exist build\python_path.txt set /p PY=<build\python_path.txt
 if defined PY if not exist "%PY%" set "PY="
 if not defined PY set "PY=python"
+if exist INSTALLER-SOURCE.json goto family
 "%PY%" scripts\run.py --play --seconds 0
+if errorlevel 1 pause
+exit /b
+:family
+"%PY%" scripts\family_play.py
 if errorlevel 1 pause

@@ -27,4 +27,6 @@ jobs:
         run: python tools/check_project_docs.py
       - name: Validator regression tests
         run: python -m unittest discover -s tests -p test_project_docs.py -v
+      - name: Family installer archive regression tests
+        run: python -m unittest discover -s tests -p 'test_family_*.py' -v
       # Runtime fault-injection coverage is M7.9; this job makes no gameplay claim.
