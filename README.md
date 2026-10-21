@@ -8,6 +8,7 @@ Fork: [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-recomp). Upstream: [Denkis
 
 ## Start here
 
+- [Family installation helper](START-HERE.md): prepared game ZIP import, resumable build and desktop Play shortcut.
 - [Milestone checklist and work ledger](milestones/README.md): sole task-status authority, dependencies, next actions and evidence.
 - [FSD](docs/FSD.md): measurable requirements; [ADRs](adr/README.md): decisions.
 - [Agent instructions](AGENTS.md) and [work packets](docs/AGENT_WORKFLOW.md): ownership, autonomy and relative effort.

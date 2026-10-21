@@ -20,6 +20,28 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ## M0 - Foundation and source reliability
 
+### M0.8 - Family installation helper
+- Status: in_progress
+- Depends: M0.1
+- Size: 3
+- Requirement: FSD-011, FSD-012
+- Evidence: none
+- Acceptance: Prepared ZIP import validates paths and hashes; click-to-update follows a fork branch, preserves data/saves and resumes failures; source-only distributable and synthetic failure cases verified.
+- Owner: root/family-installer 2026-10-21 UTC
+- Next: Implement helper and synthetic archive tests; record fresh-PC qualification separately.
+- Blocker: none
+
+### M0.9 - Qualify family setup and updates on a clean PC
+- Status: todo
+- Depends: M0.8
+- Size: 3
+- Requirement: FSD-011, FSD-012
+- Evidence: none
+- Acceptance: Clean Windows x64 PC without developer tools installs the package, builds from owner inputs, launches through its shortcut and updates between two real revisions; interrupted update recovery and save preservation verified.
+- Owner: unassigned
+- Next: Use the packaged installer on a separate clean PC and record hardware, logs and outcomes before broad family distribution.
+- Blocker: none
+
 ### M0.1 - Project contract and scope
 - Status: done
 - Depends: none

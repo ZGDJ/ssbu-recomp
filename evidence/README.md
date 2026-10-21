@@ -4,6 +4,7 @@
 
 - [OpenSmash baseline](2026-10-21-opensmash-baseline.md): source findings and test limitations.
 - [Local OpenSmash setup](2026-10-21-local-setup.md): successful local build/self-tests and startup rendering; no rollback qualification.
+- [Family installer and updater](2026-10-21-family-installer.md): source tests, archive compatibility and remaining clean-PC gate.
 - [Hosted planning CI](2026-10-21-planning-ci.md): source contract checks on Windows.
 - [Planning migration](2026-10-21-migration.md): transferred contract, reopened work and checks.
 

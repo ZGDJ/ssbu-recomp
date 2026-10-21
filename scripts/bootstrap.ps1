@@ -4,7 +4,7 @@
 # deps folder removes everything. Only if that private install fails it falls back to a Python already on the PC
 # (or the per-user python.org installer) and the older tkinter window (scripts\installer_gui.py).
 # Structure of the download/verify/install steps adapted from WindowSmash's tools\install_windowsmash.ps1 (SNO2207).
-param([switch]$NoLaunch)
+param([switch]$NoLaunch, [switch]$PrivateOnly)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 $repo = Split-Path -Parent $PSScriptRoot
@@ -61,7 +61,7 @@ function Install-Private {
     if (-not (Test-Path $pyExe)) {
         $zip = Join-Path $dl "python-$pyVersion-embed-amd64.zip"
         Get-Verified $embedUrl $zip $embedSha
-        if (Test-Path $depsPy) { Remove-Item $depsPy -Recurse -Force }
+        if (Test-Path $depsPy) { throw 'Existing private Python folder is incomplete. Preserve it and use a fresh installer folder.' }
         New-Item -ItemType Directory -Force $depsPy | Out-Null
         Expand-Archive -LiteralPath $zip -DestinationPath $depsPy -Force
     }
@@ -155,6 +155,7 @@ try {
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', "`"$repo\scripts\installer_window.ps1`"")
         }
     } else {
+        if ($PrivateOnly) { throw 'Private Python setup failed; no system installation was attempted. Check the network and retry.' }
         Start-Fallback
     }
 } catch {
