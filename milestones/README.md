@@ -21,14 +21,14 @@ M7 completion means source failure regressions and production wiring are verifie
 ## M0 - Foundation and source reliability
 
 ### M0.8 - Family installation helper
-- Status: in_progress
+- Status: done
 - Depends: M0.1
 - Size: 3
 - Requirement: FSD-011, FSD-012
-- Evidence: none
+- Evidence: evidence/2026-10-21-family-installer.md
 - Acceptance: Prepared ZIP import validates paths and hashes; click-to-update follows a fork branch, preserves data/saves and resumes failures; source-only distributable and synthetic failure cases verified.
-- Owner: root/family-installer 2026-10-21 UTC
-- Next: Implement helper and synthetic archive tests; record fresh-PC qualification separately.
+- Owner: unassigned
+- Next: Qualify full installation and two-version update on a clean PC under M0.9; publish only after owner authorization.
 - Blocker: none
 
 ### M0.9 - Qualify family setup and updates on a clean PC
