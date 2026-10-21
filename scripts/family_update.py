@@ -20,6 +20,7 @@ REQUIRED = ('scripts/family_setup.py', 'scripts/family_update.py', 'scripts/fami
             'scripts/family_setup.ps1', 'scripts/bootstrap.ps1', 'scripts/install.py',
             'scripts/setup.py', 'scripts/run.py', 'requirements.txt', 'LICENSE',
             'Install OpenSmash.bat', 'Update OpenSmash.bat', 'Play SSBU.bat')
+REQUIRED += ('scripts/family_save.py', 'Import Save.bat')
 
 
 def fetch(url, limit):

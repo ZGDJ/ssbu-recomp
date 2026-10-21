@@ -20,6 +20,17 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ## M0 - Foundation and source reliability
 
+### M0.11 - Optional family save import
+- Status: done
+- Depends: M0.8
+- Size: 2
+- Requirement: FSD-011, FSD-012
+- Evidence: evidence/2026-10-21-family-save-helper.md
+- Acceptance: Optional save ZIP import validates layout, stages before replacement, preserves a backup and prevents gameplay during interrupted import; synthetic failures and supplied archive roundtrip pass.
+- Owner: unassigned
+- Next: Include optional save import in M0.9 clean-PC qualification; distribute the converted save ZIP separately.
+- Blocker: none
+
 ### M0.8 - Family installation helper
 - Status: done
 - Depends: M0.1
