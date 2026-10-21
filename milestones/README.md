@@ -12,7 +12,7 @@ Run `python tools/check_project_docs.py` for calculated counts, effort totals an
 
 ## Migration and execution order
 
-Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 remains open until hosted fork CI is observed.
+Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 is closed against the recorded hosted planning CI run.
 
 Prioritize **M7.9**, then **M7.8 -> M7.1 -> M7.3 -> M7.2**. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
 
@@ -65,14 +65,14 @@ M7 completion means source failure regressions and production wiring are verifie
 - Blocker: none
 
 ### M0.5 - Source-only CI
-- Status: todo
+- Status: done
 - Depends: M0.1, M0.3
 - Size: 2
 - Requirement: FSD-011, FSD-012
-- Evidence: none
+- Evidence: evidence/2026-10-21-planning-ci.md
 - Acceptance: Fork-hosted Windows planning checks pass on the submitted revision; record run URL/conclusion. Game-free rollback runtime harness CI follows M7.9.
 - Owner: unassigned
-- Next: Observe project-contract.yml on the fork; fix failures before recording hosted CI evidence.
+- Next: Keep planning CI passing; runtime harness CI and production regressions remain M7.9.
 - Blocker: none
 
 ### M0.6 - Audit GGPO and Smash-specific design
@@ -353,7 +353,7 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ## M7 - OpenSmash rollback hardening (source gates)
 
-See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1–M6 remain mandatory game-backed qualification.
+See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1â€“M6 remain mandatory game-backed qualification.
 
 ### M7.1 - Complete-or-refuse native restoration
 - Status: todo
