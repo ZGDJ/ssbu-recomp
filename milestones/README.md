@@ -343,10 +343,10 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.7, M7.9
 - Size: 5
 - Requirement: FSD-004, FSD-013
-- Evidence: evidence/2026-10-22-seed-coverage-integration.md
+- Evidence: evidence/2026-10-22-sdk-forward-comparison.md
 - Acceptance: Attribute the preserved early RNG/reference discrepancy to a verified runtime writer/seed, scheduling or fixture cause; distinguish observed execution from candidate source/object identity. Validate a bounded correction or justified fixture treatment against preserved failures and original behavior without arbitrary reseeding, hash weakening or discarded references. Repeated uninstrumented same-tape runs agree for the chosen diagnostic interval; record coverage limits and unresolved cases. This does not close M3.2's 10,000-tick/state-coverage gate.
-- Owner: root integration; Astra source packets complete, 2026-10-22T20:01:16.237303+00:00
-- Next: Enabled selector observation changes input seed d0ea9452 to b77b0413 with the recorded global RNG recurrence, then matches construction owner and later reset. Historical f28f3988 remains reconstructed and unexplained. First complete a new same-candidate disabled repeat after adequate measured commit headroom: disabled-b refused base at 1544 MiB and failed mandatory replay. Then compare source-RNG entry state/selection records in a bounded reproduction of that retained failure fixture; identical fixture passing controls do not attribute the old failure. Preserve references, two-replay requirements, non-atomic limits and SDK qualification blockers; no reseeding or hash weakening.
+- Owner: root integration; Astra provenance/review complete, 2026-10-22T21:22:37.613252+00:00
+- Next: Identified old-SDK/current forward-only pair passes fatal, sealed 500R/0S, original reference and direct equality with verified input/cache controls. Both still differ from the retained historical failure at frame 2 RNG folds; f28f3988 remains reconstructed. Next test one documented neutral pre-match timing contrast on the current package with existing selector/reset observations and unchanged fatal/completeness/reference obligations. Preserve original failures and interpret any mismatch diagnostically; no reseeding or identical-pair repetition.
 - Blocker: none
 
 ## M4 - Offline rollback proof
@@ -650,10 +650,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-seed-coverage-integration.md
+- Evidence: evidence/2026-10-22-rollback-continuation.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root integration; Astra source packets complete, 2026-10-22T20:01:16.237303+00:00
-- Next: Reviewed first-setup observation accounts for all 152 ranges and 477342 successful page attempts, with no skipped window intersections or protection failures. The external unaligned catch-table row is retained explicitly; original analyzer rejection is preserved. Historical protection=177, later setup coverage, reservation-release lifetime and supported MEM_KEEP disposition remain open. Select the earliest historical failing setup for a bounded observation before changing protection policy. The reservation delegation rejection produced no technical finding and is not evidence of architectural infeasibility. M7.1 separately owns 176-to-177 initial-base ordering; SDK reuse/restore controls remain subject to M3.5 and validation gates.
+- Owner: root integration; reservation task provider-rejected without technical result, 2026-10-22T21:22:37.613252+00:00
+- Next: Historical protection=177 is narrowed to setup 1 through initial-base validation, before reuse injection, not a demonstrated later setup. New historical-command probes retain complete first-setup observations with zero failures and do not reproduce it. Existing observer suffices for setup-versus-post-setup distinction if it recurs; add a decommit-opening observer only on that evidence. Reservation-release lifetime and supported MEM_KEEP disposition remain open; provider rejection was not a technical result. M7.1 separately owns 176-to-177 initial-base publication. See current continuation evidence.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness
