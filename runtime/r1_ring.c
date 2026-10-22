@@ -1743,9 +1743,15 @@ static void rgs_pad(uint64_t *b, int *lx, int *ly, int *rx, int *ry) {
 }
 static int cmp_d(const void *a, const void *b);
 static double rg_pct(const double *v, int n, int p) {
-    if (n <= 0) return 0;
-    double *w = malloc((size_t)n * sizeof *w); memcpy(w, v, (size_t)n * sizeof *w); qsort(w, (size_t)n, sizeof *w, cmp_d);
-    double r = w[(size_t)n * p / 100 < (size_t)n ? (size_t)n * p / 100 : (size_t)n - 1]; free(w); return r;
+    if (!n) return 0;
+    if (n < 0 || !v || p < 0 || p > 100 || (size_t)n > SIZE_MAX / sizeof(double)) {
+        LOG("r1: percentile unavailable: invalid input\n"); return NAN;
+    }
+    double *w = malloc((size_t)n * sizeof *w);
+    if (!w) { LOG("r1: percentile unavailable: allocation failure\n"); return NAN; }
+    memcpy(w, v, (size_t)n * sizeof *w); qsort(w, (size_t)n, sizeof *w, cmp_d);
+    size_t at = (size_t)n / 100 * (size_t)p + ((size_t)n % 100) * (size_t)p / 100;
+    double r = w[at < (size_t)n ? at : (size_t)n - 1]; free(w); return r;
 }
 static double rg_mean(const double *v, int n) { double s = 0; for (int i = 0; i < n; i++) s += v[i]; return n ? s / n : 0; }
 static void rgs_report(void) {

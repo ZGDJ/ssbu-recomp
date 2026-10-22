@@ -97,3 +97,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_memory_inventory_source.py -v
       - name: Host thread inventory completeness regressions
         run: python -m unittest discover -s tests -p test_host_thread_inventory_source.py -v
+      - name: Fighter inventory and saved-range cleanup regressions
+        run: python -m unittest discover -s tests -p test_fighter_inventory_source.py -v
+      - name: Diagnostic allocation ownership regressions
+        run: python -m unittest discover -s tests -p test_diagnostic_resources_source.py -v

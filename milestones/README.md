@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-os-inventory.md
+- Evidence: evidence/2026-10-22-fighter-diagnostics.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root memory/host-thread inventory, 2026-10-22T05:04:00Z
-- Next: Checked memory/host-thread inventory passes exact O1/O3 failures, independent review and six frozen controls with strict replay and both four-observer audits. Next fighter-module enumeration, optional diagnostics and authoritative optional capture-mode allocation boundaries. Preserve historical-stacks command-buffer A incomplete-learned-tracking base refusal and M3.2 forward-reference divergence; neither is explained by passing retries. Loader/writer quiescence, authoritative equality and online qualification remain open.
+- Owner: root fighter/diagnostic resources, 2026-10-22T05:06:00Z
+- Next: Fighter-module inventory/diagnostic resources pass exact O1/O3 failures, independent review and six frozen controls with strict replay and both four-observer audits. Next authoritative optional capture-mode resources, learned scratch/trace completion, then tracking startup/presentation/guest allocator and pad-history boundaries. Preserve historical-stacks command-buffer A incomplete-learned-tracking base refusal and M3.2 forward-reference divergence; neither is explained by passing retries. Loader/writer quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

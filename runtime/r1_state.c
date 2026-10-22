@@ -47,6 +47,9 @@ void r1_read_retry_note(void) {}
 void r1_register_heap(void) { r1_on(); }
 #else
 #include <stdio.h>
+#include <stddef.h>
+#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
@@ -219,25 +222,53 @@ static uint8_t *g_ar;
 static int cmp_rng(const void *x, const void *y) { const Rng *a = x, *b = y; return a->a < b->a ? -1 : a->a > b->a; }
 /* host DLLs that run fighter code (fighters_bin\*.dll, track S): their writable sections are simulation state too */
 #include <tlhelp32.h>
+static void fighter_close(HANDLE h) {
+    if (!CloseHandle(h)) { LOG("r1: FIGHTER INVENTORY FATAL: snapshot release failed\n"); abort(); }
+}
+static int fighter_sections(uint8_t *base, size_t image_size) {
+    uintptr_t address = (uintptr_t)base;
+    IMAGE_DOS_HEADER dos; DWORD signature; IMAGE_FILE_HEADER file; IMAGE_OPTIONAL_HEADER64 optional;
+    if (!base || image_size < sizeof dos || image_size > UINTPTR_MAX - address ||
+        !fiber_capture_read(NULL, base, &dos, sizeof dos) || dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < 0) return 0;
+    size_t offset = (size_t)dos.e_lfanew;
+    if (offset > image_size || sizeof signature + sizeof file > image_size - offset ||
+        !fiber_capture_read(NULL, base + offset, &signature, sizeof signature) || signature != IMAGE_NT_SIGNATURE ||
+        !fiber_capture_read(NULL, base + offset + sizeof signature, &file, sizeof file)) return 0;
+    offset += sizeof signature + sizeof file;
+    if (file.SizeOfOptionalHeader < sizeof optional || file.SizeOfOptionalHeader > image_size - offset ||
+        !fiber_capture_read(NULL, base + offset, &optional, sizeof optional) || optional.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return 0;
+    offset += file.SizeOfOptionalHeader;
+    if (file.NumberOfSections > (image_size - offset) / sizeof(IMAGE_SECTION_HEADER)) return 0;
+    for (unsigned i = 0; i < file.NumberOfSections; i++) {
+        IMAGE_SECTION_HEADER section;
+        if (!fiber_capture_read(NULL, base + offset + i * sizeof section, &section, sizeof section)) return 0;
+        if (!(section.Characteristics & IMAGE_SCN_MEM_WRITE) || !section.Misc.VirtualSize) continue;
+        size_t n = section.Misc.VirtualSize;
+        if (n > SIZE_MAX - (PG - 1)) return 0;
+        n = (n + PG - 1) & ~(size_t)(PG - 1);
+        if (section.VirtualAddress > image_size || n > image_size - section.VirtualAddress) return 0;
+        add_span(base + section.VirtualAddress, base + section.VirtualAddress + n);
+        if (g_collect_failed) return 0;
+    }
+    return 1;
+}
 static void add_fighter_dlls(void) {
+    if (getenv("SSBU_R1_NO_DLLS")) return;             /* explicit diagnostic opt-out */
     HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-    if (sn == INVALID_HANDLE_VALUE) return;
+    if (sn == INVALID_HANDLE_VALUE) { g_collect_failed = 1; return; }
     MODULEENTRY32 me; me.dwSize = sizeof me;
-    int nmod = 0; size_t bytes = 0;
+    int nmod = 0;
     for (BOOL ok = Module32First(sn, &me); ok; ok = Module32Next(sn, &me)) {
-        if (!strstr(me.szExePath, "fighters_bin") || getenv("SSBU_R1_NO_DLLS")) continue;
-        uint8_t *b = me.modBaseAddr;
-        IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(b + ((IMAGE_DOS_HEADER *)b)->e_lfanew);
-        IMAGE_SECTION_HEADER *sh = IMAGE_FIRST_SECTION(nt);
-        for (int i = 0; i < nt->FileHeader.NumberOfSections; i++)
-            if (sh[i].Characteristics & IMAGE_SCN_MEM_WRITE) {
-                size_t n = (sh[i].Misc.VirtualSize + PG - 1) & ~(size_t)(PG - 1);
-                add_span(b + sh[i].VirtualAddress, b + sh[i].VirtualAddress + n); bytes += n;
-            }
+        if (me.dwSize < offsetof(MODULEENTRY32, szExePath) + sizeof me.szExePath ||
+            !memchr(me.szExePath, 0, sizeof me.szExePath)) { g_collect_failed = 1; break; }
+        if (!strstr(me.szExePath, "fighters_bin")) continue;
+        if (!fighter_sections(me.modBaseAddr, me.modBaseSize)) { g_collect_failed = 1; break; }
         nmod++;
     }
-    CloseHandle(sn);
-    if (g_cycle == 0 && g_phase == 0) LOG("r1: fighter DLLs: %d, writable sections %.1f KB\n", nmod, bytes / 1024.0);
+    DWORD end_error = GetLastError();
+    fighter_close(sn);
+    if (end_error != ERROR_NO_MORE_FILES) g_collect_failed = 1;
+    if (g_cycle == 0 && g_phase == 0) LOG("r1: fighter DLLs: %d, inventory %s\n", nmod, g_collect_failed ? "incomplete" : "complete");
 }
 /* (R3 hs13, tw1j) the full save's copy of every range (r->s, ~1.9 GB in a match) is page memory of its own, not CRT heap: the
  * first save of the ring / run-ahead gives it back (decommits it) range by range while mark_setup moves it into the shadow,
@@ -245,7 +276,7 @@ static void add_fighter_dlls(void) {
  * memcpy while the PC had 4-8 GB of free commit). Every allocation of that save is checked: on failure the save fails
  * cleanly (g_save_failed = 2) and the caller turns rollback off for the match. */
 static void *rs_alloc(size_t n) { return n ? VirtualAlloc(NULL, n, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) : NULL; }
-static void rs_free(void *p) { if (p) VirtualFree(p, 0, MEM_RELEASE); }
+static void rs_free(void *p) { if (p && !VirtualFree(p, 0, MEM_RELEASE)) { LOG("r1: FULL SAVE FATAL: reservation release failed\n"); abort(); } }
 static void release(void);
 static int g_rs_drop;                                   /* set by the first save's callers (the ring, run-ahead): r->s given back during mark_setup */
 static int g_rb_test_nomem = -1;                        /* SSBU_RB_NET_TEST_NOMEM (test only): 1 = the commit check says no, 2 = an allocation of the full save fails, 3 = the ring's own allocations fail, 4 = the shadow's commit fails */
@@ -315,17 +346,38 @@ static int collect(Ctx *c) {
 typedef struct { uint64_t key; int sig, cnt; uint64_t len; } OsRec;
 static OsRec *g_os; static int g_nos, g_oscap, g_os_diff, g_os_mode;
 static OsRec *g_os2; static int g_nos2, g_os2cap;
+static int g_os_complete, g_os2_complete;
 static void os_cb(uint64_t key, int sig, int cnt, uint64_t len, uint64_t thread, uint64_t stack, uint64_t size) {
     (void)stack; (void)size;
     if (thread) return;
     OsRec **arr = g_os_mode ? &g_os2 : &g_os; int *n = g_os_mode ? &g_nos2 : &g_nos, *cap = g_os_mode ? &g_os2cap : &g_oscap;
-    if (*n >= *cap) { *cap = *cap ? *cap * 2 : 4096; *arr = realloc(*arr, (size_t)*cap * sizeof **arr); }
+    int *complete = g_os_mode ? &g_os2_complete : &g_os_complete;
+    if (!*complete) return;
+    if (*n < 0 || *cap < 0 || *n > *cap || (*cap && !*arr)) { *complete = 0; return; }
+    if (*n == *cap) {
+        if (*cap > INT_MAX / 2) { *complete = 0; return; }
+        int capacity = *cap ? *cap * 2 : 4096;
+        if ((size_t)capacity > SIZE_MAX / sizeof **arr) { *complete = 0; return; }
+        OsRec *next = realloc(*arr, (size_t)capacity * sizeof **arr);
+        if (!next) { *complete = 0; return; }
+        *arr = next; *cap = capacity;
+    }
     OsRec r = {key, sig, cnt, len}; (*arr)[(*n)++] = r;
 }
 static int cmp_os(const void *x, const void *y) { const OsRec *a = x, *b = y; return a->key < b->key ? -1 : a->key > b->key; }
+static int os_snapshot(int current) {
+    g_os_mode = current != 0;
+    int *n = g_os_mode ? &g_nos2 : &g_nos;
+    int *complete = g_os_mode ? &g_os2_complete : &g_os_complete;
+    *n = 0; *complete = 1;
+    os_r1_objs(os_cb);
+    OsRec *array = g_os_mode ? g_os2 : g_os;
+    if (*complete && *n > 1) qsort(array, (size_t)*n, sizeof *array, cmp_os);
+    g_os_mode = 0;
+    return *complete;
+}
 static void os_compare(const char *when) {
-    g_os_mode = 1; g_nos2 = 0; os_r1_objs(os_cb); g_os_mode = 0;
-    qsort(g_os2, (size_t)g_nos2, sizeof *g_os2, cmp_os);
+    if (!os_snapshot(1) || !g_os_complete) { g_os_diff = -1; LOG("r1: nn::os comparison %s unavailable: incomplete snapshot\n", when); return; }
     int diff = 0, shown = 0, j = 0;
     for (int i = 0; i < g_nos2; i++) {
         while (j < g_nos && g_os[j].key < g_os2[i].key) j++;
@@ -957,7 +1009,7 @@ static void save(Ctx *c) {
         LOG("r1: %zu pages written by host threads during a %d ms hold: left out of restore / verify; holding the guest threads took %.2f ms\n", np, pause, t1b - tp0);
     }
     g_ctx_save = *c;
-    g_nos = 0; os_r1_objs(os_cb); qsort(g_os, (size_t)g_nos, sizeof *g_os, cmp_os);
+    if (!os_snapshot(0)) LOG("r1: nn::os baseline unavailable: allocation failure\n");
     LOG("r1: cycle %d SAVE at fight frame %lld: %d ranges, %.1f MB copied in %.2f ms (+ %.2f ms to list the ranges)\n", g_cycle, g_ff, g_nr, g_saved_bytes / 1048576.0, t2 - t1, t1 - t0);
     if (g_cycle == 0) {
         for (int i = 0; i < g_nr; i++) if (g_r[i].n >= (4u << 20)) LOG("r1:   range %s + %.1f MB\n", where(g_r[i].a), g_r[i].n / 1048576.0);
@@ -1089,7 +1141,7 @@ static void verify(void) {
         g_cycle, g_ff, bad, g_ne, extra, now_ms() - t0);
     os_compare("at the end of the re-run");
 }
-static void release(void) { for (int i = 0; i < g_nr; i++) { rs_free(g_r[i].s); g_r[i].s = NULL; free(g_r[i].dirty); g_r[i].dirty = NULL; free(g_r[i].async); g_r[i].async = NULL; } }
+static void release(void) { if (g_nr < 0 || g_nr > MAXR) { LOG("r1: FULL SAVE FATAL: invalid owned range count\n"); abort(); } for (int i = 0; i < g_nr; i++) { rs_free(g_r[i].s); g_r[i].s = NULL; free(g_r[i].dirty); g_r[i].dirty = NULL; free(g_r[i].async); g_r[i].async = NULL; } }
 
 /* ---------------------------------------------------------------- R1 round 2: the fast save (SSBU_R1_FAST=1)
  * The first SSBU_R1_LEARN cycles (default 5) are full ones (above): they learn the pages the simulation changes (union
@@ -2351,14 +2403,33 @@ static void ra_line(Ctx *c, void *user) {           /* the fighters' frame line:
     g_orig_line(c);
 }
 static void ra_report(void); static int rbg_noring_now(void);
+void fight_trace_fail(const char *reason);
+static int g_ra_kind_failed;
+static int ra_kind_append(char kind) {
+    if (g_ra_kind_failed) return 0;
+    if (g_ra_nkind < 0 || g_ra_kcap < 0 || g_ra_nkind > g_ra_kcap || (g_ra_kcap && !g_ra_kind)) goto failed;
+    if (g_ra_nkind == g_ra_kcap) {
+        if (g_ra_kcap > LLONG_MAX / 2) goto failed;
+        long long capacity = g_ra_kcap ? g_ra_kcap * 2 : 65536;
+        if ((unsigned long long)capacity > SIZE_MAX) goto failed;
+        char *next = realloc(g_ra_kind, (size_t)capacity);
+        if (!next) goto failed;
+        g_ra_kind = next; g_ra_kcap = capacity;
+    }
+    g_ra_kind[g_ra_nkind++] = kind; return 1;
+failed:
+    g_ra_kind_failed = 1;
+    fight_trace_fail("trace_history_allocation");
+    LOG("r1: frame history unavailable: allocation or capacity failure\n");
+    return 0;
+}
 static void ra_frame_end(double te) {
     double fe = now_ms();
     if (g_ra_ready && g_t_poll > g_ra_t_mark && te > g_t_poll) { int k = g_ra_phase; g_rap[k][0] += g_t_poll - g_ra_t_mark; g_rap[k][1] += te - g_t_poll; g_rap[k][2] += fe - te; g_ra_fe_end = fe; g_ra_fe_kind = k + 1; }
     g_ra_fe++;
     { static long long n; if (++n % 1200 == 0 && (g_ra_ready || rbg_noring_now())) ra_report(); }      /* (hs14: a match without the ring too) */
     if (InterlockedExchange(&g_ra_lines, 0) > 0) {      /* this iteration ran a fight frame: real or speculative (for tests\r1_ra_cmp.py) */
-        if (g_ra_nkind >= g_ra_kcap) { g_ra_kcap = g_ra_kcap ? g_ra_kcap * 2 : 65536; g_ra_kind = realloc(g_ra_kind, (size_t)g_ra_kcap); }
-        g_ra_kind[g_ra_nkind++] = g_ra_phase == 1 || (g_ra_phase == 2 && rgs_wanted()) ? 'S' : 'R';      /* (R2 simulation: a re-run pass = 'S') */
+        ra_kind_append(g_ra_phase == 1 || (g_ra_phase == 2 && rgs_wanted()) ? 'S' : 'R');      /* (R2 simulation: a re-run pass = 'S') */
     }
 }
 static double pct(double *v, int n, int p) { if (!n) return 0; qsort(v, (size_t)n, sizeof *v, cmp_d); return v[(size_t)n * p / 100 < (size_t)n ? (size_t)n * p / 100 : (size_t)n - 1]; }
