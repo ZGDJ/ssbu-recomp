@@ -19,7 +19,8 @@ For each address:
   4. the entry: hook_host.c's hk_len / hk_move (dry run) on the first bytes of f_<addr> in the object.
 Verdict INLINED when some caller in the file has fewer compiled call/jump sites than reachable lifted ones (conservative:
 two sites the compiler merged count too), CLONED when a clone exists, SUSPECT when only the address constant is found
-elsewhere and the lifted C of that function has no such constant (a BL just before f_<addr> sets x30 = <addr>); else OK. --emit writes `noinline <addr>` lines for every address that is not OK.
+elsewhere and the lifted C of that function has no such constant (a BL just before f_<addr> sets x30 = <addr>); else OK. The CLI exits nonzero for any rejected target, refused entry, or empty selection.
+This is offline object evidence, not loaded-DLL execution or game-version attestation. --emit writes `noinline <addr>` lines for every address that is not OK.
 --census-all: the entry census (4) over every function of <obj> (SSBU_HOOK_SELFTEST's census, offline).
 """
 import collections
@@ -163,7 +164,7 @@ def hk_len(p, at):
     return i + imm, fix, kind
 
 
-def hk_move(p, at):
+def _hk_move(p, at):
     """(bytes moved, why) as hook_host.c hk_move(dry=1): 0 = refused"""
     n, ended, tos = 0, False, []
     while n < 5:
@@ -193,32 +194,76 @@ def hk_move(p, at):
     return n, ''
 
 
+def hk_move(p, at):
+    """Refuse incomplete object entry bytes instead of reading beyond their extent."""
+    try:
+        moved, why = _hk_move(p, at)
+        if at < 0 or at + moved > len(p):
+            return 0, 'truncated entry'
+        return moved, why
+    except (IndexError, struct.error):
+        return 0, 'truncated entry'
+
+
 # ---------------------------------------------------------------- COFF
 def coff_functions(path):
     """{symbol: (bytes of its section, offset)} for the f_ / u_ symbols of an object; also the list of all names"""
-    data = open(path, 'rb').read()
+    with open(path, 'rb') as stream:
+        data = stream.read()
     machine, nsec, _, symptr, nsym, optsz, _ = struct.unpack_from('<HHIIIHH', data, 0)
-    sections = []
-    for i in range(nsec):
-        name, vsize, va, rsize, rptr = struct.unpack_from('<8sIIII', data, 20 + optsz + i * 40)
-        sections.append((rptr, rsize))
+    if machine != 0x8664 or optsz != 0:
+        raise RuntimeError('expected an AMD64 COFF object: %s' % path)
+    header_end = 20 + nsec * 40
     strtab = symptr + nsym * 18
-    out, names = {}, []
+    if header_end > len(data) or symptr < header_end or strtab + 4 > len(data):
+        raise RuntimeError('invalid COFF metadata bounds: %s' % path)
+    string_size, = struct.unpack_from('<I', data, strtab)
+    if string_size < 4 or strtab + string_size > len(data):
+        raise RuntimeError('invalid COFF string table: %s' % path)
+    sections, occupied = [], [(0, header_end), (symptr, strtab + string_size)]
+    for i in range(nsec):
+        _, _, _, rsize, rptr, reloc, lines, nreloc, nlines, flags = struct.unpack_from('<8sIIIIIIHHI', data, 20 + i * 40)
+        sections.append((rptr, rsize, flags))
+        for start, size in ((rptr, rsize), (reloc, nreloc * 10), (lines, nlines * 6)):
+            if not size:
+                continue
+            if start < header_end or start + size > len(data) or any(start < end and begin < start + size for begin, end in occupied):
+                raise RuntimeError('invalid or overlapping COFF section bounds: %s' % path)
+            occupied.append((start, start + size))
+    out, names, starts = {}, [], set()
     i = 0
     while i < nsym:
         e = symptr + i * 18
         raw = data[e:e + 8]
         if raw[:4] == b'\0\0\0\0':
             o = struct.unpack_from('<I', raw, 4)[0]
-            name = data[strtab + o:data.index(b'\0', strtab + o)].decode('latin-1')
+            if o < 4 or o >= string_size:
+                raise RuntimeError('invalid COFF symbol name: %s' % path)
+            name = data[strtab + o:data.index(b'\0', strtab + o, strtab + string_size)].decode('latin-1')
         else:
             name = raw.rstrip(b'\0').decode('latin-1')
         value, secno, typ, cls, aux = struct.unpack_from('<IhHBB', data, e + 8)
+        if i + aux >= nsym or secno > nsec:
+            raise RuntimeError('invalid COFF symbol metadata: %s' % path)
         names.append(name)
-        if secno > 0 and name[:2] in ('f_', 'u_'):
-            rptr, rsize = sections[secno - 1]
-            out[name] = (rptr + value, rptr + rsize)
+        if secno > 0 and (typ & 0x20 or name[:2] in ('f_', 'u_')):
+            rptr, rsize, flags = sections[secno - 1]
+            if value >= rsize or not flags & 0x20000000:
+                raise RuntimeError('function %s outside executable section in %s' % (name, path))
+            starts.add(rptr + value)
+            if name[:2] in ('f_', 'u_'):
+                if name in out:
+                    raise RuntimeError('ambiguous defined symbol %s in %s' % (name, path))
+                out[name] = (rptr + value, rptr + rsize)
         i += 1 + aux
+    # Include non-guest helpers: their bytes do not belong to the preceding entry.
+    starts = sorted(starts)
+    import bisect
+    for name, (at, end) in list(out.items()):
+        following = bisect.bisect_right(starts, at)
+        if following < len(starts):
+            end = min(end, starts[following])
+        out[name] = (at, end)
     return data, out, names
 
 
@@ -375,13 +420,17 @@ def fmt_caller(g, live, dead, compiled, const):
 
 
 def check(targets, gen, objdir, base=BASE):
-    funcs = sorted(int(m, 16) for m in re.findall(r'^void f_([0-9a-f]+)\(Ctx \*c\);', open(os.path.join(gen, 'funcs.h')).read(), re.M))
+    with open(os.path.join(gen, 'funcs.h')) as stream:
+        funcs = collections.Counter(int(m, 16) for m in re.findall(r'^void f_([0-9a-f]+)\(Ctx \*c\)(?: __attribute__\(\(noinline\)\))?;', stream.read(), re.M))
     fset = set(funcs)
     by_bucket = collections.defaultdict(list)
     results = {}
     for t in targets:
         if t not in fset:
             results[t] = dict(verdict='NOT AN ENTRY', bucket=None, callers=[], entry='-')
+            continue
+        if funcs[t] != 1:
+            results[t] = dict(verdict='AMBIGUOUS', bucket=None, callers=[], entry='duplicate declarations')
             continue
         by_bucket[(t - base) // BUCKET].append(t)
     for b, ts in sorted(by_bucket.items()):
@@ -405,8 +454,8 @@ def check(targets, gen, objdir, base=BASE):
             if sus and verdict == 'OK':
                 verdict = 'SUSPECT'
             if fn in syms:
-                at, _ = syms[fn]
-                n, why = hk_move(data, at)
+                at, end = syms[fn]
+                n, why = hk_move(data[at:end], 0)
                 entry = 'movable (%d bytes)' % n if n else 'REFUSED: %s (%s)' % (why, ' '.join('%02x' % x for x in data[at:at + 6]))
             else:
                 entry = 'no symbol %s in the object' % fn
@@ -423,11 +472,11 @@ def census_all(objdir):
         if not (n.startswith('c_') and n.endswith('.obj')):
             continue
         data, syms, _ = coff_functions(os.path.join(objdir, n))
-        for name, (at, _) in syms.items():
+        for name, (at, end) in syms.items():
             if not name.startswith('f_'):
                 continue
             total += 1
-            k, w = hk_move(data, at)
+            k, w = hk_move(data[at:end], 0)
             if not k:
                 bad += 1
                 why[w] += 1
@@ -468,7 +517,7 @@ def main():
     targets = sorted(set(targets))
     try:
         res = check(targets, gen, objdir, base) if targets else {}
-    except RuntimeError as error:
+    except (RuntimeError, OSError, ValueError, struct.error, IndexError) as error:
         print('hook_inline_check: %s' % error, file=sys.stderr)
         return 1
     bad = []
@@ -489,14 +538,16 @@ def main():
                 if res[t]['verdict'] in ('NOT AN ENTRY',):
                     continue
                 f.write('noinline 0x%x    # %s %s\n' % (t, res[t]['verdict'], labels.get(t, '')))
+    census_failed = False
     if 'census-all' in opts:
         total, nbad, why, first = census_all(objdir)
+        census_failed = total == 0 or nbad != 0
         print('entry census of %s: %d functions, %d refused' % (os.path.basename(objdir), total, nbad))
         for w, n in why.most_common():
             print('  %6d  %s' % (n, w))
         for line in first:
             print('  e.g. ' + line)
-    return 0
+    return int(bool(bad or refused or census_failed or (not targets and 'census-all' not in opts)))
 
 
 if __name__ == '__main__':

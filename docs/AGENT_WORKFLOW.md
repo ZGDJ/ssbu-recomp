@@ -2,7 +2,7 @@
 
 Start with [AGENTS.md](../AGENTS.md) and [ledger](../milestones/README.md); load only relevant requirements, ADRs and source. These conventions serve GPT-6 Astra and other agents; they do not configure an API/model.
 
-For the current rollback continuation checkpoint, see [rollback handoff](ROLLBACK_HANDOFF.md). Recheck the ledger and worktree because the handoff records a dated checkpoint.
+Read the short [rollback handoff](ROLLBACK_HANDOFF.md) for current continuation context, then the selected ledger entry and only its relevant validation/evidence sections. Recheck the worktree and ownership. Archived checkpoints and upstream guides are historical context, not current task instructions; do not load their full history by default. Update the current summary in place at handoff, putting detailed results in evidence rather than appending another chronological continuation.
 
 ## Adopted upstream and gates
 
@@ -10,17 +10,17 @@ Work from OpenSmash upstream `c7c874977ea7510c291ec8c278a58883a2f4e368` and [ADR
 
 ## Outcome-first work selection
 
-Optimize for the next falsifiable battle proof, not source-test counts or infrastructure completeness. Every implementation/investigation packet must name (a) a reproduced failure or concrete source invariant violation, or (b) the next gameplay gate it enables; name the smallest observation that would change the decision and the stopping condition. New tools must explain why existing probes cannot supply that observation. Do not add a general framework for a single experiment.
+Advance the next falsifiable battle proof. Useful progress is a verified fix, a causal finding, a narrowed divergence, or an enabled gameplay experiment. Every implementation/investigation packet names (a) a reproduced failure or concrete source invariant violation, or (b) the next gameplay gate it enables, plus the smallest observation that would change the decision and a stopping condition. Start with existing tools; when a new probe is needed, explain the missing observation and implement the smallest tool that supplies it.
 
-Prioritize the ledger's proof-first queue. M7 safety fixes remain mandatory; ready M1 identity/cache/hook and early M6.1 fixture work must not be starved behind expanding resource cleanup. Bounded research may run before a downstream capability gate is dependency-ready under an explicit investigation task; it cannot close that gate. Keep forward-determinism research separate from snapshot-resource acceptance.
+Prioritize the ledger's proof-first queue. M7 safety fixes remain mandatory; dependency-ready battle prerequisites and early M6.1 fixture work must not be starved behind expanding resource cleanup. Reuse completed M1 identity/cache/hook/baseline acceptance rather than reopening it without new evidence. Bounded research may run before a downstream capability gate is dependency-ready under an explicit investigation task; it cannot close that gate. Keep forward-determinism research separate from snapshot-resource acceptance.
 
-After each cohesive runtime change, perform its required validation, then attempt the named next proof or record the exact prerequisite preventing it. Do not automatically open another adjacent hardening packet. If a probe supplies no new discriminating evidence, change the hypothesis/observation or stop with the remaining uncertainty; do not stack instrumentation without a decision it can resolve. Successful retries never diagnose prior failures.
+After each cohesive runtime change, perform its required validation, then attempt the named next proof or record the exact prerequisite preventing it. Choose each probe to distinguish specific hypotheses; use its result to select the next experiment. Conclude the packet when its question is answered. If it supplies no discriminating evidence, revise the hypothesis/observation or report the remaining uncertainty. Select subsequent work against the proof-first queue. Preserve failed attempts and establish their causes separately; successful retries never diagnose prior failures.
 
 Defer optional diagnostic polish, unused configuration modes, public lobby improvements, generic transport abstractions and broader framework work unless they meet the same defect/proof test. A known optional unsafe mode may be deferred only with an explicit restriction and evidence that supported/default paths do not use it; otherwise its safety issue remains blocking. Deferral never means silently ignoring a reachable corruption bug or weakening acceptance.
 
 Validation is risk-based: keep mandatory fatal/trace/reference gates and frozen identity. For core capture/restore/resource changes, retain the full required control matrix. For an isolated diagnostic, use reviewed disabled/enabled controls plus affected source regressions unless shared-path changes justify broader coverage. State selected/omitted controls and why; do not rerun an unchanged matrix without new risk. These rules do not retroactively qualify failed or unrun SDK controls.
 
-Report progress as: gameplay outcome enabled, earliest remaining divergence/refusal, evidence limits, and next decisive experiment. Completed helper tests, effort totals and document counts are not completion percentages.
+Deliver the change or finding, decisive evidence, earliest remaining divergence/refusal, evidence limits, and next action. Explain which gameplay outcome the result advances. A negative experiment is useful when it eliminates a hypothesis or identifies a prerequisite; capability completion still requires its acceptance evidence. Helper-test counts and effort totals describe scope, not rollback correctness.
 
 ## Work loop
 
@@ -30,7 +30,19 @@ Report progress as: gameplay outcome enabled, earliest remaining divergence/refu
 4. Implement, run affected checks, inspect the diff, record evidence. Fix introduced regressions; keep baseline failures visible.
 5. Independently review high-risk continuation/state/scheduling work.
 6. Done requires acceptance evidence and completed dependencies. Negative research can finish an investigation, not a capability gate: create remediation and rewire dependencies.
-7. Continue authorized work or hand off exact blockers. Do not spin or invent recurring schedules.
+7. Record the brief retrospective described below, then continue with the next evidence-supported action within authorized scope, or hand off the exact blocker and an experiment or prerequisite that can resolve it. Recurring execution requires separate user instruction.
+
+## Improving the method
+
+At packet close, briefly record observed friction, supporting evidence and one proposed improvement, or `none`. Use existing timestamps/logs for observed build, trial and review waits when useful; distinguish elapsed wall time from summed parallel work. Label estimates as estimates and leave unavailable measurements unknown. A retrospective is a small learning note, not a requirement to find another task.
+
+Agents may implement bounded tooling and workflow improvements within existing authorization. State the repeated cost or concrete friction, the next proof it helps, expected benefit, and a check of both the improvement and preserved evidence quality. Reuse existing tools first; add timing automation only when a recurring decision needs data the current logs cannot supply. Use the existing task structure for substantial work; routine improvements need no separate process lane or mandatory ADR.
+
+Preserve correctness and evidence obligations: required state restoration and gameplay semantics, fatal/reference/trace-completeness gates, frozen candidate identity, retained failures, and acceptance dependencies. Execution mechanisms such as batching, control organization, low-risk review scope and document layout may evolve when their replacement preserves the required coverage, isolation and failure detection. Map each affected old obligation to its replacement and record remaining limitations; saved time alone is not acceptance. Current required controls remain in force until the replacement is validated and documented. Changes affecting high-risk state/scheduling evidence receive independent review; integration owns adoption and the final verdict. Architecture or substantial acceptance-method changes receive a durable decision record, with an ADR for architectural reconsideration.
+
+Early bounded profiling may inform an architecture decision before formal performance qualification. Name the decision, candidate, measured components and omitted work, using safe existing experiment paths. Fast incomplete replay does not prove feasibility; slow instrumented replay does not by itself disprove it. Retain M4.3 representative-scene and tail-latency acceptance.
+
+Keep validation principles and applicable gates easy to find. Move historical test detail to linked evidence when it obstructs navigation, preserving required procedures, coverage and evidence links. Organize documents when useful rather than pruning at every handoff.
 
 ## Packet template
 
@@ -39,18 +51,19 @@ Task/outcome: Mx.y / one sentence
 Proof/defect: named gameplay gate or concrete failure; next decisive observation
 Context: requirement, ADR, source symbols, relevant prior evidence
 Ownership: exact files/subsystem; other active writers
-Non-goals: deferred scope
+Scope: included work and explicit deferred work
 Approach: bounded experiment/implementation
 Acceptance: observable result + command/manual procedure
 Artifacts: code/tests + evidence + ledger update
 Split/stop: falsifiable stop condition; missing prerequisite, architecture decision, excessive scope
 Validation scope: required controls and justified omissions; reusable existing tools
-Handoff: results, uncertainty, next action
+Handoff: change/finding, decisive evidence, uncertainty, next action
+Retro: observed friction, supporting evidence, proposed improvement or none
 ```
 
 ## Shared-work integration checkpoint
 
-For stateful runtime changes, assign exclusive file ownership and agree on function signatures before parallel edits. The integration owner alone launches the game and owns shared caller wiring. A reviewer stays read-only until assigned a separate edit scope. Avoid concurrent builds while source writers are still changing files.
+For stateful runtime changes, assign exclusive file ownership and agree on function signatures before parallel edits. The integration owner alone launches the game and owns shared caller wiring. A reviewer stays read-only until assigned a separate edit scope. Freeze the candidate tree before building or testing it. Independent investigation and disjoint source tests may continue outside that candidate; one integration owner does not require one worker for all tasks. Separate worktrees do not inherit uncommitted changes, and shared-machine game trials remain serialized.
 
 Before building, each writer reports its frozen file list, interface contract, tests performed and remaining limitations. The reviewer acknowledges that exact candidate. Later source edits invalidate the corresponding runtime manifest: rebuild before claiming game evidence applies. Verify normalized source hashes against the manifest after the final trial. A helper test proves its policy, not the integrated runtime lifecycle.
 

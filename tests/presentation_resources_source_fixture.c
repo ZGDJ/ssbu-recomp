@@ -40,7 +40,8 @@ static ImportFn g_lpo_aa,g_lpo_pm,g_lpo_ra,g_lpo_fr,g_lpo_ms;
 static void lph_aa(Ctx *c,void *u){(void)c;(void)u;}static void lph_pm(Ctx *c,void *u){(void)c;(void)u;}static void lph_ra(Ctx *c,void *u){(void)c;(void)u;}static void lph_fr(Ctx *c,void *u){(void)c;(void)u;}static void lph_ms(Ctx *c,void *u){(void)c;(void)u;}
 static int hook_calls,hook_fail;
 static void original(Ctx *c){(void)c;}
-static int hook_install(uint64_t a,HookFn fn,void *u,ImportFn *orig){
+static void hook_require_presentation_sites(void) {} /* identity policy covered by critical_hook_source */
+static int hook_install_required(uint64_t a,HookFn fn,void *u,ImportFn *orig){
     static const uint64_t addresses[]={0x710392dce0ull,0x710392dc40ull,0x710392dd80ull,0x710392e590ull,0x710392e8a0ull};
     static HookFn functions[]={lph_aa,lph_pm,lph_ra,lph_fr,lph_ms};
     assert(g_lp&&g_lpm&&hook_calls<5&&a==addresses[hook_calls]&&fn==functions[hook_calls]&&!u);

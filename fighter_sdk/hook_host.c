@@ -26,7 +26,7 @@
  */
 typedef void (*HookFn)(Ctx *, void *);
 typedef struct HkSite { uint64_t addr; uint8_t *target, *mem, *head; uint8_t saved[8]; ImportFn tramp; int top, moved; } HkSite;
-typedef struct { HkSite *site; uint8_t *mem, *data; HookFn repl; void *user; ImportFn orig; ImportFn *orig_out; uint64_t addr; char *name; int state; } HkLayer;
+typedef struct { HkSite *site; uint8_t *mem, *data; HookFn repl; void *user; ImportFn orig; ImportFn *orig_out; uint64_t addr; char *name; int state, required; } HkLayer;
 enum { HK_FREE = 0, HK_PENDING, HK_ON, HK_OFF };
 #define HK_SITE_BYTES 80
 #define HK_LAYER_BYTES 48
@@ -293,6 +293,144 @@ static uint64_t hk_address_of(const char *name) {
     return e ? e->value : 0;
 }
 
+
+#include "critical_hook_identity.h"
+
+/* Runtime-critical hooks are deliberately separate from the best-effort mod API.
+ * Called only at startup/module-load boundaries, as required by hk_attach itself.
+ * Pending required names remain obligations after attachment: later loads must
+ * not introduce another definition. Module DLLs/sites survive guest unload. */
+static int g_hk_required;
+static void hk_required_fatal(const char *reason, uint64_t addr) {
+    fprintf(stderr, "CRITICAL HOOK FATAL: %s at %llx (%s)\n", reason,
+            (unsigned long long)addr, g_hk_error);
+    fflush(stderr);
+    abort();                    /* independent of optional fighter tracing */
+}
+static void hk_required_build(void) {
+    if (g_game_build != GAME_13_0_5) hk_required_fatal("requires 13.0.5", 0);
+}
+static int hk_required_entry(const FnEntry *table, int count, uint64_t addr) {
+    int matches = 0; ImportFn fn = NULL;
+    if (!table || count <= 0) return 0;
+    for (int i = 0; i < count; i++) if (table[i].addr == addr) { matches++; fn = table[i].fn; }
+    if (matches != 1 || !fn || function_at(addr) != fn) return 0;
+    HkSite *site = *hk_site_slot(addr);
+    return !site || site->target == (uint8_t *)(void *)fn;
+}
+static int hk_required_fingerprint(uint64_t addr, uint64_t expected) {
+    uint64_t hash = 0xcbf29ce484222325ull;
+    for (unsigned i = 0; i < 32; i++) hash = (hash ^ rd8(addr + i)) * 0x100000001b3ull;
+    return hash == expected;
+}
+static void hk_required_main(uint64_t addr, int site) {
+    hk_required_build();
+    for (size_t i = 0; i < sizeof g_hk_critical_main / sizeof g_hk_critical_main[0]; i++) {
+        if (g_hk_critical_main[i].address != addr || g_hk_critical_main[i].site != site) continue;
+        if (GA(g_hk_critical_main[i].reference) != addr ||
+            (!site && !hk_required_entry(fn_table, fn_table_count, addr)) ||
+            !hk_required_fingerprint(addr - (site ? 4 : 0), g_hk_critical_main[i].fingerprint))
+            hk_required_fatal("main identity mismatch", addr);
+        return;
+    }
+    hk_required_fatal("unlisted main identity", addr);
+}
+void hook_require_run_ahead_sites(uint64_t site) {
+    /* The diagnostic override used to select an unqualified checkpoint. */
+    if (site != 0x710374a0d4ull) hk_required_fatal("unvalidated run-ahead site", site);
+    for (size_t i = 0; i < sizeof g_hk_critical_main / sizeof g_hk_critical_main[0]; i++)
+        if (g_hk_critical_main[i].site && g_hk_critical_main[i].reference >= 0x7103740000ull &&
+            g_hk_critical_main[i].reference < 0x7103750000ull) hk_required_main(g_hk_critical_main[i].address, 1);
+}
+void hook_require_presentation_sites(void) {
+    static const uint64_t sites[] = {0x7103816944ull, 0x7103559e08ull, 0x71000a3fd8ull, 0x7103760cf8ull, 0x7100081980ull};
+    for (size_t i = 0; i < sizeof sites / sizeof sites[0]; i++) hk_required_main(GA(sites[i]), 1);
+}
+int hook_install_required(uint64_t addr, HookFn repl, void *user, ImportFn *orig) {
+    AcquireSRWLockExclusive(&g_hk_lock);
+    hk_required_main(addr, 0);
+    /* Frame/poll classification is part of the frame-end contract even without RA. */
+    if (addr == 0x71038701e0ull) hk_required_main(GA(0x7103747b7cull), 1);
+    int id = hk_layer_new();
+    if (!id || !repl || !orig) hk_required_fatal("invalid required hook or capacity", addr);
+    HkLayer *l = hk_layer(id);
+    l->repl = repl; l->user = user; l->orig_out = orig; l->required = 1;
+    if (!hk_attach(id, addr)) hk_required_fatal("required attachment refused", addr);
+    ReleaseSRWLockExclusive(&g_hk_lock);
+    return id;
+}
+/* Returns 0 only while the expected module is not loaded. Never use the export
+ * hash: it intentionally hides duplicate definitions for generic mod lookup. */
+static int hk_required_named_address(const char *name, uint64_t *addr) {
+    hk_required_build();
+    if (!name || strcmp(name, HK_CRITICAL_FIGHTER_NAME)) hk_required_fatal("unlisted required name", 0);
+    int registered = 0, loaded = 0, matches = 0; NroModule *owner = NULL;
+    for (int i = 0; i < dyn_sym_count; i++)
+        if (dyn_syms[i].defined && !strcmp(dyn_syms[i].name, name))
+            hk_required_fatal("required name defined by main", 0);
+    for (int j = 0; g_mods && j < g_mod_count; j++) {
+        NroModule *m = &g_mods[j];
+        int expected = !strcmp(m->info->name, "lua2cpp_common") && !m->plugin;
+        if (expected) registered++;
+        if (!m->loaded) continue;
+        if (expected) { loaded++; owner = m; }
+        for (int i = 0; i < m->sym_count; i++) {
+            if (!m->syms[i].defined || strcmp(m->syms[i].name, name)) continue;
+            if (!expected) hk_required_fatal("required name defined by wrong module", 0);
+            matches++;
+            if (m->syms[i].value != HK_CRITICAL_FIGHTER_OFFSET)
+                hk_required_fatal("required name offset mismatch", m->info->base + m->syms[i].value);
+        }
+    }
+    if (registered != 1) hk_required_fatal("required module missing or ambiguous", 0);
+    if (!loaded) return 0;
+    if (loaded != 1 || matches != 1) hk_required_fatal("required name missing or ambiguous", 0);
+    uint64_t build_id = 0xcbf29ce484222325ull;
+    for (unsigned i = 0; i < 20; i++) build_id = (build_id ^ owner->info->build_id[i]) * 0x100000001b3ull;
+    if (build_id != HK_CRITICAL_FIGHTER_BUILD_ID_HASH) hk_required_fatal("required module build id mismatch", 0);
+    *addr = owner->info->base + HK_CRITICAL_FIGHTER_OFFSET;
+    if (HK_CRITICAL_FIGHTER_OFFSET + 32 > owner->info->file_size ||
+        !hk_required_entry(owner->fns, owner->fn_count, *addr) ||
+        !hk_required_fingerprint(*addr, HK_CRITICAL_FIGHTER_HASH))
+        hk_required_fatal("required module entry or fingerprint mismatch", *addr);
+    return 1;
+}
+int hook_install_name_required(const char *module, const char *name, HookFn repl, void *user, ImportFn *orig) {
+    if (!module || strcmp(module, "lua2cpp_common")) hk_required_fatal("unlisted required module", 0);
+    if (!g_main_hash) ro_init_tables();
+    AcquireSRWLockExclusive(&g_hk_lock);
+    uint64_t addr = 0;
+    int ready = hk_required_named_address(name, &addr), id = hk_layer_new();
+    if (!id || !repl || !orig) hk_required_fatal("invalid required named hook or capacity", addr);
+    HkLayer *l = hk_layer(id);
+    l->repl = repl; l->user = user; l->orig_out = orig; l->required = 1;
+    l->name = _strdup(name);
+    if (!l->name) hk_required_fatal("required name allocation", addr);
+    g_hk_required++;
+    if (ready) { if (!hk_attach(id, addr)) hk_required_fatal("required named attachment refused", addr); }
+    else { l->state = HK_PENDING; g_hk_pending++; *orig = NULL; }
+    ReleaseSRWLockExclusive(&g_hk_lock);
+    return id;
+}
+
+/* Battle admission, not installation success, requires every named obligation
+ * attached. Rechecked on fight-on so a guest unload cannot leave stale readiness. */
+void hook_require_critical_ready(void) {
+    AcquireSRWLockExclusive(&g_hk_lock);
+    hk_required_build();
+    if (!g_hk_required) hk_required_fatal("required fighter hook not registered", 0);
+    int loaded = 0;
+    for (int i = 0; g_mods && i < g_mod_count; i++)
+        if (g_mods[i].loaded && !g_mods[i].plugin && !strcmp(g_mods[i].info->name, "lua2cpp_common")) loaded++;
+    if (loaded != 1) hk_required_fatal("required fighter module not ready", 0);
+    for (int id = 1; id <= g_hk_layers; id++) {
+        HkLayer *l = hk_layer(id);
+        if (l->required && l->name && (l->state != HK_ON || !l->orig || !l->orig_out || !*l->orig_out))
+            hk_required_fatal("required fighter hook not ready", l->addr);
+    }
+    ReleaseSRWLockExclusive(&g_hk_lock);
+}
+
 /* ---------------------------------------------------------------- the API (hook.h) */
 int hook_install(uint64_t addr, HookFn repl, void *user, ImportFn *orig) {
     AcquireSRWLockExclusive(&g_hk_lock);
@@ -322,7 +460,7 @@ int hook_install_name(const char *name, HookFn repl, void *user, ImportFn *orig)
 }
 int hook_remove(int id) {                              /* the function runs what it ran before this hook; the layer stays */
     HkLayer *l = hk_layer(id);
-    if (!l || l->state == HK_FREE) return 0;
+    if (!l || l->state == HK_FREE || l->required) return 0;
     if (l->state == HK_PENDING) { l->state = HK_FREE; return 1; }
     InterlockedExchange64((volatile LONG64 *)l->data, (LONG64)(uintptr_t)(void *)l->orig);
     l->state = HK_OFF;
@@ -346,10 +484,21 @@ uint64_t hook_address(const char *name) { return hk_address_of(name); }
 
 /* nnro.c, when a module has been loaded and bound: hooks that were waiting for one of its names */
 static void hook_module_loaded(NroModule *m) {
-    if (!g_hk_pending) return;
+    if (!g_hk_pending && !g_hk_required) return;
     AcquireSRWLockExclusive(&g_hk_lock);
     for (int id = 1; id <= g_hk_layers; id++) {
         HkLayer *l = hk_layer(id);
+        if (l->required && l->name) {
+            uint64_t addr = 0;
+            if (hk_required_named_address(l->name, &addr)) {
+                if (l->state == HK_PENDING) {
+                    if (!hk_attach(id, addr)) hk_required_fatal("deferred required attachment refused", addr);
+                    g_hk_pending--;
+                } else if (l->state != HK_ON || l->addr != addr)
+                    hk_required_fatal("required hook lifecycle mismatch", addr);
+            }
+            continue;
+        }
         if (l->state != HK_PENDING) continue;
         for (int i = 1; i < m->sym_count; i++) {
             if (!m->syms[i].defined || strcmp(m->syms[i].name, l->name) != 0) continue;

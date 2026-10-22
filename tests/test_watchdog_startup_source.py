@@ -52,7 +52,7 @@ class WatchdogStartupSourceTests(unittest.TestCase):
         source = (ROOT / "runtime/r1_state.c").read_text()
         init = function(source, "ra_init")
         self.assertLess(init.index("ra_watchdog_prepare()"), init.index("g_ra = 1"))
-        self.assertLess(init.index("ra_watchdog_prepare()"), init.index("hook_install("))
+        self.assertLess(init.index("ra_watchdog_prepare()"), init.index("hook_install_required("))
         hold = function(source, "ra_workers_hold")
         self.assertLess(hold.index("ra_workers_publish("), hold.index("ra_watchdog_signal()"))
         kick = function(source, "ra_kick2")

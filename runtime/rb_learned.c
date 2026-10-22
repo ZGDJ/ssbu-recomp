@@ -232,24 +232,135 @@ static LONG CALLBACK ls_veh(EXCEPTION_POINTERS *e) {
     ls_transition_leave();
     return result;
 }
+/* First setup only; process-lifetime host diagnostics, never rewound. Init on
+ * r1_init before holds. Producer owns the closed learned gate; release-publish
+ * seals immutable records. Root must drain AFTER all native/worker holds end.
+ * VirtualQuery is a later checked observation, not atomic with VirtualProtect.
+ * No logging, allocation, getenv or lock is added to the held recording path. */
+#define LS_OBS_RANGES 4096
+static int g_ls_obs_enabled, g_ls_obs_recording;
+static volatile LONG g_ls_obs_ready;
+typedef struct { uintptr_t a; size_t n, hit1, hit2; int accepted, invalid; } LsObsRange;
+typedef struct {
+    int present, checked; uintptr_t address; size_t bytes, id;
+    DWORD error, query_error, state, protect, type; uintptr_t region, allocation; size_t region_bytes;
+} LsObsFailure;
+static struct {
+    LsObsRange ranges[LS_OBS_RANGES];
+    int total, count; uintptr_t window1, window2; size_t bytes1, bytes2;
+    size_t excluded, attempted, succeeded, failed, bulk_failed;
+    LsObsFailure bulk, page;
+} g_ls_obs;
+void r1_protection_observation_init(void) {
+    DWORD error = GetLastError();
+    const char *e = getenv("SSBU_LS_PROTECTION_OBSERVE");
+    g_ls_obs_enabled = e && !strcmp(e, "1");
+    SetLastError(error);
+}
+static void ls_observation_begin(void) {
+    if (!g_ls_obs_enabled || g_ls_obs_ready) return;
+    g_ls_obs_recording = 1;
+    g_ls_obs.total = g_nr;
+    g_ls_obs.window1 = (uintptr_t)g_ls_storage_base; g_ls_obs.bytes1 = g_ls_n1 * PG;
+    g_ls_obs.window2 = WIN2; g_ls_obs.bytes2 = WN2;
+}
+static size_t ls_observation_overlap(uintptr_t a, size_t n, uintptr_t w, size_t z) {
+    if (n > UINTPTR_MAX - a || z > UINTPTR_MAX - w) return 0;
+    uintptr_t lo = a > w ? a : w, hi = a + n < w + z ? a + n : w + z;
+    return hi > lo ? hi - lo : 0;
+}
+static void ls_observation_range(uint8_t *a, size_t n, int accepted) {
+    if (!g_ls_obs_recording || g_ls_obs.count == LS_OBS_RANGES) return;
+    LsObsRange *r = &g_ls_obs.ranges[g_ls_obs.count++];
+    r->a = (uintptr_t)a; r->n = n; r->accepted = accepted;
+    r->invalid = !n || n > UINTPTR_MAX - r->a || (r->a & (PG - 1)) || (n & (PG - 1));
+    r->hit1 = ls_observation_overlap(r->a, n, g_ls_obs.window1, g_ls_obs.bytes1);
+    r->hit2 = ls_observation_overlap(r->a, n, g_ls_obs.window2, g_ls_obs.bytes2);
+}
+static void ls_observation_failure(LsObsFailure *f, size_t id, size_t bytes, DWORD error) {
+    if (f->present) return;
+    f->present = 1; f->address = (uintptr_t)ls_addr(id); f->id = id; f->bytes = bytes; f->error = error;
+    MEMORY_BASIC_INFORMATION m = {0};
+    SetLastError(0);
+    SIZE_T got = VirtualQuery((void *)f->address, &m, sizeof m);
+    f->query_error = got == sizeof m ? 0 : GetLastError();
+    uintptr_t base = (uintptr_t)m.BaseAddress;
+    f->checked = got == sizeof m && base <= f->address && m.RegionSize <= UINTPTR_MAX - base &&
+        f->address <= UINTPTR_MAX - PG && base + m.RegionSize >= f->address + PG;
+    if (f->checked) {
+        f->state = m.State; f->protect = m.Protect; f->type = m.Type;
+        f->region = base; f->region_bytes = m.RegionSize; f->allocation = (uintptr_t)m.AllocationBase;
+    }
+    SetLastError(error);
+}
+static int ls_observation_protect(size_t id, size_t bytes, DWORD *old, int bulk) {
+    int ok = VirtualProtect(ls_addr(id), bytes, PAGE_READONLY, old) != 0;
+    if (!g_ls_obs_recording) return ok;
+    DWORD error = GetLastError();
+    if (ok) g_ls_obs.succeeded += bytes / PG;
+    else {
+        if (bulk) g_ls_obs.bulk_failed++;
+        else g_ls_obs.failed++;
+        ls_observation_failure(bulk ? &g_ls_obs.bulk : &g_ls_obs.page, id, bytes, error);
+    }
+    SetLastError(error);
+    return ok;
+}
+static void ls_observation_end(void) {
+    if (!g_ls_obs_recording) return;
+    g_ls_obs_recording = 0;
+    InterlockedExchange(&g_ls_obs_ready, 1);
+}
+/* Integration interface: call from the serialized control thread outside ALL
+ * holds, including refusal exits. It only consumes sealed first-setup records.
+ * No caller is installed here; missing drain is rejected by the analyzer. */
+void r1_protection_observation_flush(void) {
+    DWORD error = GetLastError();
+    if (InterlockedCompareExchange(&g_ls_obs_ready, 2, 1) != 1) { SetLastError(error); return; }
+    LOG("LSOBS begin version=1 total=%d count=%d window1=%llu bytes1=%zu window2=%llu bytes2=%zu\n",
+        g_ls_obs.total, g_ls_obs.count, (unsigned long long)g_ls_obs.window1, g_ls_obs.bytes1,
+        (unsigned long long)g_ls_obs.window2, g_ls_obs.bytes2);
+    for (int i = 0; i < g_ls_obs.count; i++) {
+        LsObsRange *r = &g_ls_obs.ranges[i];
+        LOG("LSOBS range index=%d address=%llu bytes=%zu hit1=%zu hit2=%zu accepted=%d invalid=%d\n",
+            i, (unsigned long long)r->a, r->n, r->hit1, r->hit2, r->accepted, r->invalid);
+    }
+    for (int i = 0; i < 2; i++) {
+        LsObsFailure *f = i ? &g_ls_obs.page : &g_ls_obs.bulk;
+        LOG("LSOBS failure kind=%d present=%d address=%llu bytes=%zu id=%zu error=%lu checked=%d query_error=%lu state=%lu protect=%lu type=%lu region=%llu region_bytes=%zu allocation=%llu\n",
+            i, f->present, (unsigned long long)f->address, f->bytes, f->id, (unsigned long)f->error, f->checked,
+            (unsigned long)f->query_error, (unsigned long)f->state, (unsigned long)f->protect, (unsigned long)f->type,
+            (unsigned long long)f->region, f->region_bytes, (unsigned long long)f->allocation);
+    }
+    LOG("LSOBS end complete=%d truncated=%d excluded=%zu attempted=%zu succeeded=%zu failed=%zu bulk_failed=%zu\n",
+        g_ls_obs.count == g_ls_obs.total, g_ls_obs.count != g_ls_obs.total,
+        g_ls_obs.excluded, g_ls_obs.attempted, g_ls_obs.succeeded, g_ls_obs.failed, g_ls_obs.bulk_failed);
+    SetLastError(error);
+}
+/* LS_OBSERVATION_END */
 static void ls_protect_run(size_t a, size_t b) {         /* ids [a, b): read-only (one call; per page if the run is not one region) */
     if (a >= b) return;
     DWORD old;
-    if (VirtualProtect(ls_addr(a), (b - a) * PG, PAGE_READONLY, &old)) { for (size_t i = a; i < b; i++) g_ls_st[i] = 1; g_ls_prot_pages += (long long)(b - a); return; }
-    for (size_t i = a; i < b; i++) { if (VirtualProtect(ls_addr(i), PG, PAGE_READONLY, &old)) { g_ls_st[i] = 1; g_ls_prot_pages++; } else g_ls_protfail++; }
+    if (g_ls_obs_recording) g_ls_obs.attempted += b - a;
+    if (ls_observation_protect(a, (b - a) * PG, &old, 1)) { for (size_t i = a; i < b; i++) g_ls_st[i] = 1; g_ls_prot_pages += (long long)(b - a); return; }
+    for (size_t i = a; i < b; i++) { if (ls_observation_protect(i, PG, &old, 0)) { g_ls_st[i] = 1; g_ls_prot_pages++; } else g_ls_protfail++; }
 }
 static void ls_protect_all(void) {                       /* threads held: every committed RW simulation page of the windows (g_r = r1's ranges) */
     ls_transition_close(0);
+    ls_observation_begin();
     double t0 = now_ms(); long long before = g_ls_prot_pages;
     memset((void *)g_ls_st, 0, g_ls_np); g_ls_n = 0; g_ls_over = 0;
     for (int i = 0; i < g_nr; i++) {
         size_t id0, idn; uint8_t *a = g_r[i].a; size_t np = g_r[i].n / PG;
-        if (!ls_id(a, &id0) || !ls_id(a + (np - 1) * PG, &idn) || idn != id0 + np - 1) continue;      /* not (wholly) in one window */
+        int accepted = ls_id(a, &id0) && ls_id(a + (np - 1) * PG, &idn) && idn == id0 + np - 1;
+        ls_observation_range(a, g_r[i].n, accepted);
+        if (!accepted) continue;      /* not (wholly) in one window */
         size_t run = id0;
-        for (size_t id = id0; id < id0 + np; id++) if (ls_ns(id)) { ls_protect_run(run, id); run = id + 1; }
+        for (size_t id = id0; id < id0 + np; id++) if (ls_ns(id)) { if (g_ls_obs_recording) g_ls_obs.excluded++; ls_protect_run(run, id); run = id + 1; }
         ls_protect_run(run, id0 + np);
     }
     g_ls_prot_ms += now_ms() - t0; g_ls_bases++; g_ls_active = 1; g_ls_off_done = 0;
+    ls_observation_end();
     ls_transition_publish(1);
     LOG("r1: LS: %lld pages (%.1f MB) made read-only in %.1f ms; learned set emptied\n", g_ls_prot_pages - before, (g_ls_prot_pages - before) * (double)PG / 1048576.0, now_ms() - t0);
 }
@@ -675,12 +786,13 @@ static int lp_resources_prepare(void) {
     g_lp = pool; g_lpm = meta; g_lpb_p = keys; g_lpb_s = sites; return 1;
 }
 static void lp_hooks_install(void) {
+    hook_require_presentation_sites();
     /* Allocation hooks fall back to the original allocator until every hook is live. */
-    if (!hook_install(GA(0x710392dce0ull), lph_aa, NULL, &g_lpo_aa) ||
-        !hook_install(GA(0x710392dc40ull), lph_pm, NULL, &g_lpo_pm) ||
-        !hook_install(GA(0x710392dd80ull), lph_ra, NULL, &g_lpo_ra) ||
-        !hook_install(GA(0x710392e590ull), lph_fr, NULL, &g_lpo_fr) ||
-        !hook_install(GA(0x710392e8a0ull), lph_ms, NULL, &g_lpo_ms)) {
+    if (!hook_install_required(GA(0x710392dce0ull), lph_aa, NULL, &g_lpo_aa) ||
+        !hook_install_required(GA(0x710392dc40ull), lph_pm, NULL, &g_lpo_pm) ||
+        !hook_install_required(GA(0x710392dd80ull), lph_ra, NULL, &g_lpo_ra) ||
+        !hook_install_required(GA(0x710392e590ull), lph_fr, NULL, &g_lpo_fr) ||
+        !hook_install_required(GA(0x710392e8a0ull), lph_ms, NULL, &g_lpo_ms)) {
         LOG("r1: PRESENTATION HOOK FATAL: incomplete allocator interception\n"); abort();
     }
     InterlockedExchange(&g_lp_routing_ready, 1);
@@ -689,15 +801,8 @@ static void ls_init(void) {                              /* r1_init */
     if (g_lp || g_lpm || g_lpb_p || g_lpb_s) return;
     const char *fn = getenv("SSBU_LS_ROUTE");
     if (!ls_on() || (fn && (!*fn || !strcmp(fn, "0")))) return;
-    if (fn) {                                            /* (test) a site file instead of the built-in list */
-        FILE *f = fopen(fn, "r"); if (!f) { LOG("r1: LS: presentation pool: site file %s NOT found\n", fn); return; }
-        char ln[256]; unsigned long long a, b;
-        while (fgets(ln, sizeof ln, f) && g_lps_n < LP_SN) {
-            if (ln[0] == '#') continue;
-            int k = sscanf(ln, "%llx %llx", &a, &b); if (k < 1) continue;
-            g_lps[g_lps_n][0] = GA(a); g_lps[g_lps_n][1] = k > 1 ? GA(b) : 0; g_lps_n++;
-        }
-        fclose(f);
+    if (fn) {                                            /* custom routing has no pinned caller identity */
+        LOG("r1: PRESENTATION HOOK FATAL: custom SSBU_LS_ROUTE is not qualified\n"); abort();
     } else {                                             /* rt_big3 (R4 section 8.0 item 4: IDENTICAL on 12 matches, 11 fighters) */
         static const uint64_t big3[3][2] = {
             {0x7103816944ull, 0},                        /* the graphics 16 MB buffer */

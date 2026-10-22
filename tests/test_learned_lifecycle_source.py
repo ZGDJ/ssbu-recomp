@@ -18,8 +18,9 @@ from test_learned_transitions_source import function, GATE_NAMES
 class LearnedLifecycleTests(unittest.TestCase):
     def test_exact_lifecycle(self):
         source = (ROOT / 'runtime/rb_learned.c').read_text()
+        observer = source[source.index('/* First setup only;'):source.index('/* LS_OBSERVATION_END */')]
         names = GATE_NAMES + ['ls_addr', 'ls_id', 'ls_ns', 'ls_query_page', 'ls_page_absent', 'ls_open', 'ls_decommit_learn', 'ls_commit_track', 'ls_veh', 'ls_protect_run', 'ls_protect_all', 'ls_decay_run', 'ls_fight_off', 'ls_range']
-        fixture = (ROOT / 'tests/learned_lifecycle_source_fixture.c').read_text().replace('/* SOURCE */', '\n'.join(function(source, n) for n in names))
+        fixture = (ROOT / 'tests/learned_lifecycle_source_fixture.c').read_text().replace('/* SOURCE */', '\n'.join(((observer + '\n') if n == 'ls_protect_run' else '') + function(source, n) for n in names))
         directory = ROOT / 'artifacts/local/learned-lifecycle-source'
         directory.mkdir(parents=True, exist_ok=True)
         out = Path(tempfile.mkdtemp(prefix='run-', dir=directory))

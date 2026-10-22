@@ -2,7 +2,7 @@
 
 This is the **only task-status source of truth**. [FSD](../docs/FSD.md) owns requirements, [ADRs](../adr/README.md) decisions, [workflow](../docs/AGENT_WORKFLOW.md) execution and [evidence](../evidence/README.md) results.
 
-Target: Windows x64, Ultimate 13.0.5/full roster, competitive 1v1/no items. OpenSmash rollback exists but no battle capability is qualified by this fork. All game-backed work targets 13.0.5.
+Target: Windows x64, Ultimate 13.0.5/full roster, competitive 1v1/no items. OpenSmash rollback exists; M1.2 qualifies only its identified offline baseline, not rollback gameplay. All game-backed work targets 13.0.5.
 
 ## How to use
 
@@ -14,7 +14,7 @@ Run `python tools/check_project_docs.py` for calculated counts, effort totals an
 
 Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 is closed against the recorded hosted planning CI run.
 
-M0.10 and M7.9 are complete within their recorded scope; reuse them rather than rebuilding test infrastructure. Preserve the necessary safety chain **M7.8 -> M7.1 -> M7.3 -> M7.2**, but do not expand M7.8 with unrelated investigations. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
+M0.10 and M7.9 are complete within their recorded scope; reuse them rather than rebuilding test infrastructure. Preserve the necessary safety chain **M7.8 -> M7.1 -> M7.3 -> M7.2**, but do not expand M7.8 with unrelated investigations. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. Reuse completed M1 tooling; early M6.1 fixture planning remains independent work. Missing private inputs must not block source/planning packets that do not require them.
 
 M7 completion means source failure regressions and production wiring are verified, not that actual battle replay works. M2/M3/M4 qualify native behavior; M5 qualifies network outcomes. Do not retrofit gameplay evidence into synthetic passes. Sizes are re-estimated scope; M7.9 is shared test infrastructure, not duplicate implementation effort.
 
@@ -24,8 +24,8 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve the current runtime owner/candidate and failed controls. At the next handoff, separate finite M7.8 resource acceptance from M3.5 early forward-divergence research; do not forcibly transfer an active claim. Current RNG observation is relevant to M3.5, not new resource-hardening acceptance. SDK restore controls remain unrun until its failed baseline/reference is understood.
-2. In disjoint scope, prioritize M1.1 and M1.4, then M1.3/M1.2, plus the named early fixture subset of M6.1. Reuse existing manifests/build tooling; close missing acceptance, not build a parallel system. These prerequisites unblock formal M2-M4 proof.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 owns finite resource acceptance; M3.5 separately owns early forward-divergence research. SDK restore controls remain unrun until its failed baseline/reference is understood. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+2. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 3. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
 4. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
 5. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
@@ -119,7 +119,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-planning-ci.md
 - Acceptance: Fork-hosted Windows planning checks pass on the submitted revision; record run URL/conclusion. Game-free rollback runtime harness CI follows M7.9.
 - Owner: unassigned
-- Next: Keep planning CI passing; runtime harness CI and production regressions remain M7.9.
+- Next: Keep planning CI passing; reuse the completed M7.9 production regression harness. Do not infer hosted runtime CI results from local tests.
 - Blocker: none
 
 ### M0.6 - Audit GGPO and Smash-specific design
@@ -165,7 +165,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-22-battle-identity.md
 - Acceptance: Implement or adapt an OpenSmash build/input manifest recording version/runtime/compiler/content/config identities with synthetic tests and no private data.
 - Owner: root/M1.1 identity binding, 2026-10-22T13:33:45.980654+00:00
-- Next: Source tooling and 16 regressions are complete; M1.2 now records a consistent isolated rebuilt candidate and three complete identified matches. Preserve the original glslang/package refusal; continue M1.3.
+- Next: Reuse completed identity tooling for new candidates. Preserve the original glslang/package refusal; M1.2 and M1.3 acceptance is recorded separately.
 - Blocker: none
 
 ### M1.2 - Build and complete 13.0.5 offline matches
@@ -176,18 +176,18 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-22-offline-fixture.md
 - Acceptance: Actual 13.0.5 build and three complete fixture matches satisfy FSD-001 with identified artifacts.
 - Owner: root/M1.2 complete offline fixture, 2026-10-22T14:26:07.388668+00:00
-- Next: Reuse the identified isolated baseline for M1.3 critical-hook validation and dependency-qualified M2.1 simulation-step proof; do not infer rollback or deterministic replay from offline completion.
+- Next: Reuse the identified offline fixture for dependency-qualified M2.1 work after M7.1/M7.8. Keep its old candidate identity distinct from M1.3 and later builds; offline completion proves neither rollback nor deterministic replay.
 - Blocker: none for M1.2 acceptance. Setup resume and three consecutive identified complete matches (rebuilt-b/c/d) pass independent review and final frozen-input checks. Original build refusal and incomplete rebuilt-a remain preserved.
 
 ### M1.3 - Critical hook validation
-- Status: todo
+- Status: done
 - Depends: M1.1
 - Size: 3
 - Requirement: FSD-011
-- Evidence: none
+- Evidence: evidence/2026-10-22-critical-hooks.md
 - Acceptance: Validate OpenSmash critical rollback hooks fail closed for missing/ambiguous/version-mismatched identities with negative tests; actual hooks qualify in M2.1.
-- Owner: unassigned
-- Next: Inventory 13.0.5 hooks in runtime and lifter; do not assume old WindowSmash hook tooling exists.
+- Owner: root/M1.3 critical-hook validation, 2026-10-22T17:35:35.779579+00:00
+- Next: Source acceptance complete: 34 main entries, 17 caller sites and named common callback enforce pinned identity; O1/O3 refusal/acceptance tests, independent review and clean isolated host build pass. Loaded execution and authoritative step proof remain M2.1, blocked by M7.1/M7.8.
 - Blocker: none
 
 ### M1.4 - Invalidate stale compiled objects
@@ -198,7 +198,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-22-build-cache.md
 - Acceptance: Audit OpenSmash compiler cache identity; changed source/header/compiler/config invalidates outputs; unchanged reuse, failure retry and isolation verified by source tests.
 - Owner: root/M1.4 cache validation, 2026-10-22T14:08:18.782738+00:00
-- Next: Scoped cache acceptance is complete. M1.2 now records successful isolated setup and three complete matches after a preserved Windows cache-publication refusal and unchanged-code resume. Continue M1.3; no broad cache framework is needed.
+- Next: Reuse the scoped cache implementation. Preserve the Windows cache-publication refusal and unchanged-code resume; M1.2/M1.3 acceptance is complete. No broader cache framework is needed.
 - Blocker: none
 
 ### M1.5 - Local OpenSmash setup from supplied inputs
@@ -209,7 +209,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-local-setup.md
 - Acceptance: Supplied archive integrity checked, 13.0.5 build completes with recorded runtime/compiler identities and self-test outcomes, launcher configured and startup smoke observed. This convenience setup does not close M1.1/M1.2 or any rollback qualification.
 - Owner: unassigned
-- Next: Use Play SSBU.bat for local play; proceed with M1.1/M1.4 and formal M1.2 fixtures before capability claims.
+- Next: Use Play SSBU.bat for local play. Formal baseline and identity acceptance is recorded separately in completed M1.1/M1.4/M1.2; do not infer rollback qualification.
 - Blocker: none
 
 ### M1.6 - Import owner-provided completion save and probe navigation
@@ -220,7 +220,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-save-import-and-battle-probes.md
 - Acceptance: Archive paths/types validated, original save backed up, imported files hash-verified and bounded disposable-copy launch inspected; record actual navigation outcome without closing battle qualification.
 - Owner: unassigned
-- Next: Use the imported save for normal play; M1.7 fixes incomplete trial evidence before qualifying replay, and M3.1 must classify actual rewind memory differences.
+- Next: Reuse the imported save through disposable trial copies. M1.7 evidence tooling is complete; M3.1 still owns classification of actual rewind state differences.
 - Blocker: none
 
 ### M1.7 - Complete bounded battle evidence
@@ -231,7 +231,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-bounded-diagnostic-traces.md
 - Acceptance: Bounded probes record the explicitly requested diagnostic real-pass interval, complete fighter rows and matching pass-kind coverage before shutdown; reject short, missing, partial and post-summary unlabelled samples. Preserve raw failure logs and distinguish presentation counts from simulation ticks. Authoritative boundary/quiescence and state qualification remain M2/M3.
 - Owner: unassigned
-- Next: Reuse the sealed two-slot stream for controlled diagnostics. A 500-real-pass/two-replay comparison matches fighter fields, but tracked bytes still differ; M3.1 must separate immediate restore errors from replay-time writers. Keep M1.1/M1.4/M1.2 qualification prerequisites open.
+- Next: Reuse the sealed diagnostic stream. The historical 500-real-pass/two-replay comparison matches selected fighter fields, but tracked bytes differ; M3.1 must distinguish restore errors from replay-time writers. M1.1/M1.4/M1.2 are now complete without qualifying authoritative state.
 - Blocker: none
 
 ### M1.8 - Locate observed restore differences
@@ -242,7 +242,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-restore-localization.md
 - Acceptance: Instrument opt-in comparisons after byte copy and after continuation restoration, run isolated source-built battle probes, correlate complete observations with replay diagnostics and record limitations. Negative findings finish this investigation only; no authoritative state or restore-correctness gate closes.
 - Owner: unassigned
-- Next: Five loads matched all readable selected pages in both restore phases; replay still differed. Investigate resumed writers/host services and source-decommitted exclusions without treating touched-page equality as complete restoration. M7.9 is complete; M7.8 is the next priority source-hardening packet.
+- Next: Preserve the five loads matching readable selected pages while replay differed. M3.1 owns resumed writers/host services and decommitted exclusions; touched-page equality is not complete restoration. Select intervening work from the proof-first queue.
 - Blocker: none
 
 ### M1.9 - Attribute resumed writes after restore
@@ -253,22 +253,22 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-21-replay-writer-probe.md
 - Acceptance: Run an opt-in bounded writer probe after the restore checkpoint, retain an uninstrumented control, report exact observed writers and incomplete coverage. Neither harmlessness nor safe state exclusion may be inferred from writer identity alone. Negative results complete only this investigation.
 - Owner: root, 2026-10-21 UTC
-- Next: Eight post-restore writes observed; native store helpers obscure callers. Capture guarded caller/module identity next, retain disabled controls and avoid state exclusions. M7.8 remains source-hardening priority.
+- Next: Preserve the eight observed post-restore writes and native-helper attribution limits. Use these findings for M3.1 writer coverage, retaining disabled controls and avoiding unsupported state exclusions; follow the proof-first queue.
 - Blocker: none
 
 ## M2 - Controlled simulation
 
 
 ### M2.1 - Discover tick and continuation boundary
-- Status: todo
+- Status: blocked
 - Depends: M1.2, M1.3, M7.1, M7.8
 - Size: 8
 - Requirement: FSD-002, FSD-005
-- Evidence: none
+- Evidence: evidence/2026-10-22-critical-hooks.md
 - Acceptance: Trace version-specific tick boundary, worker/fiber invariants, VI buffer recycling, audio completion and GPU guest timestamps; remediate unsafe continuations before closing this capability gate.
 - Owner: unassigned
 - Next: Split trace/job inventory/quiescence proof; measure existing r1_ring/r1_state boundary rather than assume it is safe.
-- Blocker: none
+- Blocker: M1.2/M1.3 are done; M7.1 continuation/initial-base ordering and M7.8 protection coverage, reservation-release lifetime and MEM_KEEP disposition remain incomplete. Formal authoritative-step proof was not attempted.
 
 ### M2.2 - Two-player frame input tapes
 - Status: todo
@@ -339,14 +339,14 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Blocker: none
 
 ### M3.5 - Resolve observed early forward divergence
-- Status: todo
+- Status: in_progress
 - Depends: M1.7, M7.9
 - Size: 5
 - Requirement: FSD-004, FSD-013
-- Evidence: evidence/2026-10-22-rng-checkpoints.md
+- Evidence: evidence/2026-10-22-seed-coverage-integration.md
 - Acceptance: Attribute the preserved early RNG/reference discrepancy to a verified runtime writer/seed, scheduling or fixture cause; distinguish observed execution from candidate source/object identity. Validate a bounded correction or justified fixture treatment against preserved failures and original behavior without arbitrary reseeding, hash weakening or discarded references. Repeated uninstrumented same-tape runs agree for the chosen diagnostic interval; record coverage limits and unresolved cases. This does not close M3.2's 10,000-tick/state-coverage gate.
-- Owner: unassigned
-- Next: Own early RNG attribution previously recorded under M7.8; preserve the synchronous-checkpoint candidate. Use the smallest observation distinguishing direct-reset candidates f7101342830/f7101344cf0 and seed ownership. Stop each probe at its declared evidence question; if it adds no information, revise the hypothesis rather than stacking hooks. Resume required SDK controls only after reference failures are explained/addressed.
+- Owner: root integration; Astra source packets complete, 2026-10-22T20:01:16.237303+00:00
+- Next: Enabled selector observation changes input seed d0ea9452 to b77b0413 with the recorded global RNG recurrence, then matches construction owner and later reset. Historical f28f3988 remains reconstructed and unexplained. First complete a new same-candidate disabled repeat after adequate measured commit headroom: disabled-b refused base at 1544 MiB and failed mandatory replay. Then compare source-RNG entry state/selection records in a bounded reproduction of that retained failure fixture; identical fixture passing controls do not attribute the old failure. Preserve references, two-replay requirements, non-atomic limits and SDK qualification blockers; no reseeding or hash weakening.
 - Blocker: none
 
 ## M4 - Offline rollback proof
@@ -650,10 +650,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-rng-checkpoints.md
+- Evidence: evidence/2026-10-22-seed-coverage-integration.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root/resource closeout; reconciled at M1.1 handoff, 2026-10-22 UTC
-- Next: Close finite resource acceptance: protection=177 origin/coverage, successful reservation-release lifetime, and supported-candidate MEM_KEEP reachability/disposition. Complete SDK reuse/restore controls only after M3.5 resolves the retained forward-reference failure; newer observer passes do not substitute. RNG writer/seed attribution is owned by M3.5. Preserve the distinct M7.1 176-to-177 initial-base ordering finding and all validators. See docs/VALIDATION.md for trial-specific blockers; independent forward-only investigations need not wait for every resource case.
+- Owner: root integration; Astra source packets complete, 2026-10-22T20:01:16.237303+00:00
+- Next: Reviewed first-setup observation accounts for all 152 ranges and 477342 successful page attempts, with no skipped window intersections or protection failures. The external unaligned catch-table row is retained explicitly; original analyzer rejection is preserved. Historical protection=177, later setup coverage, reservation-release lifetime and supported MEM_KEEP disposition remain open. Select the earliest historical failing setup for a bounded observation before changing protection policy. The reservation delegation rejection produced no technical finding and is not evidence of architectural infeasibility. M7.1 separately owns 176-to-177 initial-base ordering; SDK reuse/restore controls remain subject to M3.5 and validation gates.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness
@@ -675,5 +675,5 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: evidence/2026-10-22-watchdog-ownership.md
 - Acceptance: Production hold inventory publication and release are serialized; stale timeouts cannot release newer holds. Deterministic concurrent ownership regressions, independent review and frozen isolated controls pass. No claim of observed game failure causality.
 - Owner: root, 2026-10-22
-- Next: Scoped ownership fix passes O1/O3 failure/concurrency tests, independent review, six standard isolated controls and a slow-H1 timeout control; strict replay and required observers pass. Continue M7.8 extras/rebase resources. Earlier game failure causality and full correctness remain unproven.
+- Next: Reuse the scoped ownership fix and its source/review/frozen-control evidence. Extras/rebase results are recorded separately; select remaining resource work from M7.8. Earlier game failure causality and full correctness remain unproven.
 - Blocker: none

@@ -57,4 +57,13 @@ extern MainLayout g_main;
 uint64_t ga(uint64_t addr_13_0_4);
 #define GA(a) ga(a)
 
+/* Required runtime hooks abort on identity/attachment failure. Named hooks may
+ * wait only until the registered expected module loads; orig storage must live
+ * for the process. Generic mod hook_install[_name] remains best-effort. */
+int hook_install_required(uint64_t addr, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
+int hook_install_name_required(const char *module, const char *name, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
+void hook_require_run_ahead_sites(uint64_t site);
+void hook_require_critical_ready(void);
+void hook_require_presentation_sites(void);
+
 #endif

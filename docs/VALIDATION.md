@@ -2,6 +2,18 @@
 
 Distinct proof levels: **source-only**, **game-backed local**, **cross-process/cross-machine/network**. One cannot close another. The adopted upstream is OpenSmash `c7c874977ea7510c291ec8c278a58883a2f4e368`; its source and historical run reports do not count as newly reproduced gameplay evidence.
 
+## Choose validation for the claim
+
+Start with the owning milestone acceptance and the changed risk, then read the applicable sections below. Source tests establish bounded implementation behavior; gameplay and network claims require their own identified trials. Preserve fatal-error detection, reference comparisons, complete required traces, candidate identity and failed evidence. Retain the full required control matrix for core capture/restore/resource changes; isolated diagnostics use the risk-based selection defined in the [workflow](AGENT_WORKFLOW.md).
+
+- [Baseline identity](#baseline-identity): bind evidence to the tested candidate and inputs.
+- [Source-hardening acceptance](#source-hardening-acceptance): establish production-connected failure behavior.
+- [Evidence and closure](#evidence-and-closure) and [oracles and failures](#oracles-and-failures): determine what a result proves and how failures are retained.
+- [Build prerequisites](#source-checks-and-build-prerequisites) and [trial-specific blockers](#which-remaining-defects-gate-which-experiments): select applicable setup and gate requirements.
+- [Automation entry points](#post-setup-automation-entry-points): consult the affected test descriptions and linked evidence for execution details.
+
+Validation methods can improve through the [workflow improvement procedure](AGENT_WORKFLOW.md#improving-the-method). A replacement must preserve required coverage, isolation and failure detection before replacing current controls; it does not retroactively qualify failed or unrun trials. The ledger remains the authority for current task status.
+
 ## Source checks and build prerequisites
 
 ### Identified scripted trials (M1.1)
@@ -13,6 +25,12 @@ This reuses `setup.tree_files`, `tree_digest`, `sha256_file` and the runtime pac
 Existing manifests retain their compiler declaration; new `make_release.py` packages also record the compiler executable hash. The setup compiler is explicitly **observed now**, not asserted to have built existing game DLLs. Source identity is strict, including added staged files. This is a prelaunch inventory, not loaded-DLL attestation, a freeze against concurrent writers, build-cache correctness, or complete state proof. Stop other writers before capture and keep the existing post-trial frozen checks. M1.4 owns stale-cache invalidation. Do not reinterpret old trials as having this record. Active Skyline plugin discovery is outside this base-game packet: when plugin inputs are present, explicitly disable Skyline or stop and extend coverage in a justified packet. On-demand NRO compilation is refused.
 
 `python -m unittest discover -s tests -p test_battle_identity.py -v` checks mutation sensitivity, incomplete/mismatched input refusal and launcher ordering without private data. The current real inventory-only smoke refused a deployed `ssbu_glslang.dll` mismatch; see [M1.1 evidence](../evidence/2026-10-22-battle-identity.md). Prepare a consistent isolated package before claiming an identified battle result. Do not replace normal-play files or relabel the earlier failures.
+
+### Critical hook identities (M1.3)
+
+The required-hook path uses the existing entry-hook engine with explicit 13.0.5, unique non-null entry, pinned code-window and named-module identity checks. It refuses installation failures independently of optional tracing. Deferred `lua2cpp_common` registration is an obligation, not attachment success: missing/duplicate/wrong-module definitions and failed attachment refuse on load, and run-ahead battle admission requires the named hooks ready. Generic mod hooks retain their separate best-effort API. See [critical-hook evidence](../evidence/2026-10-22-critical-hooks.md) for the inventory and exact tested limits.
+
+Run `python -m unittest discover -s tests -p test_critical_hook_source.py -v` for exact-source policy/caller fixtures and `python -m unittest discover -s tests -p test_hook_inline_check.py -v` for the existing offline caller/COFF checker. The latter now exits nonzero for missing/ambiguous/empty/unmovable targets. Its library verdict remains caller-coverage evidence; inspect the separate entry result. A generated-C/object census, pinned guest fingerprint or positive pending hook ID does not prove execution in the loaded DLL. Actual execution and authoritative simulation boundaries remain M2.1. The legacy address-alignment verifier is structural, not a replacement for pinned signature validation.
 
 ### Which remaining defects gate which experiments
 
@@ -162,3 +180,12 @@ Catch restore preparation and checked insertion are exercised by `python -m unit
 
 
 The [synchronous checkpoint observer](../evidence/2026-10-22-rng-checkpoints.md) additionally requires twelve unique phase/slot/frame count records alongside twelve raw early samples. Counts are cumulative and sampled separately; do not treat them as atomic writer attribution. Missing shutdown counter output is incomplete evidence, not zero. `python -m unittest discover -s tests -p test_hook_inline_check.py -v` checks census parser/CLI failures with synthetic inputs; retain successful disassembly/provenance for real-object claims.
+
+`python -m unittest discover -s tests -p test_protection_coverage_audit.py -v` couples the exact learned protection walk to its validator at O1/O3. It distinguishes complete coverage, recovered bulk failure and production-generated sticky protection=177 refusal. Its `MISSING_GUARD` boundary cases reproduce accepted incomplete coverage, not correctness: crossing-window collector reachability is conditional and the partial-page tail is manufactured. See [coverage audit](../evidence/2026-10-22-protection-coverage-audit.md). Actual range/window intersections and failed-page OS observations remain required to attribute the historical refusal.
+
+`SSBU_RNG_RESET_PROBE=1` observes the two direct-reset candidates with checked reads and fail-closed 13.0.5 identity/attachment. Run `python -m unittest discover -s tests -p 'test_rng_reset*.py' -v`; use `tests/rng_reset_analysis.py GAME_LOG --trace TRACE --reference REFERENCE --output NEW_JSON` after the separate fatal gate, adding `--disabled` for the silent control. Require all 24 reset checkpoints, paired bounded samples and twelve raw early observations with matching trace folds, plus strict 500-frame reference and mandatory replay. Complete records do not alone attribute a writer: unavailable/unstable owner or vector samples remain inconclusive, and whole-call association is not exact store attribution. See [reset observation evidence](../evidence/2026-10-22-rng-reset-attribution.md).
+
+
+`SSBU_LS_PROTECTION_OBSERVE=1` records only the first learned setup and drains after default H2 holds end. Require complete `tests/protection_observation_analysis.py R1_LOG` analysis: every range retained, checked geometry/intersections, accepted-page accounting and explicit bulk/page failure records. External unaligned nonintersecting ranges are reported, not removed; accepted/intersecting unaligned spans reject. Preserve the original rejected report when correcting analyzer classification. No first-setup result establishes later protection behavior or full coverage. See [combined evidence](../evidence/2026-10-22-seed-coverage-integration.md).
+
+`SSBU_RNG_SEED_ORIGIN_PROBE=1` additionally requires reset/early probes and observes the selector feeding owner seed. Use `tests/rng_seed_origin_analysis.py GAME_LOG --trace TRACE --reference REFERENCE --output NEW_JSON`, adding `--disabled` for the silent control. It checks record and strict reference/replay completeness, but root must separately enforce the experiment's exact two replay runs. Value/recurrence agreement is whole-call association, not an atomic executed-store oracle. Preserve failed cases and distinguish passing reference-seed observations from historical failing-seed attribution.

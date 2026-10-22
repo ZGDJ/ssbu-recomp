@@ -1,6 +1,8 @@
 <!-- Online play: how to turn it on and connect. -->
 # Play online (experimental)
 
+> Inherited upstream usage guide, not the rollback fork qualification status or product plan. Statements below about defaults, servers and versus describe the inherited guide and must be checked against the actual candidate before use. See [ADR-0008](../adr/0008-private-pair-sessions.md) for private rollback direction and the [ledger](../milestones/README.md) for accepted capabilities. Local Wireless and versus rollback are separate paths.
+
 This is the game's own Local Wireless mode, played over a network. You only open the game and use Local Wireless -> Create Room / Rooms List. No extra program is needed.
 
 1. Host: open "Local Wireless" and create a room.

@@ -34,7 +34,7 @@ class ProtectionResourcesTests(unittest.TestCase):
         init = extract(source[source.rindex('void r1_init(void)'):], 'r1_init')
         self.assertIn('if (g_prot) prot_prepare()', init)
         self.assertLess(init.index('prot_prepare()'), init.index('ra_init()'))
-        self.assertLess(init.index('prot_prepare()'), init.index('int id = hook_install('))
+        self.assertLess(init.index('prot_prepare()'), init.index('int id = hook_install_required('))
 
     def test_exact_helpers(self):
         source = (ROOT / 'runtime/r1_state.c').read_text()

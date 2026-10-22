@@ -1518,8 +1518,8 @@ static void rgp_wait_note(uint64_t lr, double dt) {      /* from ra_kick: a job-
 }
 static void rgp_init(void) {
     g_rgp_xa[0] = GA(0x71036676e0ull); g_rgp_xa[1] = GA(0x710375ea70ull); g_rgp_xa[2] = GA(0x710355b540ull); g_rgp_xa[3] = GA(0x7103569c70ull);
-    int a = hook_install(GA(0x7103724a80ull), rgp_tree, NULL, &g_rgp_orig_tree), b = hook_install(GA(0x7103548240ull), rgp_run, NULL, &g_rgp_orig_run), x = 0;
-    for (int i = 0; i < RGP_NX; i++) x += hook_install(g_rgp_xa[i], rgp_x, (void *)(intptr_t)i, &g_rgp_orig_x[i]);
+    int a = hook_install_required(GA(0x7103724a80ull), rgp_tree, NULL, &g_rgp_orig_tree), b = hook_install_required(GA(0x7103548240ull), rgp_run, NULL, &g_rgp_orig_run), x = 0;
+    for (int i = 0; i < RGP_NX; i++) x += hook_install_required(g_rgp_xa[i], rgp_x, (void *)(intptr_t)i, &g_rgp_orig_x[i]);
     LOG("r1: RB SIM profile 2: task tree walker %s, job runner %s, %d of %d single functions\n", a ? "hooked" : "FAILED", b ? "hooked" : "FAILED", x, RGP_NX);
 }
 static int rgp_cmp(const void *a, const void *b) { const RgpE *x = a, *y = b; double p = x->excl[0] + x->incl[0] * 1e-9, q = y->excl[0] + y->incl[0] * 1e-9; return p < q ? 1 : p > q ? -1 : 0; }
@@ -1648,7 +1648,7 @@ static void rgs_lite_init(void) {
     if (!g_rgs_lite && !g_rgs_prof) return;
     g_rgl_lo = GA(0x7103747270ull); g_rgl_hi = GA(0x710374e000ull);
     int ok = 0;
-    for (int i = 0; i < RGL_N; i++) if ((g_rgs_prof || (g_rgs_lite & g_rgl_h[i].grp)) && hook_install(GA(g_rgl_h[i].a), rgs_lite_hook, &g_rgl_h[i], &g_rgl_h[i].orig)) ok++;
+    for (int i = 0; i < RGL_N; i++) if ((g_rgs_prof || (g_rgs_lite & g_rgl_h[i].grp)) && hook_install_required(GA(g_rgl_h[i].a), rgs_lite_hook, &g_rgl_h[i], &g_rgl_h[i].orig)) ok++;
     LOG("r1: RB SIM logic-only re-run: skip mask %d, profile %d: %d hooks installed\n", g_rgs_lite, g_rgs_prof, ok);
 }
 static void rgs_lite_report(void) {

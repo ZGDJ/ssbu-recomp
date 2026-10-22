@@ -1213,6 +1213,8 @@ static void fh_seed_checkpoint(const char *phase, int slot, long long frame) {
            (long)InterlockedCompareExchange(&g_fh_seed_calls, 0, 0));
     fflush(stdout);
 }
+#include "rng_reset_probe.h"
+#include "rng_seed_origin_probe.h"
 static void fh_rng_observe(const char *phase, int slot, long long frame, uint64_t base, const uint32_t *words) {
     char line[768];
     int used = snprintf(line, sizeof line, "[rng-probe] phase=%s slot=%d frame=%lld thread=%lu base=%llx words=",
@@ -1220,6 +1222,8 @@ static void fh_rng_observe(const char *phase, int slot, long long frame, uint64_
     for (int i = 0; i < 45; i++) used += snprintf(line + used, sizeof line - (size_t)used, "%s%08x", i ? "," : "", words[i]);
     printf("%s\n", line); fflush(stdout);
     fh_seed_checkpoint(phase, slot, frame);
+    fh_reset_checkpoint(phase, slot, frame);
+    fh_origin_checkpoint(phase, slot, frame);
 }
 static void fh_seed_probe(Ctx *c, void *user) {
     (void)user;
@@ -1436,6 +1440,8 @@ static void fh_exit(void) {
 static void fight_hash_start(void) {
     const char *rng_probe = getenv("SSBU_RNG_EARLY_PROBE");
     const char *seed_probe = getenv("SSBU_RNG_SEED_PROBE");
+    const char *reset_probe = getenv("SSBU_RNG_RESET_PROBE");
+    const char *origin_probe = getenv("SSBU_RNG_SEED_ORIGIN_PROBE");
     g_fh_rng_probe = rng_probe && !strcmp(rng_probe, "1");
     const char *trace = getenv("SSBU_TRACE_FRAMES");
     g_fh_trace_enabled = trace != NULL;
@@ -1444,16 +1450,18 @@ static void fight_hash_start(void) {
     const char *h = getenv("SSBU_FIGHT_HASH"), *d = getenv("SSBU_DETERMINISTIC"), *o = getenv("SSBU_DET_OFF");
     g_fh_det = (d && d[0] && d[0] != '0') || rbn_handshake_wanted();      /* R3: a match between online players needs it (no extra logic frames; generators from the agreed seed) */
     g_fh_detoff = o ? atoi(o) : 0;
-    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled && !(seed_probe && !strcmp(seed_probe, "1"))) return;
+    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled && !(seed_probe && !strcmp(seed_probe, "1")) && !(reset_probe && !strcmp(reset_probe, "1")) && !(origin_probe && !strcmp(origin_probe, "1"))) return;
     if (h && h[0] && h[0] != '0') g_fh_out = strcmp(h, "1") == 0 ? stdout : fopen(h, "w");
     g_fh_trace_hash_enabled = g_fh_out != NULL;
     if (g_fh_trace_enabled && (!g_fh_out || g_fh_out == stdout)) bt_fail(&g_fh_trace, "dedicated_file_required");
-    int id = hook_install_name("_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", fh_hook, NULL, &g_fh_orig);
+    int id = hook_install_name_required("lua2cpp_common", "_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", fh_hook, NULL, &g_fh_orig);
     if (!id) fight_trace_fail("fighter_hook");
     printf("[fight] SSBU_FIGHT_HASH %s, SSBU_DETERMINISTIC %d (off mask %d); hook on the fighters' frame line: %s\n", g_fh_out ? "on" : "off", g_fh_det, g_fh_detoff, id ? "installed or waiting for lua2cpp_common" : hook_error());
     if (g_fh_det) printf("[fight] SSBU_DETERMINISTIC: hook on the frame end %llx (dropped refreshes -> extra logic frames): %s\n", (unsigned long long)GA(0x710386fc30ull),
-                         hook_install(GA(0x710386fc30ull), fh_frame_end, NULL, &g_fh_orig_frame_end) ? "installed" : hook_error());
+                         hook_install_required(GA(0x710386fc30ull), fh_frame_end, NULL, &g_fh_orig_frame_end) ? "installed" : hook_error());
     fh_seed_probe_start();
+    fh_reset_probe_start();
+    fh_origin_probe_start();
     atexit(fh_exit);
 }
 static void fd_exit(void) { printf("[debug] %lld commands executed, %lld frames skipped because a differential recording was open\n", g_fd_done, g_fd_waited); fflush(stdout); }
@@ -1478,7 +1486,7 @@ static void fighter_debug_start(void) {
         strcpy(d->arg[0], a0); strcpy(d->arg[1], a1); strcpy(d->arg[2], a2);
     }
     fclose(f);
-    int id = hook_install_name("_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", fd_hook, NULL, &g_fd_orig);
+    int id = hook_install_name_required("lua2cpp_common", "_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", fd_hook, NULL, &g_fd_orig);
     printf("[debug] SSBU_FIGHTER_DEBUG: %d commands read from %s (%d lines not understood); hook on the fighters' frame line: %s\n", g_fd_count, path, bad, id ? "installed or waiting for lua2cpp_common" : hook_error());
     atexit(fd_exit);
 }

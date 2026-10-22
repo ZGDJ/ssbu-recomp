@@ -61,7 +61,7 @@ void r1_register_heap(void) { r1_on(); }
 #include "native_hold.h"
 
 
-int hook_install(uint64_t addr, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
+int hook_install_required(uint64_t addr, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
 int guest_thread_info(int i, Ctx **c, const char **name, HANDLE *h);
 void os_r1_objs(void (*cb)(uint64_t key, int signaled, int count, uint64_t len, uint64_t thread, uint64_t stack, uint64_t stack_size));     /* os_threads.c */
 
@@ -2117,12 +2117,13 @@ int r1_ra_present_mode(void) {
     return 0;
 }
 uint64_t hook_address(const char *name);             /* fighter_sdk\hook_host.c (included by nnro.c) */
-int hook_install_name(const char *name, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
 static int ra_fight_on(void) {
     static uint64_t inst;
     if (!inst) inst = hook_address("_ZN3lib9SingletonIN3app14FighterManagerEE9instance_E");
     uint64_t mgr = inst ? rd64(inst) : 0, impl = mgr ? rd64(mgr) : 0;
-    return impl && rd8(impl + 0xd2);
+    int on = impl && rd8(impl + 0xd2);
+    if (on) hook_require_critical_ready();
+    return on;
 }
 /* a suspended thread is safe to keep held only if it is BLOCKED in a system call (its RIP right after a `syscall`
  * instruction): one that is suspended while it runs our import code may hold the os object table lock or an object's
@@ -2523,6 +2524,7 @@ static void ra_workers_hold(void) {
     ra_workers_publish(pending, count);
     ra_watchdog_signal();
 }
+static void r1_protection_observation_drain(void);
 static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170 (kick of a job group): points BEFORE the call */
     (void)user;
     uint64_t lr = c->x[30];
@@ -2534,7 +2536,12 @@ static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170
             if (tf > 0 && g_ff >= tf && g_ra_phase == 0) { tf = -1; Sleep((DWORD)tms); LOG("r1: TEST: a slow pass of %d ms at fight frame %lld, after the workers' hold (watchdog releases so far %lld)\n", tms, g_ff, g_ra_wd_fired); }
         }
     }
-    if (lr == g_ra_site) { ra_step(c); ra_workers_release(); ra_watchdog_signal(); g_ra_wd_pause = g_ra_wd_base; }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
+    if (lr == g_ra_site) {
+        ra_step(c); ra_workers_release(); ra_watchdog_signal(); g_ra_wd_pause = g_ra_wd_base;
+        /* Drain only after H2 worker release and no retained native capture holds.
+         * Refusal returns reach here too; retained holds defer to a later H2. */
+        r1_protection_observation_drain();
+    }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
     if ((g_ra_phase == 1 && g_ra_skip) || rgs_skip_now()) {      /* SSBU_RUNAHEAD_SKIP (experiment): job groups of the speculative pass whose result is thrown away (R2: SSBU_RB_SIM_SKIP, re-run passes but the last) */
         int prep = c->x[30] == GA(0x7103749b24ull) || c->x[30] == GA(0x710374b4f8ull) || c->x[30] == GA(0x710374b528ull) || c->x[30] == GA(0x710374b558ull), rend = c->x[30] == GA(0x710374c0d8ull);
         int logic = c->x[30] == GA(0x710374c398ull) || c->x[30] == GA(0x710374c5b8ull);
@@ -2605,6 +2612,10 @@ static void ra_report(void) {
     if (rgs_wanted()) rgs_report();
 }
 #include "r1_ring.c"                                  /* R2: the snapshot ring (rollback) */
+static void r1_protection_observation_drain(void) {
+    for (int i = 0; i < g_nth; i++) if (g_th[i].held) return;
+    if (!g_rg_kept) r1_protection_observation_flush();
+}
 #include "rb_rollback.c"                              /* R3: online rollback on the ring (SSBU_RB_NET) */
 static void ra_init(void) {
     if (!ra_watchdog_prepare()) r1_hold_fatal("watchdog startup");
@@ -2612,13 +2623,14 @@ static void ra_init(void) {
     if (getenv("SSBU_RUNAHEAD_PARK_MS")) g_ra_park_ms = atof(getenv("SSBU_RUNAHEAD_PARK_MS"));
     g_ra_site = GA(0x7103749b24ULL);
     if (getenv("SSBU_RUNAHEAD_SITE")) g_ra_site = strtoull(getenv("SSBU_RUNAHEAD_SITE"), NULL, 16);
+    hook_require_run_ahead_sites(g_ra_site);
     if (getenv("SSBU_RUNAHEAD_SKIP")) g_ra_skip = atoi(getenv("SSBU_RUNAHEAD_SKIP"));
     { const char *m = getenv("SSBU_RUNAHEAD_MODE"); g_ra_submit_mode = m && !strcmp(m, "submit"); }
-    if (g_ra_submit_mode) LOG("r1: RUN-AHEAD mode submit (no speculative pass; the submission step 71037f0590 is called at the save point): hook %s\n", hook_install(GA(0x71037f0590ull), ra_submit_hook, NULL, &g_orig_submit) ? "installed" : "FAILED");
+    if (g_ra_submit_mode) LOG("r1: RUN-AHEAD mode submit (no speculative pass; the submission step 71037f0590 is called at the save point): hook %s\n", hook_install_required(GA(0x71037f0590ull), ra_submit_hook, NULL, &g_orig_submit) ? "installed" : "FAILED");
     g_park_ms = 20;
     g_mark = mark_bind(); if (!g_mark) g_mark = ls_bind();      /* R4: no marked DLL: the learned set (rb_learned.c) */
-    int k = hook_install(GA(0x710354c720ull), ra_kick, NULL, &g_orig_kick) && hook_install(GA(0x7103549170ull), ra_kick2, NULL, &g_orig_kick2);
-    int l = hook_install_name("_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", ra_line, NULL, &g_orig_line);
+    int k = hook_install_required(GA(0x710354c720ull), ra_kick, NULL, &g_orig_kick) && hook_install_required(GA(0x7103549170ull), ra_kick2, NULL, &g_orig_kick2);
+    int l = hook_install_name_required("lua2cpp_common", "_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", ra_line, NULL, &g_orig_line);
     LOG("r1: RUN-AHEAD on (one frame): marks %s; save point: the return of the job-counter wait 710354c720 called at 710374c028 (preparation done, before the render kick): %s; frame line counter: %s; park %.1f ms\n",
         g_mark > 0 ? "yes" : "NO (run-ahead will stay off)", k ? "installed" : "FAILED", l ? "installed or waiting" : "FAILED", g_ra_park_ms);
     if (rgs_wanted() && rbg_on()) {                       /* R3: re-run passes but the last skip the preparation kicks + lists (49) and the presentation callees (127), proven exact in R2 round 3 */
@@ -2773,7 +2785,7 @@ void r1_pad(uint64_t *b, int *lx, int *ly, int *rx, int *ry) {
 }
 void r1_init(void) {
     if (!r1_on()) {
-        if (fight_trace_enabled() && !hook_install(GA(0x710386fc30ull), trace_only_frame_end, NULL, &g_orig_frame_end))
+        if (fight_trace_enabled() && !hook_install_required(GA(0x710386fc30ull), trace_only_frame_end, NULL, &g_orig_frame_end))
             fight_trace_fail("frame_end_hook");
         return;
     }
@@ -2785,9 +2797,10 @@ void r1_init(void) {
     g_prot = getenv("SSBU_R1_MARK_PROT") != NULL; if (g_prot) prot_prepare(); g_mcheck = getenv("SSBU_R1_MARK_CHECK") != NULL; if (g_mark && !mark_bind()) g_mark = 0;
     g_fast = getenv("SSBU_R1_FAST") != NULL; g_fcheck = getenv("SSBU_R1_FAST_CHECK") != NULL; if (getenv("SSBU_R1_LEARN")) g_learn = atoi(getenv("SSBU_R1_LEARN"));
     g_r1_keep_fibers = 1; g_wait_idle = getenv("SSBU_R1_WAIT_IDLE") != NULL; g_busy_log = g_wait_idle ? 3 : 0;
+    r1_protection_observation_init();                    /* before setup and all holds */
     ls_init();                                          /* R4: the presentation pool of the learned-set save */
     if (ra_wanted()) ra_init(); else g_ra = 0;
-    int id = hook_install(GA(0x710386fc30ull), r1_frame_end, NULL, &g_orig_frame_end);
+    int id = hook_install_required(GA(0x710386fc30ull), r1_frame_end, NULL, &g_orig_frame_end);
     if (!id) fight_trace_fail("frame_end_hook");
     LOG("r1: SSBU_R1 save at fight frame %d, %d frames, every %d frames, %d cycles; hook on the frame end 710386fc30: %s\n", g_n, g_k, g_p, g_c, id ? "installed" : "FAILED");
 }

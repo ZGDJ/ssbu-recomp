@@ -81,6 +81,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_sdk_memory_source.py -v
       - name: Bounded RNG initializer observation regressions
         run: python -m unittest discover -s tests -p test_rng_seed_probe_source.py -v
+      - name: Critical runtime hook identity regressions
+        run: python -m unittest discover -s tests -p test_critical_hook_source.py -v
       - name: Hook caller census parsing and failure regressions
         run: python -m unittest discover -s tests -p test_hook_inline_check.py -v
       - name: Capture preparation failure regressions

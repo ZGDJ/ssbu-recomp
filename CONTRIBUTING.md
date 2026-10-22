@@ -113,6 +113,8 @@ Before attaching a log, check that it contains nothing personal (user names in p
 
 ## Testing
 
+**Rollback fork qualification:** [VALIDATION.md](docs/VALIDATION.md) and the owning milestone define the required fixture and controls. The upstream test-mode advice below applies only when compatible with that acceptance. Natural-match baseline and terminal-outcome qualification must observe the required natural endings; a forced debug ending cannot substitute. Use normal speed where qualification requires it. Preserve fatal/reference/trace gates and candidate identity.
+
 Tests that start the game should use the test modes instead of real-time play: speed-up, movie skip, direct
 choice of fighters and stage, a fixed end after a number of fight frames. Frame-time measurements are the
 exception and run at normal speed.
