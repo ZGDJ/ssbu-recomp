@@ -2049,16 +2049,62 @@ static void ra_kick(Ctx *c, void *user) {            /* hook on FUN 0x710354c720
  * queued and not started, its event signaled and not consumed), which is what a save / restore needs. Cost: the kick's
  * jobs start after the submission instead of during it. A watchdog lets them go if H2 does not come within 200 ms. */
 static HANDLE g_ra_wh[16]; static int g_ra_nwh; static volatile LONG g_ra_wh_on; static HANDLE g_ra_wd_ev; static long long g_ra_wh_fail, g_ra_wd_fired;
-static void ra_workers_release(void) { if (InterlockedExchange(&g_ra_wh_on, 0)) for (int i = 0; i < g_ra_nwh; i++) r1_resume_owned(g_ra_wh[i]); g_ra_nwh = 0; }
+static SRWLOCK g_ra_wh_lock = SRWLOCK_INIT;
+static uint64_t g_ra_wh_generation;
+static uint64_t ra_workers_generation(void) {
+    AcquireSRWLockShared(&g_ra_wh_lock);
+    uint64_t generation = g_ra_wh_on ? g_ra_wh_generation : 0;
+    ReleaseSRWLockShared(&g_ra_wh_lock);
+    return generation;
+}
+static int ra_workers_release_generation(uint64_t expected) {
+    AcquireSRWLockExclusive(&g_ra_wh_lock);
+    if (!g_ra_wh_on || (expected && expected != g_ra_wh_generation)) {
+        ReleaseSRWLockExclusive(&g_ra_wh_lock);
+        return 0;
+    }
+    /* Keep the inventory owned until every suspension has been released. */
+    for (int i = 0; i < g_ra_nwh; i++) r1_resume_owned(g_ra_wh[i]);
+    g_ra_nwh = 0;
+    g_ra_wh_on = 0;
+    ReleaseSRWLockExclusive(&g_ra_wh_lock);
+    return 1;
+}
+static void ra_workers_release(void) { (void)ra_workers_release_generation(0); }
+static void ra_workers_publish(const HANDLE *pending, int count) {
+    AcquireSRWLockExclusive(&g_ra_wh_lock);
+    if (g_ra_wh_on || count < 0 || count > 16 || g_ra_wh_generation == UINT64_MAX)
+        r1_hold_fatal("overlapping or invalid task-worker hold publication");
+    ++g_ra_wh_generation;
+    for (int i = 0; i < count; i++) g_ra_wh[i] = pending[i];
+    g_ra_nwh = count;
+    g_ra_wh_on = 1;
+    ReleaseSRWLockExclusive(&g_ra_wh_lock);
+}
 static DWORD WINAPI ra_watchdog(void *p) {
     (void)p;
     for (;;) {
-        WaitForSingleObject(g_ra_wd_ev, INFINITE);
+        if (WaitForSingleObject(g_ra_wd_ev, INFINITE) != WAIT_OBJECT_0)
+            r1_hold_fatal("watchdog idle wait failed");
         double t0 = now_ms();
-        while (WaitForSingleObject(g_ra_wd_ev, 200) == WAIT_TIMEOUT) {
+        uint64_t timed_generation = ra_workers_generation();
+        for (;;) {
+            uint64_t generation = ra_workers_generation();
+            if (generation != timed_generation) {
+                timed_generation = generation;
+                t0 = now_ms();
+            }
+            DWORD wait = WaitForSingleObject(g_ra_wd_ev, 200);
+            if (wait == WAIT_OBJECT_0) {
+                /* H2 and the next H1 may coalesce into one auto-reset signal. */
+                if (!ra_workers_generation()) break;
+                t0 = now_ms();
+                continue;
+            }
+            if (wait != WAIT_TIMEOUT) r1_hold_fatal("watchdog timed wait failed");
             if (g_ra_wd_pause == 1) continue;            /* (the first, full save takes seconds; R3: the safe point's waits) */
             if (g_ra_wd_pause == 2 && now_ms() - t0 < 10000) continue;      /* R3 online match: a slow pass must not let them go (10 s: H2 never came) */
-            if (g_ra_wh_on) { g_ra_wd_fired++; ra_workers_release(); }
+            if (generation && ra_workers_release_generation(generation)) g_ra_wd_fired++;
             break;
         }
     }
@@ -2066,14 +2112,14 @@ static DWORD WINAPI ra_watchdog(void *p) {
 }
 static void ra_workers_hold(void) {
     Ctx *tc; const char *nm; HANDLE h; DWORD me = GetCurrentThreadId();
-    g_ra_nwh = 0;
-    for (int i = 0; guest_thread_info(i, &tc, &nm, &h) && g_ra_nwh < 16; i++) {
+    HANDLE pending[16]; int count = 0;
+    for (int i = 0; guest_thread_info(i, &tc, &nm, &h) && count < 16; i++) {
         if (!h || GetThreadId(h) == me || !nm || !strstr(nm, "TaskWorker")) continue;
         if (SuspendThread(h) == (DWORD)-1) continue;
         if (!th_blocked(h)) { r1_resume_owned(h); g_ra_wh_fail++; continue; }      /* busy: not held (that pass will likely skip its save) */
-        g_ra_wh[g_ra_nwh++] = h;
+        pending[count++] = h;
     }
-    InterlockedExchange(&g_ra_wh_on, 1);
+    ra_workers_publish(pending, count);
     SetEvent(g_ra_wd_ev);
 }
 static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170 (kick of a job group): points BEFORE the call */
@@ -2087,7 +2133,7 @@ static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170
             if (tf > 0 && g_ff >= tf && g_ra_phase == 0) { tf = -1; Sleep((DWORD)tms); LOG("r1: TEST: a slow pass of %d ms at fight frame %lld, after the workers' hold (watchdog releases so far %lld)\n", tms, g_ff, g_ra_wd_fired); }
         }
     }
-    if (lr == g_ra_site) { ra_step(c); if (g_ra_wh_on) { ra_workers_release(); SetEvent(g_ra_wd_ev); } g_ra_wd_pause = g_ra_wd_base; }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
+    if (lr == g_ra_site) { ra_step(c); ra_workers_release(); SetEvent(g_ra_wd_ev); g_ra_wd_pause = g_ra_wd_base; }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
     if ((g_ra_phase == 1 && g_ra_skip) || rgs_skip_now()) {      /* SSBU_RUNAHEAD_SKIP (experiment): job groups of the speculative pass whose result is thrown away (R2: SSBU_RB_SIM_SKIP, re-run passes but the last) */
         int prep = c->x[30] == GA(0x7103749b24ull) || c->x[30] == GA(0x710374b4f8ull) || c->x[30] == GA(0x710374b528ull) || c->x[30] == GA(0x710374b558ull), rend = c->x[30] == GA(0x710374c0d8ull);
         int logic = c->x[30] == GA(0x710374c398ull) || c->x[30] == GA(0x710374c5b8ull);

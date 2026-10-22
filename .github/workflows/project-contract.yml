@@ -69,3 +69,5 @@ jobs:
         run: python -m unittest discover -s tests -p test_range_inventory_source.py -v
       - name: Runtime trial fatal-log regressions
         run: python -m unittest discover -s tests -p test_runtime_trial.py -v
+      - name: Watchdog hold ownership regressions
+        run: python -m unittest discover -s tests -p test_watchdog_source.py -v

@@ -457,7 +457,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 
 ### M7.1 - Complete-or-refuse native restoration
 - Status: todo
-- Depends: M7.8
+- Depends: M7.8, M7.10
 - Size: 5
 - Requirement: FSD-002, FSD-005
 - Evidence: none
@@ -533,13 +533,13 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Blocker: none
 
 ### M7.8 - Fail safely on snapshot resource errors
-- Status: in_progress
+- Status: todo
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
 - Evidence: evidence/2026-10-22-range-inventory.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root range-inventory continuation, 2026-10-22T03:30:22Z
+- Owner: unassigned
 - Next: Range/heap/exclusion inventory bounds and recollection ownership now source-tested O1/O3, independently reviewed and integrated across six control types. Preserve the fatal-bearing zero-exit late control; strengthened fatal-log gate rejects it and a fresh retry passes. Repair the separately reproduced watchdog ownership race next, then extras/rebase/native inventory resource boundaries. Copy-worker startup/dispatch/completion hardening passes 134 O1/O3 OS-boundary cases, independent review and six isolated control types (500 real frames plus replay; both restore audits complete). Preserve matrix A post-commit native-hold fail-stop despite passing sealed telemetry and later retry. Exact-source watchdog interleavings reproduce lost hold ownership, without proving game causality. Continue range/heap/exclusion inventory completeness and extras/rebase/initial-base resource cleanup; historical fiber inventory and diagnostics remain. Full writer quiescence, authoritative state equality and online qualification stay open. See linked evidence for prior capture-pool work and retained failures.
 - Blocker: none
 
@@ -552,4 +552,15 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Acceptance: Provide game-free Windows test target with injectable OS/time/allocator boundaries calling actual runtime policy; demonstrate deterministic failing-case reproduction for at least one audited defect without treating it fixed. Existing rb_test runs; hook regression runner into source CI. No duplicated toy implementation as proof.
 - Owner: root, 2026-10-21
 - Next: Use production seams for dependency-ready M7 fixes; M7.4 remains explicitly reproduced and unfixed. Whole-capture failure handling and progress timeouts remain separate gates.
+- Blocker: none
+
+### M7.10 - Serialize watchdog hold ownership
+- Status: done
+- Depends: M7.9
+- Size: 3
+- Requirement: FSD-005, FSD-011
+- Evidence: evidence/2026-10-22-watchdog-ownership.md
+- Acceptance: Production hold inventory publication and release are serialized; stale timeouts cannot release newer holds. Deterministic concurrent ownership regressions, independent review and frozen isolated controls pass. No claim of observed game failure causality.
+- Owner: root, 2026-10-22
+- Next: Scoped ownership fix passes O1/O3 failure/concurrency tests, independent review, six standard isolated controls and a slow-H1 timeout control; strict replay and required observers pass. Continue M7.8 extras/rebase resources. Earlier game failure causality and full correctness remain unproven.
 - Blocker: none
