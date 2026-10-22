@@ -79,4 +79,3 @@ try {
         Remove-Item -LiteralPath $full -Recurse -Force
     }
 }
-

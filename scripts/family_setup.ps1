@@ -40,6 +40,9 @@ try {
         (Test-Path -LiteralPath (Join-Path $repo 'artifacts\local\family-update\pending.json')))) {
         throw 'Installation or update is unfinished. Resume that operation first; select the optional save ZIP there if setup needs to retry its save step.'
     }
+    if (-not $SaveArchive -and (Test-Path -LiteralPath (Join-Path $repo 'artifacts\local\save-backups\pending.json'))) {
+        throw 'A save import was interrupted. Resume setup with that save ZIP selected, or send a support ZIP for recovery. Keep the save backups in place.'
+    }
     if (-not $Update -and -not $ImportSave -and -not $Archive) {
         if ($NonInteractive) { throw 'Choose your prepared game ZIP in the setup wizard.' }
         $picker = New-Object System.Windows.Forms.OpenFileDialog

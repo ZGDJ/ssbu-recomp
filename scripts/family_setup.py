@@ -248,6 +248,8 @@ def main():
         config.write_text('online_mode = off\nrollback = off\n', encoding='utf-8')
     print('Building OpenSmash. The first installation can take an hour or longer. Keep this window open.', flush=True)
     subprocess.run(install_command(repo, dump, dlc), cwd=repo, check=True)
+    # Also written here for upgrades launched by an older PowerShell wrapper.
+    (repo / 'build/family-installed.json').write_text('{"installed":true}', encoding='utf-8')
     print('Installation complete. Use the OpenSmash Play shortcut. First launch prepares shaders; allow several minutes.', flush=True)
 
 
