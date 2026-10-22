@@ -1334,6 +1334,53 @@ static void hs_exclude_all(void) {
     }
     LOG("r1: host stacks: %d threads and the host fibers looked at; %lld pages in %lld ranges inside the guest windows left out\n", nth, g_hs_pages, g_hs_ranges);
 }
+/* Module exports are collected before publishing any map pointer. Module
+ * lifetime still relies on the existing hold scope, not a loader-lock proof. */
+typedef struct { uint8_t **m1, **m2; uint64_t *lo1, *n1, *n2; char name[MAX_MODULE_NAME32 + 1]; } MarkModule;
+static MarkModule g_mark_modules[1024];
+static int g_mark_module_count, g_mark_modules_prepared;
+static void mark_modules_close(HANDLE sn) {
+    if (!CloseHandle(sn)) { LOG("r1: MARK MODULE FATAL: snapshot handle release failed\n"); abort(); }
+}
+static int mark_modules_prepare(void) {
+    g_mark_module_count = g_mark_modules_prepared = 0;
+    HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (sn == INVALID_HANDLE_VALUE) return 0;
+    MODULEENTRY32 me; me.dwSize = sizeof me;
+    for (BOOL ok = Module32First(sn, &me); ok; ok = Module32Next(sn, &me)) {
+        uint8_t **m1 = (uint8_t **)GetProcAddress(me.hModule, "r1_m1"), **m2 = (uint8_t **)GetProcAddress(me.hModule, "r1_m2");
+        uint64_t *lo1 = (uint64_t *)GetProcAddress(me.hModule, "r1_lo1"), *n1 = (uint64_t *)GetProcAddress(me.hModule, "r1_n1"), *n2 = (uint64_t *)GetProcAddress(me.hModule, "r1_n2");
+        if (!m1 && !m2 && !lo1 && !n1 && !n2) continue;
+        if (!m1 || !m2 || !lo1 || !n1 || !n2 || g_mark_module_count == 1024) goto failed;
+        MarkModule *target = &g_mark_modules[g_mark_module_count++];
+        target->m1 = m1; target->m2 = m2; target->lo1 = lo1; target->n1 = n1; target->n2 = n2;
+        snprintf(target->name, sizeof target->name, "%s", me.szModule);
+    }
+    DWORD end_error = GetLastError();                  /* preserve before closing the handle */
+    mark_modules_close(sn);
+    if (end_error != ERROR_NO_MORE_FILES) goto invalid;
+    g_mark_modules_prepared = 1; return 1;
+failed:
+    mark_modules_close(sn);
+invalid:
+    g_mark_module_count = g_mark_modules_prepared = 0; return 0;
+}
+static int mark_modules_publish(uint8_t *m1, uint8_t *m2, int only_changed) {
+    if (!g_mark_modules_prepared || g_mark_module_count < 0 || g_mark_module_count > 1024) {
+        LOG("r1: MARK MODULE FATAL: publication without complete preparation\n"); abort();
+    }
+    int count = 0;
+    for (int i = 0; i < g_mark_module_count; i++) {
+        MarkModule *target = &g_mark_modules[i];
+        if (only_changed && *target->m1 == m1 && *target->m2 == m2 &&
+            *target->lo1 == (uint64_t)(uintptr_t)g_win1 && *target->n1 == g_wn1 && *target->n2 == WN2) continue;
+        *target->m1 = m1; *target->m2 = m2; *target->lo1 = (uint64_t)(uintptr_t)g_win1;
+        MemoryBarrier(); *target->n2 = WN2; *target->n1 = g_wn1;
+        count++; LOG("r1: MARK maps set in %s\n", target->name);
+    }
+    g_mark_modules_prepared = 0;
+    return count;
+}
 /* (hs13) a mark_setup that could not finish: everything it made is given back, no mark map is set (marks stay off) */
 static void mark_vfree(void *p, size_t n, DWORD kind) {
     if (p && !VirtualFree(p, n, kind)) {
@@ -1342,6 +1389,7 @@ static void mark_vfree(void *p, size_t n, DWORD kind) {
     }
 }
 static void mark_undo(void) {
+    g_mark_module_count = g_mark_modules_prepared = 0;
     if (g_sh1) mark_vfree(g_sh1, 0, MEM_RELEASE);
     if (g_sh2) mark_vfree(g_sh2, 0, MEM_RELEASE);
     free(g_sh1c); free(g_sh2c); free(g_dc); free(g_ns1); free(g_ns2);
@@ -1352,6 +1400,7 @@ static void mark_undo(void) {
 /* after the first (full) save: shadows, extras, maps on. 1 = done; 0 = out of memory (mark_undo done: no marks) */
 static void ls_after_setup(void);                      /* R4 (rb_learned.c) */
 static int mark_setup(void) {
+    if (!mark_modules_prepare()) { LOG("r1: MARK setup refused: incomplete module export inventory\n"); return 0; }
     size_t big = 0; uint8_t *base = NULL;
     for (int i = 0; i < g_nheap; i++) {
         MEMORY_BASIC_INFORMATION m; uint8_t *p = g_heap_base[i];
@@ -1407,20 +1456,7 @@ static int mark_setup(void) {
     if (!m1 || !m2) { if (m1) mark_vfree(m1, 0, MEM_RELEASE); if (m2) mark_vfree(m2, 0, MEM_RELEASE); LOG("r1: MARK setup: allocation of the mark maps FAILED: marks OFF\n"); mark_undo(); return 0; }
     *pm1 = m1; *pm2 = m2; *plo1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); *pn2 = WN2; *pn1 = g_wn1;
     r1_m1 = m1; r1_m2 = m2; r1_lo1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); r1_n2 = WN2; r1_n1 = g_wn1;
-    {   int nmod = 0; char names[1500]; int o = 0;
-        HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-        MODULEENTRY32 me; me.dwSize = sizeof me;
-        for (BOOL ok = sn != INVALID_HANDLE_VALUE && Module32First(sn, &me); ok; ok = Module32Next(sn, &me)) {
-            uint8_t **a1 = (uint8_t **)GetProcAddress(me.hModule, "r1_m1"), **a2 = (uint8_t **)GetProcAddress(me.hModule, "r1_m2");
-            uint64_t *l1 = (uint64_t *)GetProcAddress(me.hModule, "r1_lo1"), *n1 = (uint64_t *)GetProcAddress(me.hModule, "r1_n1"), *n2 = (uint64_t *)GetProcAddress(me.hModule, "r1_n2");
-            if (!a1 || !a2 || !l1 || !n1 || !n2) continue;
-            *a1 = m1; *a2 = m2; *l1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); *n2 = WN2; *n1 = g_wn1;
-            nmod++; if (o < 1400) o += snprintf(names + o, sizeof names - o, " %s", me.szModule);
-        }
-        if (sn != INVALID_HANDLE_VALUE) CloseHandle(sn);
-        names[o] = 0;
-        LOG("r1: MARK maps set in the exe and %d modules:%s\n", nmod, names);
-    }
+    (void)mark_modules_publish(m1, m2, 0);
     blk1_init();
     for (int i = 0; i < g_nx; i++) if (g_x[i].n >= 65536) LOG("r1:   extra %s + %.0f KB\n", where(g_x[i].a), g_x[i].n / 1024.0);
     LOG("r1: MARK on: window 1 = region at %p, %.1f GB (map %.1f MB), window 2 = %llx + %.0f GB (map %.1f MB); shadow filled with %.1f MB; extras %d ranges %.1f MB copied whole each time\n",

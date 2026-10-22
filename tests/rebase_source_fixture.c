@@ -65,7 +65,9 @@ static int ra_hold_quiet(double ms){(void)ms;return 1;}static int fibers_save(vo
 static size_t nvn_r1_cb_save(void){return 0;}
 static int rg_meta_prepare(RgSlot *s,SlotMetaPlan *p){(void)s;p->borrowed=1;return 1;}
 static void rg_meta_capture(RgSlot *s,Ctx *c,SlotMetaPlan *p){(void)s;(void)c;assert(p->borrowed);meta_calls++;}
-static int host_failed,host_scan_failure;
+static int host_failed,host_scan_failure,module_allowed=1,module_publishes;
+static int mark_modules_prepare(void){return module_allowed;}
+static int mark_modules_publish(uint8_t *a,uint8_t *b,int changed){(void)a;(void)b;assert(changed);module_publishes++;return 0;}
 static int host_inventory_valid(void){return !host_failed;}
 static void unpark(void){unpark_calls++;}static void hs_exclude_all(void){if(host_scan_failure)host_failed=1;}
 static void rg_noop(uint32_t id,int w,size_t j){(void)id;(void)w;(void)j;}
@@ -100,7 +102,7 @@ static void ls_rebase(void){}static int ls_validate_tracking(void){return 1;}
 static void dispose(void){for(int i=0;i<allocation_count;i++)free(allocations[i].p);allocation_count=0;}
 static void initialize(void){
     dispose();enabled=0;g_rg_nfree=0;g_rg_bump=4;g_rg_n1=3;g_rg_n2=2;alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=0;
-    host_failed=host_scan_failure=0;unpark_calls=release_calls=meta_calls=copies=decommits=0;memset(pool_puts,0,sizeof pool_puts);
+    module_allowed=1;module_publishes=0;host_failed=host_scan_failure=0;unpark_calls=release_calls=meta_calls=copies=decommits=0;memset(pool_puts,0,sizeof pool_puts);
     memset(g_x,0,sizeof g_x);memset(slots,0,sizeof slots);g_rg_nomem=0;g_rg_count=3;g_rg_caps=0;g_rg_nx=g_nx=1;g_xbytes=PG;
     memset(guest1,0x21,sizeof guest1);memset(guest2,0x32,sizeof guest2);memset(extras,0x43,sizeof extras);
     memset(shadow1,0x54,sizeof shadow1);memset(shadow2,0x65,sizeof shadow2);memset(cm1,1,sizeof cm1);memset(cm2,1,sizeof cm2);
@@ -177,5 +179,6 @@ int main(int argc,char **argv){
     extra_count=2;for(int failure=1;failure<=2;failure++){initialize();fail_commit=failure;cm1[0]=cm2[0]=0;Snapshot s=snapshot();assert(!r1_ring_rebase(42,&c));refusal(&s);assert(cm1[0]==(failure==2)&&!cm2[0]);}
     initialize();host_scan_failure=1;Snapshot old=snapshot();assert(!r1_ring_rebase(42,&c));assert(g_rg_nomem==3);g_rg_nomem=2;refusal(&old);assert(!alloc_calls&&!commit_calls&&host_failed);
     host_scan_failure=0;g_rg_nomem=3;unpark_calls=release_calls=0;assert(!r1_ring_rebase(43,&c));assert(g_rg_nomem==3);g_rg_nomem=2;refusal(&old);
+    initialize();module_allowed=0;old=snapshot();assert(!r1_ring_rebase(42,&c));refusal(&old);assert(!alloc_calls&&!commit_calls&&!module_publishes);
     malformed(&c);repeat_success(&c);dispose();puts("rebase_source_test: PASS");return 0;
 }

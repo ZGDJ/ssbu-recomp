@@ -63,7 +63,10 @@ static SIZE_T WINAPI fixture_query(LPCVOID p,PMEMORY_BASIC_INFORMATION m,SIZE_T 
     (void)n;if(p!=guest1)return 0;memset(m,0,sizeof *m);m->BaseAddress=m->AllocationBase=guest1;m->RegionSize=sizeof guest1;return sizeof *m;
 }
 static HANDLE WINAPI fixture_snapshot(DWORD flags,DWORD pid){(void)flags;(void)pid;return INVALID_HANDLE_VALUE;}
-static int host_failed,host_scan_failure;
+static int host_failed,host_scan_failure,module_allowed=1,module_prepares,module_publishes;
+static int g_mark_module_count,g_mark_modules_prepared;
+static int mark_modules_prepare(void){module_prepares++;g_mark_modules_prepared=module_allowed;g_mark_module_count=module_allowed;return module_allowed;}
+static int mark_modules_publish(uint8_t *a,uint8_t *b,int changed){assert(!changed&&a==published1&&b==published2&&g_mark_modules_prepared);module_publishes++;g_mark_modules_prepared=0;return 1;}
 static int host_inventory_valid(void){return !host_failed;}
 static int rb_test_nomem(void){return 0;}static void hs_exclude_all(void){if(host_scan_failure)host_failed=1;}
 static void blk1_init(void){block_calls++;}static void ls_after_setup(void){learn_calls++;}
@@ -94,6 +97,7 @@ static void sources(int extras_count,int long_extra){
 }
 static void unpublished(void){
     assert(!published1&&!published2&&!n1&&!n2&&!r1_m1&&!r1_m2&&!r1_n1&&!r1_n2&&!learn_calls&&!block_calls);
+    assert(!g_mark_modules_prepared);
     assert(!g_sh1&&!g_sh2&&!g_sh1c&&!g_sh2c&&!g_dc&&!g_ns1&&!g_ns2&&!g_nx&&!g_xbytes&&!g_win1&&!g_wn1);
     for(int i=0;i<object_count;i++)assert(!objects[i].live);
 }
@@ -103,11 +107,11 @@ static void teardown(void){
     for(int i=0;i<object_count;i++){assert(!objects[i].live);free(objects[i].p);}object_count=0;
 }
 static void configure(int extras_count,int long_extra){
-    teardown();host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
+    teardown();module_allowed=1;module_prepares=module_publishes=0;host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
     memset(&g_ctx_save,0x42,sizeof g_ctx_save);
 }
 static void verify(int extras_count){
-    assert(mark_setup());assert(alloc_calls==9+extras_count&&commit_calls==3);
+    assert(mark_setup());assert(module_prepares==1&&module_publishes==1&&!g_mark_modules_prepared);assert(alloc_calls==9+extras_count&&commit_calls==3);
     assert(published1==r1_m1&&published2==r1_m2&&n1==sizeof guest1&&n2==sizeof guest2);
     assert(lo1==(uint64_t)(uintptr_t)guest1&&learn_calls==1&&block_calls==1);
     assert(!memcmp(&g_mctx,&g_ctx_save,sizeof g_mctx));assert(g_nx==extras_count);
@@ -115,6 +119,7 @@ static void verify(int extras_count){
     for(int i=0;i<g_nx;i++)for(size_t j=0;j<g_x[i].n;j++)assert(g_x[i].b[j]==0x32+i);
 }
 static void ordinary(void){
+    configure(1,0);module_allowed=0;assert(!mark_setup());unpublished();assert(!alloc_calls&&!module_publishes);
     configure(1,0);host_scan_failure=1;assert(!mark_setup());unpublished();assert(!commit_calls&&!drop_calls);
     host_scan_failure=0;assert(!mark_setup());unpublished();assert(host_failed);
     for(int n=0;n<=2;n++){

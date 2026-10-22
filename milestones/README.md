@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-historical-stacks.md
+- Evidence: evidence/2026-10-22-initialization.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root historical stack inventory, 2026-10-22T04:41:00Z
-- Next: Historical stack inventory/host prenotes pass exact O1/O3 tests, independent review and six frozen control types with replay/observers. Preserve command-buffer A base refusal (incomplete learned tracking, no replay) despite passing same-binary B; exact predicate/cause unresolved. Next initial-ring resource cleanup and module-map publication preflight, then remaining OS enumeration and diagnostic/capture-mode allocation boundaries. Preserve M3.2 forward-reference divergence. Quiescence, authoritative equality and online qualification remain open.
+- Owner: root ring initialization/module publication, 2026-10-22T04:53:00Z
+- Next: Initial-ring ownership/module-map preflight passes exact O1/O3 failures, independent review and six frozen controls with strict replay and both four-observer audits. Next checked memory and host-thread enumeration, then fighter-module enumeration, optional diagnostics and authoritative optional capture-mode allocation boundaries. Preserve historical-stacks command-buffer A incomplete-learned-tracking base refusal and M3.2 forward-reference divergence; neither is explained by passing retries. Loader/writer quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

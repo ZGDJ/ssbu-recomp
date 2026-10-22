@@ -89,3 +89,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_historical_inventory_source.py -v
       - name: Host stack note completeness regressions
         run: python -m unittest discover -s tests -p test_host_stack_notes_source.py -v
+      - name: Ring initialization ownership regressions
+        run: python -m unittest discover -s tests -p test_ring_init_source.py -v
+      - name: Module mark-map publication regressions
+        run: python -m unittest discover -s tests -p test_mark_modules_source.py -v

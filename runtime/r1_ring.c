@@ -380,18 +380,22 @@ static void rg_meta_capture(RgSlot *s, Ctx *c, const SlotMetaPlan *p) {       /*
     s->fpool_used = p->fiber_bytes;
     rg_cb_capture(s, p);
 }
+static void rg_init_vfree(void *p) {
+    if (p && !VirtualFree(p, 0, MEM_RELEASE)) { LOG("r1: RING INIT FATAL: reservation release failed\n"); abort(); }
+}
 static void rg_free_all(void) {                         /* (hs13) a ring that could not be made: what it took is given back */
-    if (g_rg_idx) VirtualFree(g_rg_idx, 0, MEM_RELEASE);
-    if (g_rg_touch) VirtualFree(g_rg_touch, 0, MEM_RELEASE);
-    if (g_rg_tl) VirtualFree(g_rg_tl, 0, MEM_RELEASE);
-    if (g_rg_pool) VirtualFree(g_rg_pool, 0, MEM_RELEASE);
-    if (g_rg_free) VirtualFree(g_rg_free, 0, MEM_RELEASE);
+    if (g_rg && (g_rg_cap < 1 || g_rg_cap > RG_MAXSLOT)) { LOG("r1: RING INIT FATAL: invalid owned slot count\n"); abort(); }
+    rg_init_vfree(g_rg_idx);
+    rg_init_vfree(g_rg_touch);
+    rg_init_vfree(g_rg_tl);
+    rg_init_vfree(g_rg_pool);
+    rg_init_vfree(g_rg_free);
     free(g_rg_xa); free(g_rg_xb);
     for (int i = 0; g_rg && i < g_rg_cap; i++) {
         RgSlot *s = &g_rg[i];
-        if (s->ent) VirtualFree(s->ent, 0, MEM_RELEASE);
-        if (s->fpool) VirtualFree(s->fpool, 0, MEM_RELEASE);
-        if (s->cbd) VirtualFree(s->cbd, 0, MEM_RELEASE);
+        rg_init_vfree(s->ent);
+        rg_init_vfree(s->fpool);
+        rg_init_vfree(s->cbd);
         free(s->fib); free(s->cbs);
     }
     free(g_rg);
@@ -399,9 +403,23 @@ static void rg_free_all(void) {                         /* (hs13) a ring that co
     g_rg_pcom = 0; g_rg_bump = 0; g_rg_nfree = 0;
 }
 static int rg_init(void) {
-    g_rg_n1 = g_win1 ? (size_t)(g_wn1 >> 12) : 0; g_rg_n2 = (size_t)(WN2 >> 12);
-    g_rg_nx = 0; for (int i = 0; i < g_nx; i++) g_rg_nx += g_x[i].n / PG;
-    size_t tot = g_rg_n1 + g_rg_n2 + g_rg_nx;
+    /* Refusing a second initialization must not lose existing ownership. */
+    if (g_rg || g_rg_idx || g_rg_touch || g_rg_tl || g_rg_pool || g_rg_free || g_rg_xa || g_rg_xb) {
+        LOG("r1: RING init refused: resources already owned\n"); return 0;
+    }
+    if (g_nx < 0 || g_nx > 8192 || (g_win1 && (g_wn1 % PG || g_wn1 > UINTPTR_MAX - (uintptr_t)g_win1))) return 0;
+    size_t n1 = g_win1 ? g_wn1 / PG : 0, n2 = (size_t)(WN2 / PG), nx = 0;
+    if (n1 > UINT32_MAX || n2 > UINT32_MAX - n1) return 0;
+    for (int i = 0; i < g_nx; i++) {
+        Extra *x = &g_x[i];
+        if (x->n % PG || (x->n && (!x->a || !x->b)) ||
+            x->n > UINTPTR_MAX - (uintptr_t)x->a || x->n > UINTPTR_MAX - (uintptr_t)x->b ||
+            x->n / PG > UINT32_MAX - n1 - n2 - nx) return 0;
+        nx += x->n / PG;
+    }
+    size_t tot = n1 + n2 + nx;
+    if (!tot || tot > SIZE_MAX / sizeof *g_rg_idx || nx >= SIZE_MAX / sizeof *g_rg_xa) return 0;
+    g_rg_n1 = n1; g_rg_n2 = n2; g_rg_nx = nx;
     { const char *e = getenv("SSBU_RB_DEPTH"); if (e) g_rg_depth = atoi(e); if (g_rg_depth < 1) g_rg_depth = 1; if (g_rg_depth > RG_MAXSLOT - 1) g_rg_depth = RG_MAXSLOT - 1; }
     g_rg_cap = g_rg_depth + 1;
     g_rg_idx = VirtualAlloc(NULL, tot * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -605,16 +623,8 @@ int r1_ring_rebase(long long frame, Ctx *c) {
     double t1 = now_ms();
     hs_exclude_all();
     if (!host_inventory_valid()) { g_rg_nomem = 3; unpark(); LOG("r1: RING rebase refused: incomplete historical host-stack inventory; no published base\n"); return 0; }
-    int nmod = 0;
-    {   HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-        MODULEENTRY32 me; me.dwSize = sizeof me;
-        for (BOOL ok = sn != INVALID_HANDLE_VALUE && Module32First(sn, &me); ok; ok = Module32Next(sn, &me)) {
-            uint8_t **a1 = (uint8_t **)GetProcAddress(me.hModule, "r1_m1"), **a2 = (uint8_t **)GetProcAddress(me.hModule, "r1_m2");
-            uint64_t *l1 = (uint64_t *)GetProcAddress(me.hModule, "r1_lo1"), *n1 = (uint64_t *)GetProcAddress(me.hModule, "r1_n1"), *n2 = (uint64_t *)GetProcAddress(me.hModule, "r1_n2");
-            if (!a1 || !a2 || !l1 || !n1 || !n2) continue;
-            if (*a1 != *pm1) { *a1 = *pm1; *a2 = *pm2; *l1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); *n2 = WN2; *n1 = g_wn1; nmod++; LOG("r1: RING rebase: mark maps set in %s (loaded after the first save)\n", me.szModule); }
-        }
-        if (sn != INVALID_HANDLE_VALUE) CloseHandle(sn); }
+    if (!mark_modules_prepare()) { g_rg_nomem = 2; unpark(); LOG("r1: RING rebase refused: incomplete module export inventory; no published base\n"); return 0; }
+    int nmod = mark_modules_publish(*pm1, *pm2, 1);
     rg_sweep(rg_noop);                                    /* marks since the last capture: the copy below takes everything */
     g_rg_ntl = 0;
     if (!collect(c)) {
