@@ -75,3 +75,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_extra_inventory_source.py -v
       - name: Rebase resource preparation regressions
         run: python -m unittest discover -s tests -p test_rebase_source.py -v
+      - name: Initial mark setup ownership regressions
+        run: python -m unittest discover -s tests -p test_mark_setup_source.py -v
+      - name: Block sweep fallback regressions
+        run: python -m unittest discover -s tests -p test_block_sweep_source.py -v

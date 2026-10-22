@@ -1,0 +1,25 @@
+# Initial setup cleanup and block sweep fallback
+
+M7.8 continuation after [rebase preparation](2026-10-22-rebase-resources.md). Initial setup now checks releases of shadows, orphaned mark maps and retired saved backing; OS cleanup failures stop execution rather than claim successful cleanup. Block-list growth retains old allocation/capacity on failure and permanently selects the existing full-map sweep in both windows. Dirty notifications arriving during rebuilding are preserved; list population is bounded if the bitmap grows after counting. Save/restore sweep commitment failure stops before copying or enqueueing the failed page. Earlier page changes mean these failures are not unchanged-state refusals.
+
+Exact setup/undo/in_shadow/sh_commit/checked-free source tests pass O1/O3, including all 30 allocation positions across zero/one/two extras, nine commitment failures, 256+1 page retirement, late failure after 17 retired pages and retries with reconstructed source snapshots. Four fatal cleanup subprocess cases pass. Final evidence: `artifacts/local/mark-setup-source/run-jygqdvun` (prior independently reviewed equivalent helper extraction `run-8jo146_k`). Module enumeration, host exclusions, block initialization and learned setup are controlled.
+
+Exact block rebuild and both sweep bodies pass O1/O3 in `artifacts/local/block-sweep-source/run-fztae6l2`: optimized/fallback equality for both windows, direct/deferred paths, preserved allocation ownership, sticky fallback, dirty notification persistence, and injected bitmap growth within/beyond new capacity. First/late save/restore commitment failures run in subprocesses and verify prior-copy counts, failed-page exclusion, retained restore decommit flag, fatal diagnostic and no success. Deferred cp_add is a fixture copy, not another worker lifecycle proof. Bitmap growth is deterministic boundary injection, not actual writer quiescence. Independent cross-review of runtime and both test pairs found no actionable findings.
+
+Frozen isolated build compiled all 55 runtime files: `scripts/make_release.py --build artifacts/local/runtime-setup-sweep --out artifacts/local/runtime-setup-sweep-dist --allow-dirty`. Manifest tree `782d5cd3821807c51fabff1bb4d83e8cf760fc4228640b370e3b376870e4011c`; executable `build/work/ssbu_setup_sweep_probe.exe` SHA-256 `3ee6db08f45616ce92f1a223ff359ddc45f846f4608a6248a83eac7297469de8`; package SHA-256 `6ca956f596ec5ae03bd4104a548b25312e0ee29659ad197d0b9d736d79866236`. Source digest and all 26 protected files matched before execution. No release/channel action.
+
+Six standard control types completed with passing runs under `artifacts/local/save-import-20261021/run_setup_sweep_trials_a.py`. Each launch first records host commit headroom and verifies no existing ssbu game process (`record_trial_host.ps1`, per-label host JSON), then process/fatal-log gate, strict replay comparison and required refusal observers. These are bounded integration checks, not full authoritative state/online qualification.
+
+
+## Preserved failed forward-reference control
+
+Matrix A default passed in 70.609 s. Post-commit A exited zero in 67.297 s and passed the fatal-log gate, but strict comparison failed at real frame 2. The matrix stopped. The sealed trace contains 500 real frames plus two replay passes; 499 real frames differ from the unchanged reference. First difference is RNG state (`da6e5394` instead of `9d723f07`), with motion differences later. `divergence.json` and `internal-replay-diagnostic.json` are retained inside the trial. Internal replay-only comparison passes, which does not override the failed forward-reference gate.
+
+The first full save is logged at fight frame 217, and the intended pool refusal at ring frame 21 retained eight states. Commands differ from default only by unique paths and the authorized pool injection. Seed/tape/settings remain the same. Causality is unresolved, including any schedule/layout influence; do not attribute this to or exonerate this packet. One same-binary fresh retry plus remaining controls completed as matrix B, without changing the reference/comparator. A retry is not a diagnosis.
+
+
+## Completed matrix B and preservation
+
+Post-commit B 63.062 s, strict-pool B 62.671 s, reuse B 63.032 s, late-restore B 65.047 s and CB-refusal B 63.078 s each passed process/fatal-log gates and the original strict 500-real-frame/two-replay comparison. Both refusal audits passed all four observers. Together with default A this gives six passing control types; post-commit A remains failed and unexplained. Matrix B is `run_setup_sweep_trials_b.py` / `setup-sweep-trials-b.json`; original matrix A is untouched.
+
+`artifacts/local/setup-sweep-validation/post-validation.json` verifies the unchanged frozen source digest and all 26 protected hashes. Source tests establish bounded cleanup/fallback semantics; game runs establish this fixture's integration behavior. M7.8 and M3.2 remain open, and neither full determinism nor online compatibility is proven.

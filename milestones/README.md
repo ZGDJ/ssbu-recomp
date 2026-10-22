@@ -296,10 +296,10 @@ M7 completion means source failure regressions and production wiring are verifie
 - Depends: M3.1, M3.4
 - Size: 8
 - Requirement: FSD-004
-- Evidence: none
+- Evidence: evidence/2026-10-22-setup-sweep.md
 - Acceptance: Two runs of the same 10,000-tick input tape match every frame locally and cross-process; divergence artifacts preserved.
 - Owner: unassigned
-- Next: Split clock/RNG/scheduling/FP investigation by observed failures.
+- Next: Investigate preserved setup-sweep post-commit A divergence: RNG first differs at real frame 2, motion later, before first full save at fight frame 217. Internal replay matches but mandatory forward-reference comparison fails. Causality unresolved; split clock/RNG/scheduling/FP investigation without weakening reference checks.
 - Blocker: none
 
 ### M3.3 - Qualify inherited checkpoint representation
@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-rebase-resources.md
+- Evidence: evidence/2026-10-22-setup-sweep.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root extras/rebase resources, 2026-10-22T03:58:00Z
-- Next: Extras/rebase candidate stages all replacement resources before copying/returning pool ownership; exact source tests, independent review and six frozen isolated control types pass (each 500 real frames plus replay; both audits complete). Continue initial mark setup cleanup and block-list fallback, production native thread completeness/cache fallback, historical fiber inventory and host-stack exclusion loss. Watchdog ownership repair is complete under M7.10; preserve both earlier fatal-bearing game controls without asserting causality. Copy-worker, capture-pool and range-inventory scoped packets passed; full writer quiescence, authoritative equality and online qualification remain open.
+- Owner: root setup cleanup/sweep fallback, 2026-10-22T04:10:00Z
+- Next: Setup cleanup/sweep fallback passes exact source tests, independent review and six frozen control types (500 real frames plus replay, both audits complete). Preserve post-commit A forward-reference divergence (RNG frame 2, motion later) despite a passing identical retry; M3.2 tracks unresolved determinism. Next production native thread completeness/cache fallback, historical fiber inventory and host-stack exclusion loss. Extras/rebase, watchdog M7.10, copy-worker, capture-pool and range packets have scoped passing evidence. Full writer quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

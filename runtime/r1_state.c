@@ -1288,9 +1288,15 @@ static void hs_exclude_all(void) {
     LOG("r1: host stacks: %d threads and the host fibers looked at; %lld pages in %lld ranges inside the guest windows left out\n", nth, g_hs_pages, g_hs_ranges);
 }
 /* (hs13) a mark_setup that could not finish: everything it made is given back, no mark map is set (marks stay off) */
+static void mark_vfree(void *p, size_t n, DWORD kind) {
+    if (p && !VirtualFree(p, n, kind)) {
+        LOG("r1: MARK FATAL: VirtualFree failed; no successful setup or cleanup claimed\n");
+        abort();
+    }
+}
 static void mark_undo(void) {
-    if (g_sh1) VirtualFree(g_sh1, 0, MEM_RELEASE);
-    if (g_sh2) VirtualFree(g_sh2, 0, MEM_RELEASE);
+    if (g_sh1) mark_vfree(g_sh1, 0, MEM_RELEASE);
+    if (g_sh2) mark_vfree(g_sh2, 0, MEM_RELEASE);
     free(g_sh1c); free(g_sh2c); free(g_dc); free(g_ns1); free(g_ns2);
     g_sh1 = g_sh2 = g_sh1c = g_sh2c = g_dc = g_ns1 = g_ns2 = NULL;
     for (int i = 0; i < g_nx; i++) { free(g_x[i].b); g_x[i].b = NULL; }
@@ -1343,14 +1349,14 @@ static int mark_setup(void) {
                     if (cx < g_nx && xo == g_x[cx].n) { cx++; xo = 0; }
                     if (cx < g_nx && g_x[cx].a + xo == a) { memcpy(g_x[cx].b + xo, r->s + p * PG, PG); xo += PG; }
                 }
-                if (g_rs_drop && (p + 1 - d0 == 256 || p + 1 == np)) { VirtualFree(r->s + d0 * PG, (p + 1 - d0) * PG, MEM_DECOMMIT); dropped += (long long)(p + 1 - d0); d0 = p + 1; }
+                if (g_rs_drop && (p + 1 - d0 == 256 || p + 1 == np)) { mark_vfree(r->s + d0 * PG, (p + 1 - d0) * PG, MEM_DECOMMIT); dropped += (long long)(p + 1 - d0); d0 = p + 1; }
             }
         }
         if (g_rs_drop) LOG("r1: MARK setup: the copy of the full save given back while the shadow took it (%.1f MB): peak commit ~one copy\n", dropped * (double)PG / 1048576.0);
     }
     uint8_t *m1 = VirtualAlloc(NULL, g_wn1 >> 12, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     uint8_t *m2 = VirtualAlloc(NULL, WN2 >> 12, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    if (!m1 || !m2) { if (m1) VirtualFree(m1, 0, MEM_RELEASE); if (m2) VirtualFree(m2, 0, MEM_RELEASE); LOG("r1: MARK setup: allocation of the mark maps FAILED: marks OFF\n"); mark_undo(); return 0; }
+    if (!m1 || !m2) { if (m1) mark_vfree(m1, 0, MEM_RELEASE); if (m2) mark_vfree(m2, 0, MEM_RELEASE); LOG("r1: MARK setup: allocation of the mark maps FAILED: marks OFF\n"); mark_undo(); return 0; }
     *pm1 = m1; *pm2 = m2; *plo1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); *pn2 = WN2; *pn1 = g_wn1;
     r1_m1 = m1; r1_m2 = m2; r1_lo1 = (uint64_t)(uintptr_t)g_win1; MemoryBarrier(); r1_n2 = WN2; r1_n1 = g_wn1;
     {   int nmod = 0; char names[1500]; int o = 0;
@@ -1384,11 +1390,24 @@ static void blk1_add(size_t p0, size_t p1) {           /* pages [p0, p1) of wind
     for (size_t b = p0 >> 6; b <= (p1 - 1) >> 6 && b < (g_wn1 >> 18); b++) if (!g_blk1[b]) { g_blk1[b] = 1; InterlockedExchange(&g_blk1_dirty, 1); }
 }
 static void blk1_rebuild(void) {
+    /* Notes arriving during the rebuild must leave the dirty flag set. */
+    InterlockedExchange(&g_blk1_dirty, 0);
     size_t nb = (size_t)(g_wn1 >> 18), k = 0;
+    if (nb > UINT32_MAX) { g_full_sweep = 1; return; }
     for (size_t b = 0; b < nb; b++) k += g_blk1[b];
-    if (k > g_blk1_cap) { g_blk1_cap = k + 4096; g_blk1_list = realloc(g_blk1_list, g_blk1_cap * sizeof *g_blk1_list); }
-    g_blk1_n = 0; for (size_t b = 0; b < nb; b++) if (g_blk1[b]) g_blk1_list[g_blk1_n++] = (uint32_t)b;
-    g_blk1_dirty = 0;
+    if (k > g_blk1_cap) {
+        if (k > SIZE_MAX - 4096 || k + 4096 > SIZE_MAX / sizeof *g_blk1_list) { g_full_sweep = 1; return; }
+        size_t capacity = k + 4096;
+        uint32_t *list = realloc(g_blk1_list, capacity * sizeof *list);
+        if (!list) { g_full_sweep = 1; return; }
+        g_blk1_list = list; g_blk1_cap = capacity;
+    }
+    g_blk1_n = 0;
+    for (size_t b = 0; b < nb; b++) if (g_blk1[b]) {
+        /* A host note can extend the bitmap between counting and filling. */
+        if (g_blk1_n == g_blk1_cap) { g_full_sweep = 1; return; }
+        g_blk1_list[g_blk1_n++] = (uint32_t)b;
+    }
 }
 static void blk1_init(void) {                           /* mark_setup, threads held */
     if (g_full_sweep < 0) g_full_sweep = getenv("SSBU_R1_FULL_SWEEP") != NULL;
@@ -1512,12 +1531,12 @@ static size_t mark_sweep(int dir) {
     size_t n = 0;
     if (g_full_sweep < 0) g_full_sweep = getenv("SSBU_R1_FULL_SWEEP") != NULL;
     if (!g_blk1 && !g_full_sweep && g_win1) blk1_init();
-    if (g_blk1 && g_blk1_dirty) blk1_rebuild();
+    if (!g_full_sweep && g_blk1 && g_blk1_dirty) blk1_rebuild();
     for (int w = 0; w < 2; w++) {
         uint8_t *map = w ? *pm2 : *pm1; size_t np = (size_t)((w ? WN2 : g_wn1) >> 12);
         uint8_t *mem = w ? (uint8_t *)(uintptr_t)WIN2 : g_win1, *sh = w ? g_sh2 : g_sh1, *cm = w ? g_sh2c : g_sh1c;
         uint64_t *q = (uint64_t *)map;
-        uint32_t *bl = !g_blk1 ? NULL : w ? g_blk2_list : g_blk1_list;
+        uint32_t *bl = !g_blk1 || g_full_sweep ? NULL : w ? g_blk2_list : g_blk1_list;
         size_t nq = !bl ? np / 8 : (w ? g_blk2_n : g_blk1_n) * 8;
         for (size_t qi = 0; qi < nq; qi++) {
             size_t i = !bl ? qi : (size_t)bl[qi >> 3] * 8 + (qi & 7);
@@ -1527,9 +1546,9 @@ static size_t mark_sweep(int dir) {
                 map[j] = 0;
                 if (g_audio_free && is_async(mem + j * PG)) continue;
                 if (w ? g_ns2[j] : g_ns1[j]) continue;          /* not simulation */     /* audio's pages: not rolled back */
-                if (!dir) { if (!w && g_dc[j]) continue; sh_commit(sh + j * PG, cm, j); if (g_cp_defer) cp_add(sh + j * PG, mem + j * PG); else memcpy(sh + j * PG, mem + j * PG, PG); }
+                if (!dir) { if (!w && g_dc[j]) continue; if (!sh_commit(sh + j * PG, cm, j)) { LOG("r1: MARK FATAL: shadow commit failed during sweep\n"); abort(); } if (g_cp_defer) cp_add(sh + j * PG, mem + j * PG); else memcpy(sh + j * PG, mem + j * PG, PG); }
                 else if (cm[j]) {
-                    if (!w && g_dc[j]) { VirtualAlloc(mem + j * PG, PG, MEM_COMMIT, PAGE_READWRITE); g_dc[j] = 0; }
+                    if (!w && g_dc[j]) { if (!VirtualAlloc(mem + j * PG, PG, MEM_COMMIT, PAGE_READWRITE)) { LOG("r1: MARK FATAL: restore commit failed during sweep\n"); abort(); } g_dc[j] = 0; }
                     if (g_cp_defer) cp_add(mem + j * PG, sh + j * PG); else memcpy(mem + j * PG, sh + j * PG, PG);
                 }
                 n++;

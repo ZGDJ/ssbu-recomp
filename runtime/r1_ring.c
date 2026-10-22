@@ -153,12 +153,12 @@ static void rg_touch(uint32_t id) {
 static void rg_sweep(void (*fn)(uint32_t id, int w, size_t j)) {
     if (g_full_sweep < 0) g_full_sweep = getenv("SSBU_R1_FULL_SWEEP") != NULL;
     if (!g_blk1 && !g_full_sweep && g_win1) blk1_init();
-    if (g_blk1 && g_blk1_dirty) blk1_rebuild();
+    if (!g_full_sweep && g_blk1 && g_blk1_dirty) blk1_rebuild();
     for (int w = 0; w < 2; w++) {
         uint8_t *map = w ? *pm2 : *pm1; size_t np = (size_t)((w ? WN2 : g_wn1) >> 12);
         uint8_t *mem = w ? (uint8_t *)(uintptr_t)WIN2 : g_win1;
         uint64_t *q = (uint64_t *)map;
-        uint32_t *bl = !g_blk1 ? NULL : w ? g_blk2_list : g_blk1_list;
+        uint32_t *bl = !g_blk1 || g_full_sweep ? NULL : w ? g_blk2_list : g_blk1_list;
         size_t nq = !bl ? np / 8 : (w ? g_blk2_n : g_blk1_n) * 8;
         for (size_t qi = 0; qi < nq; qi++) {
             size_t i = !bl ? qi : (size_t)bl[qi >> 3] * 8 + (qi & 7);
