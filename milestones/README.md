@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-native-inventory.md
+- Evidence: evidence/2026-10-22-historical-stacks.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root native inventory/cache, 2026-10-22T04:24:00Z
-- Next: Native inventory completeness/cache fallback passes O1/O3 exact-source tests, independent review and six frozen control types with strict replay and both four-observer audits. Next historical fiber inventory and host-stack exclusion loss, then remaining OS enumeration/optional diagnostics and base cleanup boundaries. Preserve setup/sweep post-commit A forward-reference divergence for M3.2. Full writer quiescence, authoritative equality and online qualification remain open.
+- Owner: root historical stack inventory, 2026-10-22T04:41:00Z
+- Next: Historical stack inventory/host prenotes pass exact O1/O3 tests, independent review and six frozen control types with replay/observers. Preserve command-buffer A base refusal (incomplete learned tracking, no replay) despite passing same-binary B; exact predicate/cause unresolved. Next initial-ring resource cleanup and module-map publication preflight, then remaining OS enumeration and diagnostic/capture-mode allocation boundaries. Preserve M3.2 forward-reference divergence. Quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

@@ -17,6 +17,8 @@ static uint64_t catch_table[8192][2];
 static uint64_t g_catch_addr;
 static uint64_t lows[2], highs[2], *g_bf_lo, *g_bf_hi;
 static size_t g_nbf, g_cbf;
+static int g_bf_failed;
+#define InterlockedCompareExchange(p,v,c) (*(p))
 static int g_bf_lock, g_fib_restore_count, g_fib_restore_actions[1024];
 static int g_nlive;
 static uint64_t g_live_rsp[2048];

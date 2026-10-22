@@ -604,6 +604,7 @@ int r1_ring_rebase(long long frame, Ctx *c) {
     }
     double t1 = now_ms();
     hs_exclude_all();
+    if (!host_inventory_valid()) { g_rg_nomem = 3; unpark(); LOG("r1: RING rebase refused: incomplete historical host-stack inventory; no published base\n"); return 0; }
     int nmod = 0;
     {   HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
         MODULEENTRY32 me; me.dwSize = sizeof me;
@@ -836,6 +837,7 @@ static int rgc_prepare(const Fib *saved,int count,const RestorePlan *plan) {
     if(g_rgc_deadfix) {
         if(!TryAcquireSRWLockShared(&g_bf_lock)) goto failed;
         g_rgc_bf_locked=1;
+        if(InterlockedCompareExchange(&g_bf_failed,0,0)) goto failed;
         if(g_nbf>g_cbf || g_nbf>SIZE_MAX/sizeof(uint64_t) || (g_nbf&&(!g_bf_lo||!g_bf_hi))) goto failed;
         for(size_t i=0;i<g_nbf;i++) {
             uint64_t lo,hi;
@@ -1293,6 +1295,7 @@ int r1_ring_load(long long frame, Ctx *c) {
     refusal="verifier reservation failed";
     if(g_rgs_on>0 && !rgv_prepare()) goto refused;
     if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) { refusal="thread inventory changed during restore preparation"; goto refused; }
+    if (!host_inventory_valid()) { refusal="incomplete historical host-stack inventory"; goto refused; }
     if(auditing) { rg_payload_report(&payload_audit,frame,0); rg_native_report(&native_audit,frame,0); rg_refusal_report(&refusal_audit,frame,0); auditing=0; }
     double t1 = now_ms();
     R1_CTR("load (state of frame)", frame, 0);

@@ -63,7 +63,9 @@ static SIZE_T WINAPI fixture_query(LPCVOID p,PMEMORY_BASIC_INFORMATION m,SIZE_T 
     (void)n;if(p!=guest1)return 0;memset(m,0,sizeof *m);m->BaseAddress=m->AllocationBase=guest1;m->RegionSize=sizeof guest1;return sizeof *m;
 }
 static HANDLE WINAPI fixture_snapshot(DWORD flags,DWORD pid){(void)flags;(void)pid;return INVALID_HANDLE_VALUE;}
-static int rb_test_nomem(void){return 0;}static void hs_exclude_all(void){}
+static int host_failed,host_scan_failure;
+static int host_inventory_valid(void){return !host_failed;}
+static int rb_test_nomem(void){return 0;}static void hs_exclude_all(void){if(host_scan_failure)host_failed=1;}
 static void blk1_init(void){block_calls++;}static void ls_after_setup(void){learn_calls++;}
 static const char *where(uint8_t *a){(void)a;return "fixture";}
 #define malloc fixture_malloc
@@ -101,7 +103,7 @@ static void teardown(void){
     for(int i=0;i<object_count;i++){assert(!objects[i].live);free(objects[i].p);}object_count=0;
 }
 static void configure(int extras_count,int long_extra){
-    teardown();sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
+    teardown();host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
     memset(&g_ctx_save,0x42,sizeof g_ctx_save);
 }
 static void verify(int extras_count){
@@ -113,6 +115,8 @@ static void verify(int extras_count){
     for(int i=0;i<g_nx;i++)for(size_t j=0;j<g_x[i].n;j++)assert(g_x[i].b[j]==0x32+i);
 }
 static void ordinary(void){
+    configure(1,0);host_scan_failure=1;assert(!mark_setup());unpublished();assert(!commit_calls&&!drop_calls);
+    host_scan_failure=0;assert(!mark_setup());unpublished();assert(host_failed);
     for(int n=0;n<=2;n++){
         for(int failure=1;failure<=9+n;failure++){
             configure(n,0);fail_alloc=failure;assert(!mark_setup());unpublished();

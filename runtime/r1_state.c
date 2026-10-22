@@ -423,6 +423,7 @@ void os_r1_fibers_direct(void (*cb)(uint64_t, Ctx *, uint64_t, uint64_t, void *)
 DWORD os_r1_fiber_tid(uint64_t key); void *os_r1_fiber_fls(uint64_t key);
 int os_r1_thread_inventory_valid(void);
 int os_r1_thread_inventory_count(void);
+static int host_inventory_valid(void);
 int os_r1_fiber_audit_identity(uint64_t key, void **fiber, Ctx **c, void **fls, void **fls_fiber, DWORD *tid);
 void os_r1_fiber_put_fls(uint64_t key, void *fiber, void *fls); extern long long g_r1_fls_stale;      /* os_threads.c (R2: the block note restored with the fiber) */
 extern DWORD g_r1_fls_idx;
@@ -821,10 +822,10 @@ static int fibers_save(void) {
     if (g_fib_live_on < 0) { const char *e = getenv("SSBU_R1_LIVESTK"); g_fib_live_on = !(e && e[0] == '0'); }
     g_nfib = 0; g_fib_mode = 0; g_ncur = 0; g_fpool_used = 0; g_fib_bytes = 0; g_fib_bad = 0; g_fib_running = 0;
     int inventory_count = os_r1_thread_inventory_count();
-    g_fib_capture_ok = os_r1_thread_inventory_valid();
+    g_fib_capture_ok = os_r1_thread_inventory_valid() && host_inventory_valid();
     if (g_fib_capture_ok && g_fib_live_on) { live_rsps(); g_fib_capture_ok = g_live_complete; }
     if (g_fib_capture_ok) os_r1_fibers(fib_cb);
-    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) g_fib_capture_ok = 0;
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count || !host_inventory_valid()) g_fib_capture_ok = 0;
     if (!g_fib_capture_ok) LOG("r1: FIBER CAPTURE REFUSED: incomplete continuation coverage (%d failures, %d entries, capacity %zu, pool %zu/%zu bytes)\n", g_fib_bad, g_nfib, g_fib_capture_cap, g_fpool_used, g_fib_capture_pool_cap);
     return g_fib_capture_ok;
 }
@@ -1237,16 +1238,38 @@ static void hs_exclude(uint64_t lo, uint64_t hi, const char *what) {
 /* (hs15) every host fiber stack ever made (DeallocationStack .. StackBase): a catch record (nnunwind.c) on one that no guest
  * fiber uses any more after a ring load is dead (r1_ring.c rgc_after drops it instead of keeping it for ever) */
 static uint64_t *g_bf_lo, *g_bf_hi; static size_t g_nbf, g_cbf; static SRWLOCK g_bf_lock = SRWLOCK_INIT;
+/* Losing a historical range cannot be repaired by enumerating current fibers. */
+static volatile LONG g_bf_failed;
+static int bf_reserve(size_t needed) {                 /* caller owns g_bf_lock */
+    if (g_nbf > g_cbf || g_cbf > SIZE_MAX / sizeof *g_bf_lo ||
+        (g_cbf && (!g_bf_lo || !g_bf_hi)) || needed > SIZE_MAX / sizeof *g_bf_lo) goto failed;
+    if (needed <= g_cbf) return 1;
+    size_t capacity = g_cbf ? g_cbf : 1024;
+    while (capacity < needed) {
+        if (capacity > SIZE_MAX / sizeof *g_bf_lo / 2) { capacity = needed; break; }
+        capacity *= 2;
+    }
+    uint64_t *lo = realloc(g_bf_lo, capacity * sizeof *lo);
+    if (!lo) goto failed;
+    g_bf_lo = lo;                                     /* retain ownership if the second growth fails */
+    uint64_t *hi = realloc(g_bf_hi, capacity * sizeof *hi);
+    if (!hi) goto failed;
+    g_bf_hi = hi; g_cbf = capacity;
+    return 1;
+failed:
+    InterlockedExchange(&g_bf_failed, 1); return 0;
+}
 static void bf_add(void *fiber) {
     uint64_t lo = *(uint64_t *)((uint8_t *)fiber + 0x20), hi = *(uint64_t *)((uint8_t *)fiber + 0x10);
-    if (!(lo < hi)) return;
-    AcquireSRWLockExclusive(&g_bf_lock);
+    if (lo >= hi || hi - lo > (1ull << 32)) { InterlockedExchange(&g_bf_failed, 1); return; }
+    /* A held-thread scan may meet a suspended birth callback owning this lock. */
+    if (!TryAcquireSRWLockExclusive(&g_bf_lock)) { InterlockedExchange(&g_bf_failed, 1); return; }
+    if (!bf_reserve(g_nbf)) goto done;
     size_t i; for (i = 0; i < g_nbf; i++) if (g_bf_lo[i] == lo) { g_bf_hi[i] = hi; break; }
-    if (i == g_nbf) {
-        if (g_nbf == g_cbf) { size_t nc = g_cbf ? g_cbf * 2 : 1024; uint64_t *a = realloc(g_bf_lo, nc * 8), *b = a ? realloc(g_bf_hi, nc * 8) : NULL;
-                              if (a) g_bf_lo = a; if (b) { g_bf_hi = b; g_cbf = nc; } }
-        if (g_nbf < g_cbf) { g_bf_lo[g_nbf] = lo; g_bf_hi[g_nbf] = hi; g_nbf++; }
+    if (i == g_nbf && bf_reserve(g_nbf + 1)) {
+        g_bf_lo[g_nbf] = lo; g_bf_hi[g_nbf] = hi; g_nbf++;
     }
+done:
     ReleaseSRWLockExclusive(&g_bf_lock);
 }
 static void hs_fiber_cb(uint64_t key, Ctx *c, uint64_t stack, uint64_t size, void *fiber) {
@@ -1257,7 +1280,24 @@ static void hs_fiber_cb(uint64_t key, Ctx *c, uint64_t stack, uint64_t size, voi
 extern void (*g_r1_fiber_born)(void *fiber);           /* os_threads.c: a host fiber made later (fib_init, a fresh one at a restore) */
 static void hs_fiber_born(void *fiber) { if (fiber) { long long b = g_hs_pages; hs_fiber_cb(0, NULL, 0, 0, fiber); if (g_hs_pages != b) g_hs_fibers_later++; } }
 static uint64_t g_hs_note[16][2]; static int g_hs_nnote;     /* host stacks this exe makes itself (not threads, not guest fibers): noted, left out at the setup */
-static void r1_host_stack_note(uint64_t lo, uint64_t hi) { if (g_hs_nnote < 16) { g_hs_note[g_hs_nnote][0] = lo; g_hs_note[g_hs_nnote][1] = hi; g_hs_nnote++; } if (g_ns2 && (g_hs_on < 0 || g_hs_on)) hs_exclude(lo, hi, "host stack (noted)"); }
+static volatile LONG g_hs_note_failed;
+static int host_inventory_valid(void) {
+    return !InterlockedCompareExchange(&g_bf_failed, 0, 0) &&
+           !InterlockedCompareExchange(&g_hs_note_failed, 0, 0);
+}
+static void r1_host_stack_note(uint64_t lo, uint64_t hi) {
+    if (lo >= hi || hi - lo > (1ull << 32) || g_hs_nnote < 0 || g_hs_nnote > 16) {
+        InterlockedExchange(&g_hs_note_failed, 1);
+    } else {
+        int i; for (i = 0; i < g_hs_nnote; i++) if (g_hs_note[i][0] == lo) break;
+        if (i < 16) {
+            g_hs_note[i][0] = lo; g_hs_note[i][1] = hi;
+            if (i == g_hs_nnote) g_hs_nnote++;
+        } else InterlockedExchange(&g_hs_note_failed, 1);
+    }
+    /* Exclude now even if retaining the note for a future setup failed. */
+    if (g_ns2 && (g_hs_on < 0 || g_hs_on)) hs_exclude(lo, hi, "host stack (noted)");
+}
 typedef struct { LONG st; void *teb; void *pid, *tid; ULONG_PTR mask; LONG pri, bpri; } HsTbi;
 static void hs_exclude_all(void) {
     if (g_hs_on < 0) { const char *e = getenv("SSBU_R1_HOST_STACKS"); g_hs_on = !(e && e[0] == '0'); }
@@ -1326,6 +1366,7 @@ static int mark_setup(void) {
     g_sh2 = VirtualAlloc(NULL, WN2, MEM_RESERVE, PAGE_NOACCESS); g_sh2c = calloc(WN2 >> 12, 1);
     if (!g_sh1 || !g_sh1c || !g_dc || !g_ns1 || !g_ns2 || !g_sh2 || !g_sh2c) { LOG("r1: MARK setup: allocation of the shadow / its maps FAILED: marks OFF\n"); mark_undo(); return 0; }
     hs_exclude_all();
+    if (!host_inventory_valid()) { LOG("r1: MARK setup refused: incomplete historical host-stack inventory\n"); mark_undo(); return 0; }
     g_nx = 0; g_xbytes = 0;
     size_t shb = 0;
     for (int i = 0; i < g_nr; i++) {                    /* the extras: the runs of pages outside both windows */

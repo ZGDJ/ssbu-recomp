@@ -85,3 +85,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_live_inventory_source.py -v
       - name: Restore inventory refusal ownership regressions
         run: python -m unittest discover -s tests -p test_restore_inventory_source.py -v
+      - name: Historical fiber inventory ownership regressions
+        run: python -m unittest discover -s tests -p test_historical_inventory_source.py -v
+      - name: Host stack note completeness regressions
+        run: python -m unittest discover -s tests -p test_host_stack_notes_source.py -v

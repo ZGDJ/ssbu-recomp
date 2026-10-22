@@ -20,6 +20,8 @@ static size_t g_fib_test_after=SIZE_MAX,g_fib_test_cap=1024,g_fib_test_pool_cap=
 static int g_fib[1024];
 static int inventory_calls,inventory_failure,invalid_inventory,context_failure,teb_failure,read_failure;
 static int context_calls,teb_calls,read_calls,enumeration_calls,callback_calls,callback_failure,invalid_after_callback;
+static int host_calls,host_failure;
+static int host_inventory_valid(void){return ++host_calls!=host_failure;}
 static int thread_count=2,count_calls,grow_count_at;
 static int os_r1_thread_inventory_count(void){return thread_count+(++count_calls>=grow_count_at&&grow_count_at>0);}
 static Ctx context;
@@ -46,7 +48,7 @@ static void os_r1_fibers(void (*cb)(uint64_t,Ctx *,uint64_t,uint64_t,void *)){
 static void reset(void){
     inventory_calls=inventory_failure=invalid_inventory=context_failure=teb_failure=read_failure=0;
     context_calls=teb_calls=read_calls=enumeration_calls=callback_calls=callback_failure=invalid_after_callback=0;
-    count_calls=grow_count_at=0;
+    count_calls=grow_count_at=host_calls=host_failure=0;
     g_live_cache=0;g_fib_live_on=1;thread_count=2;g_nth=0;g_nlive=99;g_live_complete=1;
     memset(g_th,0,sizeof g_th);uint64_t fiber=456;memcpy(teb+0x20,&fiber,8);
 }
@@ -68,6 +70,7 @@ static void live_tests(void){
     reset();thread_count=512;live_rsps();assert(!g_live_complete&&g_nlive==512);
 }
 static void capture_tests(void){
+    for(int live=0;live<=1;live++)for(int failure=1;failure<=2;failure++){reset();g_fib_live_on=live;host_failure=failure;assert(!fibers_save());assert(callback_calls==(failure==2));}
     reset();assert(fibers_save()&&callback_calls==1&&g_nfib==1);
     for(int live=0;live<=1;live++){
         reset();g_fib_live_on=live;invalid_inventory=1;
