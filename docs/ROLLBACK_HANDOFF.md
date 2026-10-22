@@ -4,9 +4,9 @@ Checkpoint: 2026-10-22 UTC. Branch: `feat/rollback-validation-audit`, fork remot
 
 ## Immediate next packet
 
-Harden copy-worker resource startup and completion in `runtime/r1_state.c`: `cp_init`, `cp_thread`, `cp_run`. Event/thread creation, dispatch signals and completion waits are unchecked. Publish only fully initialized workers; preserve a safe main-thread fallback on startup failure. Unexpected dispatch/completion failure after copying begins must fail-stop rather than publish an incomplete capture. Keep the change bounded; do not redesign rollback or alter gameplay semantics.
+Copy-worker startup/completion hardening is implemented and reviewed; [copy-worker evidence](../evidence/2026-10-22-copy-workers.md) records 134 O1/O3 cases and six passing isolated control types. Preserve the failed first post-commit control: its 500-frame replay trace matched, but native hold release fail-stopped after ResumeThread returned zero. A later identical retry passed; causality remains unresolved. Exact-source watchdog interleavings separately reproduce lost ownership in `ra_workers_release`, not game causation.
 
-Add production-connected O1/O3 fault tests for every event/thread creation position, partial startup cleanup, zero workers/main-thread operation, dispatch/completion failures and successful copying. Independently review thread/event lifetime, refusal/commit boundaries and cleanup. Use disjoint subagents when useful; the owner permits Astra with low reasoning effort for tests and other bounded parallel work. One agent owns runtime files, another tests, another read-only review; integration alone builds/runs games after source freeze.
+Next harden fixed inventories in `add_range`, `collect`, heap discovery and stack exclusions, then extras/rebase replacement resources and historical fiber-stack inventory. Clear discarded range ownership before introducing early collection refusals; existing dirty/async pointers can be stale. Exact-source capacity/cleanup tests, independent review and frozen-source controls remain required. Keep one runtime owner, disjoint tests and read-only review; integration alone builds/runs games after source freeze. The owner permits Astra at low reasoning effort for bounded tests/review.
 
 ## Completed evidence to preserve
 
@@ -24,10 +24,10 @@ Actual repository is the `OpenSmash` directory inside `SmashDecomp`; do not run 
 
 Latest tested candidate:
 
-- Manifest: `artifacts/local/runtime-capture-pool/package/manifest.json`.
-- Normalized source tree: `698b3b94eecffb6c927b9c0a52cfb4fc9836ac4251517654d4f314a76fa1220f`.
-- Isolated exe: `build/work/ssbu_capture_pool_probe.exe`, SHA-256 `abf9df217e96b0eae0a6b5c891e49fba987078d5549ac3d36668048bf46bc81d`.
-- Matrix runner/results: `artifacts/local/save-import-20261021/run_capture_pool_trials_a.py` and `capture-pool-trials-a.json`.
+- Manifest: `artifacts/local/runtime-copy-workers/package/manifest.json`.
+- Normalized source tree: `a7b9707fd57b1f40a05cd6d70201b4c348eceec1e35ef1efac5eb19327ccbf10`.
+- Isolated exe: `build/work/ssbu_copy_worker_probe.exe`, SHA-256 `82c558aca4ad7c72c0b2b5aa11768c8f9fea4e8bd347d5aa172cc1aa655f441d`.
+- Matrix runner/results: `artifacts/local/save-import-20261021/run_copy_worker_trials_a.py` / `copy-worker-trials-a.json` (default pass, post-commit process failure) and corresponding `_b.py` / `-b.json` (post-commit retry plus remaining four controls pass).
 - Common launcher: `artifacts/local/save-import-20261021/run_source_trial.py`; use NEW labels and a NEW candidate exe, fresh disposable userdata, `--seconds=300`, `SSBU_TRACE_FRAMES=500`, `SSBU_RB_RESTORE_VERIFY=0`, `SSBU_VK_LOAD_AT_START=0`.
 - Comparator: `tests/bounded_trace_cmp.py TRIAL/fight.txt artifacts/local/save-import-20261021/bounded-forward-500-a/fight.txt --require-replay`.
 - Restore observer checker: `tools/analyze_restore_refusal.py TRIAL/r1.log --require-cb --require-native --require-payload`.

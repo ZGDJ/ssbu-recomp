@@ -1370,6 +1370,10 @@ typedef struct { uint8_t *d; const uint8_t *s; } CopyJob;
 static CopyJob *g_cj; static size_t g_ncj, g_cjcap;
 static int g_ncp = -1;
 static HANDLE g_cp_go[8], g_cp_done[8];
+/* Main owns startup/dispatch; workers own no handles. Published workers live
+ * until process exit. Failed startup joins every created thread before close. */
+static HANDLE g_cp_threads[8];
+static volatile LONG g_cp_stop[8];
 static int g_cp_reserved;
 static int cp_reserve(size_t count) {
     void *storage = g_cj;
@@ -1397,15 +1401,61 @@ static void cp_part(int k) { size_t a = g_ncj * (size_t)k / (size_t)(g_ncp + 1),
     if (g_cp_cmp) { for (size_t i = a; i < b; i++) g_cp_cmp[i] = memcmp(g_cj[i].d, g_cj[i].s, PG) != 0; }
     else if (g_cp_cond) { long long w = 0; for (size_t i = a; i < b; i++) if (memcmp(g_cj[i].d, g_cj[i].s, PG)) { memcpy(g_cj[i].d, g_cj[i].s, PG); w++; } g_cp_wrote[k < 9 ? k : 8] += w; }
     else for (size_t i = a; i < b; i++) memcpy(g_cj[i].d, g_cj[i].s, PG); }
-static DWORD WINAPI cp_thread(void *p) { int k = (int)(intptr_t)p; for (;;) { WaitForSingleObject(g_cp_go[k], INFINITE); cp_part(k + 1); SetEvent(g_cp_done[k]); } return 0; }
+static void cp_fatal(const char *operation) {
+    LOG("r1: fatal: copy-worker %s failed\n", operation);
+    abort(); /* A dispatched batch may already have changed capture/guest bytes. */
+}
+static DWORD WINAPI cp_thread(void *p) {
+    int k = (int)(intptr_t)p;
+    for (;;) {
+        if (WaitForSingleObject(g_cp_go[k], INFINITE) != WAIT_OBJECT_0) cp_fatal("worker wait");
+        if (InterlockedCompareExchange(&g_cp_stop[k], 0, 0)) return 0;
+        cp_part(k + 1);
+        if (!SetEvent(g_cp_done[k])) cp_fatal("completion signal");
+    }
+}
 static void cp_init(void) {
     if (g_ncp >= 0) return;
-    const char *e = getenv("SSBU_RUNAHEAD_COPY_THREADS"); g_ncp = e ? atoi(e) : rgs_wanted() ? 6 : 2;      /* (R2 round 3: the ring, 6) */ if (g_ncp > 8) g_ncp = 8; if (g_ncp < 0) g_ncp = 0;
-    SYSTEM_INFO si; GetSystemInfo(&si); if (g_ncp > (int)si.dwNumberOfProcessors - 2) g_ncp = (int)si.dwNumberOfProcessors > 2 ? (int)si.dwNumberOfProcessors - 2 : 0;
-    for (int k = 0; k < g_ncp; k++) { g_cp_go[k] = CreateEventA(NULL, FALSE, FALSE, NULL); g_cp_done[k] = CreateEventA(NULL, FALSE, FALSE, NULL); HANDLE t = CreateThread(NULL, 0, cp_thread, (void *)(intptr_t)k, 0, NULL); SetThreadPriority(t, THREAD_PRIORITY_HIGHEST); CloseHandle(t); }
+    const char *e = getenv("SSBU_RUNAHEAD_COPY_THREADS");
+    int wanted = e ? atoi(e) : rgs_wanted() ? 6 : 2, started = 0;
+    if (wanted > 8) wanted = 8; if (wanted < 0) wanted = 0;
+    SYSTEM_INFO si; GetSystemInfo(&si);
+    if (wanted > (int)si.dwNumberOfProcessors - 2) wanted = (int)si.dwNumberOfProcessors > 2 ? (int)si.dwNumberOfProcessors - 2 : 0;
+    for (int k = 0; k < wanted; k++) {
+        g_cp_go[k] = CreateEventA(NULL, FALSE, FALSE, NULL);
+        if (!g_cp_go[k]) goto fallback;
+        g_cp_done[k] = CreateEventA(NULL, FALSE, FALSE, NULL);
+        if (!g_cp_done[k]) goto fallback;
+        g_cp_threads[k] = CreateThread(NULL, 0, cp_thread, (void *)(intptr_t)k, 0, NULL);
+        if (!g_cp_threads[k]) goto fallback;
+        ++started;
+        /* Priority is only a performance hint; normal-priority copying is safe. */
+        SetThreadPriority(g_cp_threads[k], THREAD_PRIORITY_HIGHEST);
+    }
+    g_ncp = wanted; /* No worker reads the partition until main signals a batch. */
+    return;
+fallback:
+    for (int k = 0; k < started; k++) {
+        InterlockedExchange(&g_cp_stop[k], 1);
+        if (!SetEvent(g_cp_go[k])) cp_fatal("startup stop signal");
+    }
+    for (int k = 0; k < started; k++)
+        if (WaitForSingleObject(g_cp_threads[k], INFINITE) != WAIT_OBJECT_0) cp_fatal("startup join");
+    for (int k = 0; k < wanted; k++) {
+        if (g_cp_threads[k] && !CloseHandle(g_cp_threads[k])) cp_fatal("thread close");
+        if (g_cp_done[k] && !CloseHandle(g_cp_done[k])) cp_fatal("completion close");
+        if (g_cp_go[k] && !CloseHandle(g_cp_go[k])) cp_fatal("dispatch close");
+        g_cp_threads[k] = g_cp_done[k] = g_cp_go[k] = NULL;
+    }
+    g_ncp = 0;
+    LOG("r1: copy-worker startup failed; using main thread\n");
 }
 static void cp_run(void) {                            /* every queued page, then the queue is empty */
-    if (g_ncp > 0 && g_ncj >= 64) { for (int k = 0; k < g_ncp; k++) SetEvent(g_cp_go[k]); cp_part(0); WaitForMultipleObjects((DWORD)g_ncp, g_cp_done, TRUE, INFINITE); }
+    if (g_ncp > 0 && g_ncj >= 64) {
+        for (int k = 0; k < g_ncp; k++) if (!SetEvent(g_cp_go[k])) cp_fatal("dispatch signal");
+        cp_part(0);
+        if (WaitForMultipleObjects((DWORD)g_ncp, g_cp_done, TRUE, INFINITE) != WAIT_OBJECT_0) cp_fatal("completion wait");
+    }
     else { int keep = g_ncp; g_ncp = 0; cp_part(0); g_ncp = keep; }
     g_ncj = 0;
 }

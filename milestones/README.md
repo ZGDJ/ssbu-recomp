@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-21-capture-pool-preparation.md
+- Evidence: evidence/2026-10-22-copy-workers.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root, 2026-10-22T02:58:47Z
-- Next: Detached page operations and prospective pool ownership now prepare before eviction; exact-source failure/lifecycle tests, independent review and isolated build pass. All six game controls pass (500 real frames plus replay each), including post-commit/strict-pool full-ring refusal recovery and both restore audits. Next harden copy-worker startup/dispatch/completion failures, followed by bounded inventory, rebase and initial-base resource failures listed in the evidence; fresh-fiber recreation remains refused until prepared safely. Full writer quiescence and raw-state replay equality remain open. Preserve earlier failed memory, loading and page-plan trials in linked evidence; subsequent passes do not diagnose them. Prior scratch/queue/undo and restore-refusal controls passed per evidence/2026-10-21-capture-preparation.md and its predecessor records.
+- Owner: root copy-worker continuation, 2026-10-22T03:14:27Z
+- Next: Copy-worker startup/dispatch/completion hardening passes 134 O1/O3 OS-boundary cases, independent review and six isolated control types (500 real frames plus replay; both restore audits complete). Preserve matrix A post-commit native-hold fail-stop despite passing sealed telemetry and later retry. Exact-source watchdog interleavings reproduce lost hold ownership, without proving game causality. Continue range/heap/exclusion inventory completeness and extras/rebase/initial-base resource cleanup; historical fiber inventory and diagnostics remain. Full writer quiescence, authoritative state equality and online qualification stay open. See linked evidence for prior capture-pool work and retained failures.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness
