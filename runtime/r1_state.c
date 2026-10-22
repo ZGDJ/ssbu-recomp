@@ -66,6 +66,7 @@ void os_r1_objs(void (*cb)(uint64_t key, int signaled, int count, uint64_t len, 
 typedef struct { uint8_t *a; size_t n; uint8_t *s; uint8_t *dirty; uint8_t *learn; uint8_t *async; } Rng;   /* dirty / learn: one byte per page */
 static Rng g_r[MAXR];
 static int g_nr;
+static int g_collect_failed, g_heap_inventory_failed;
 static int g_on = -1, g_n, g_k, g_p, g_c, g_cycle, g_phase;        /* phase 0 idle, 1 first pass, 2 re-run, 3 done */
 static long long g_ff, g_target;
 static uint8_t *g_heap_base[8]; static int g_nheap;
@@ -120,8 +121,10 @@ int r1_on(void) {
 
 /* ---------------------------------------------------------------- the ranges */
 static void add_range(uint8_t *a, size_t n) {
-    if (g_nr >= MAXR) return;
+    if (g_collect_failed || !n) return;
+    if (n > UINTPTR_MAX - (uintptr_t)a) { g_collect_failed = 1; return; }
     if (g_nr && g_r[g_nr - 1].a + g_r[g_nr - 1].n == a) { g_r[g_nr - 1].n += n; return; }
+    if (g_nr >= MAXR) { g_collect_failed = 1; return; }
     g_r[g_nr].a = a; g_r[g_nr].n = n; g_nr++;
 }
 static int rw(DWORD p) { return (p & 0xff) == PAGE_READWRITE || (p & 0xff) == PAGE_EXECUTE_READWRITE; }
@@ -149,18 +152,29 @@ static void find_heaps(void) {             /* once: the reservations of >= 16 GB
     uint8_t *cur = NULL; size_t span = 0;
     for (uint8_t *p = (uint8_t *)0x10000; (uintptr_t)p < 0x7FFFFFFF0000ull && VirtualQuery(p, &m, sizeof m); p = (uint8_t *)m.BaseAddress + m.RegionSize) {
         if (m.AllocationBase != cur) {
-            if (cur && span >= (16ull << 30) && g_nheap < 8) g_heap_base[g_nheap++] = cur;
+            if (cur && span >= (16ull << 30)) {
+                if (g_nheap < 8) g_heap_base[g_nheap++] = cur;
+                else g_heap_inventory_failed = 1;
+            }
             cur = (uint8_t *)m.AllocationBase; span = 0;
         }
         if (cur) span += m.RegionSize;
     }
-    if (cur && span >= (16ull << 30) && g_nheap < 8) g_heap_base[g_nheap++] = cur;
+    if (cur && span >= (16ull << 30)) {
+        if (g_nheap < 8) g_heap_base[g_nheap++] = cur;
+        else g_heap_inventory_failed = 1;
+    }
     for (int i = 0; i < g_nheap; i++) LOG("r1: game address region %d at %p\n", i, (void *)g_heap_base[i]);
 }
 static uint64_t g_ex[512][2]; static int g_nex;                       /* other guest threads' stacks: never saved / restored */
 static void ex_cb(uint64_t key, int sig, int cnt, uint64_t len, uint64_t thread, uint64_t stack, uint64_t size) {
     (void)key; (void)sig; (void)cnt; (void)len; (void)thread;
-    if (stack && size && g_nex < 512) { g_ex[g_nex][0] = stack & ~(uint64_t)(PG - 1); g_ex[g_nex][1] = (stack + size + PG - 1) & ~(uint64_t)(PG - 1); g_nex++; }
+    if (!stack || !size) return;
+    if (g_nex >= 512 || size > UINT64_MAX - stack || stack + size > UINT64_MAX - (PG - 1)) {
+        g_collect_failed = 1; return;
+    }
+    g_ex[g_nex][0] = stack & ~(uint64_t)(PG - 1);
+    g_ex[g_nex][1] = (stack + size + PG - 1) & ~(uint64_t)(PG - 1); g_nex++;
 }
 static uint8_t *g_ar;
 static int cmp_rng(const void *x, const void *y) { const Rng *a = x, *b = y; return a->a < b->a ? -1 : a->a > b->a; }
@@ -199,10 +213,15 @@ static int g_rb_test_nomem = -1;                        /* SSBU_RB_NET_TEST_NOME
 static int rb_test_nomem(void) { if (g_rb_test_nomem < 0) { const char *e = getenv("SSBU_RB_NET_TEST_NOMEM"); g_rb_test_nomem = e ? atoi(e) : 0; } return g_rb_test_nomem; }
 static double g_save_need_mb, g_save_avail_mb;          /* the last commit check (MB) */
 static uint8_t *ls_pool_meta(size_t *n);              /* R4 (rb_learned.c) */
-static void collect(Ctx *c) {
-    for (int i = 0; i < g_nr; i++) { rs_free(g_r[i].s); g_r[i].s = NULL; free(g_r[i].dirty); free(g_r[i].async); }
+static int collect(Ctx *c) {
+    release();
+    /* Slots are reused after sorting/splitting. No freed ownership or borrowed
+     * learned-map pointer may survive into a different range or refusal path. */
+    memset(g_r, 0, sizeof g_r);
     g_nr = 0;
+    g_collect_failed = 0;
     if (!g_nheap) find_heaps();
+    if (g_heap_inventory_failed) { g_collect_failed = 1; return 0; }
     for (int i = 0; i < g_nheap; i++) add_alloc(g_heap_base[i]);
     add_span((uint8_t *)0x7100000000ull, (uint8_t *)0x7300000000ull);
     add_fighter_dlls();
@@ -219,21 +238,28 @@ static void collect(Ctx *c) {
     add_alloc((void *)(uintptr_t)c->tpidr);
     Ctx *tc; const char *nm; HANDLE h;
     for (int i = 0; guest_thread_info(i, &tc, &nm, &h); i++) if (tc->tpidr) add_alloc((void *)(uintptr_t)tc->tpidr);
+    if (g_collect_failed) return 0;
     qsort(g_r, (size_t)g_nr, sizeof g_r[0], cmp_rng);
     int o = 0;                                        /* drop duplicates (two threads in one block) */
     for (int i = 0; i < g_nr; i++) {
-        if (o && g_r[i].a < g_r[o - 1].a + g_r[o - 1].n) continue;
+        if (o && g_r[i].a < g_r[o - 1].a + g_r[o - 1].n) {
+            uint8_t *end = g_r[i].a + g_r[i].n;
+            if (end > g_r[o - 1].a + g_r[o - 1].n) g_r[o - 1].n = (size_t)(end - g_r[o - 1].a);
+            continue;
+        }
         g_r[o++] = g_r[i];
     }
     g_nr = o;
-    if (!getenv("SSBU_R1_CUT_STACKS")) return;
+    if (!getenv("SSBU_R1_CUT_STACKS")) return 1;
     g_nex = 0; os_r1_objs(ex_cb);
+    if (g_collect_failed) return 0;
     for (int e = 0; e < g_nex; e++) {                 /* cut [lo, hi) out of every range */
         uint8_t *lo = (uint8_t *)(uintptr_t)g_ex[e][0], *hi = (uint8_t *)(uintptr_t)g_ex[e][1];
         for (int i = 0; i < g_nr; i++) {
             Rng *r = &g_r[i]; uint8_t *a = r->a, *b = r->a + r->n;
             if (hi <= a || lo >= b) continue;
-            if (lo > a && hi < b && g_nr < MAXR) {     /* split */
+            if (lo > a && hi < b) {                   /* split requires both retained pieces */
+                if (g_nr >= MAXR) { g_collect_failed = 1; return 0; }
                 memmove(&g_r[i + 2], &g_r[i + 1], (size_t)(g_nr - i - 1) * sizeof g_r[0]); g_nr++;
                 g_r[i + 1].a = hi; g_r[i + 1].n = (size_t)(b - hi); r->n = (size_t)(lo - a);
             } else if (lo <= a && hi >= b) { r->n = 0; }
@@ -243,6 +269,7 @@ static void collect(Ctx *c) {
     }
     int o2 = 0; for (int i = 0; i < g_nr; i++) if (g_r[i].n) g_r[o2++] = g_r[i];
     g_nr = o2;
+    return 1;
 }
 
 /* ---------------------------------------------------------------- nn::os objects (compared, not restored) */
@@ -820,7 +847,11 @@ static size_t g_saved_bytes;
 static void save(Ctx *c) {
     fibers_capture_config(); nvn_r1_cb_capture_config();
     double t0 = now_ms();
-    collect(c);
+    if (!collect(c)) {
+        g_saved_bytes = 0; g_save_failed = 5;
+        LOG("r1: FULL SAVE NOT MADE: incomplete range/heap/stack-exclusion inventory\n");
+        return;
+    }
     double t1 = now_ms();
     g_saved_bytes = 0;
     {   /* (hs13) the commit this needs, checked first: the copy below (decommitted again while the shadow takes it when
@@ -1492,8 +1523,11 @@ static size_t mark_sweep(int dir) {
 }
 static void mark_save(Ctx *c) {
     if (g_mcheck) {                                     /* the full snapshot of the check is taken INSIDE the same hold (round 4) */
-        collect(c);
-        for (int i = 0; i < g_nr; i++) g_r[i].s = rs_alloc(g_r[i].n);
+        if (!collect(c)) { g_save_failed = 5; LOG("r1: MARK check capture refused: incomplete range inventory\n"); return; }
+        for (int i = 0; i < g_nr; i++) {
+            g_r[i].s = rs_alloc(g_r[i].n);
+            if (!g_r[i].s) { release(); g_save_failed = 2; LOG("r1: MARK check capture refused: allocation failed\n"); return; }
+        }
     }
     double t0 = now_ms();
     park(0);
@@ -1981,7 +2015,7 @@ static void ra_step(Ctx *c) {
             g_save_failed = 0; g_ra_wd_pause = 1; g_rs_drop = 1;
             save(c); release(); g_rs_drop = 0;
             g_ra_wd_pause = 0;
-            if (g_save_failed >= 2) { g_ra_off = 1; LOG("r1: RA: first save not made (%s): run-ahead OFF\n", g_save_failed == 4 ? "command-buffer staging failed" : g_save_failed == 3 ? "incomplete native continuation" : "out of memory"); return; }
+            if (g_save_failed >= 2) { g_ra_off = 1; LOG("r1: RA: first save not made (%s): run-ahead OFF\n", g_save_failed == 5 ? "incomplete range inventory" : g_save_failed == 4 ? "command-buffer staging failed" : g_save_failed == 3 ? "incomplete native continuation" : "out of memory"); return; }
             if (g_save_failed) return;
             g_ra_ready = 1; g_cycle = 1; ok = 1;
             LOG("r1: RA: first save (full, shadow filled, marks on) at fight frame %lld in %.1f ms\n", g_ff, now_ms() - t0);

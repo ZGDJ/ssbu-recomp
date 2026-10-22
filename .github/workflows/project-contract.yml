@@ -65,3 +65,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_capture_pool_source.py -v
       - name: Copy worker OS failure and lifetime regressions
         run: python -m unittest discover -s tests -p test_copy_workers_source.py -v
+      - name: Range inventory completeness regressions
+        run: python -m unittest discover -s tests -p test_range_inventory_source.py -v
+      - name: Runtime trial fatal-log regressions
+        run: python -m unittest discover -s tests -p test_runtime_trial.py -v

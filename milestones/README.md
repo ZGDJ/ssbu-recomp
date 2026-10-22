@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-copy-workers.md
+- Evidence: evidence/2026-10-22-range-inventory.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root copy-worker continuation, 2026-10-22T03:14:27Z
-- Next: Copy-worker startup/dispatch/completion hardening passes 134 O1/O3 OS-boundary cases, independent review and six isolated control types (500 real frames plus replay; both restore audits complete). Preserve matrix A post-commit native-hold fail-stop despite passing sealed telemetry and later retry. Exact-source watchdog interleavings reproduce lost hold ownership, without proving game causality. Continue range/heap/exclusion inventory completeness and extras/rebase/initial-base resource cleanup; historical fiber inventory and diagnostics remain. Full writer quiescence, authoritative state equality and online qualification stay open. See linked evidence for prior capture-pool work and retained failures.
+- Owner: root range-inventory continuation, 2026-10-22T03:30:22Z
+- Next: Range/heap/exclusion inventory bounds and recollection ownership now source-tested O1/O3, independently reviewed and integrated across six control types. Preserve the fatal-bearing zero-exit late control; strengthened fatal-log gate rejects it and a fresh retry passes. Repair the separately reproduced watchdog ownership race next, then extras/rebase/native inventory resource boundaries. Copy-worker startup/dispatch/completion hardening passes 134 O1/O3 OS-boundary cases, independent review and six isolated control types (500 real frames plus replay; both restore audits complete). Preserve matrix A post-commit native-hold fail-stop despite passing sealed telemetry and later retry. Exact-source watchdog interleavings reproduce lost hold ownership, without proving game causality. Continue range/heap/exclusion inventory completeness and extras/rebase/initial-base resource cleanup; historical fiber inventory and diagnostics remain. Full writer quiescence, authoritative state equality and online qualification stay open. See linked evidence for prior capture-pool work and retained failures.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

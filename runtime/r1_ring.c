@@ -470,6 +470,7 @@ int r1_ring_capture(long long frame, Ctx *c) {
         if (g_save_failed == 2) { g_rg_nomem = 1; LOG("r1: RING: the base state was NOT made (out of memory: free commit %.0f MB, needed %.0f MB + 1024 MB left for the game): no rollback ring\n", g_save_avail_mb, g_save_need_mb); return 0; }
         if (g_save_failed == 3) { g_rg_nomem = 3; LOG("r1: RING: base refused: incomplete fiber capture; no rollback ring for this match\n"); return 0; }
         if (g_save_failed == 4) { g_rg_nomem = 2; LOG("r1: RING: base refused: command-buffer staging failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
+        if (g_save_failed == 5) { g_rg_nomem = 2; LOG("r1: RING: base refused: incomplete range inventory; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
         if (g_save_failed) return 0;
         if (!ls_validate_tracking()) {
             g_rg_nomem = 2;
@@ -609,7 +610,11 @@ int r1_ring_rebase(long long frame, Ctx *c) {
         if (sn != INVALID_HANDLE_VALUE) CloseHandle(sn); }
     rg_sweep(rg_noop);                                    /* marks since the last capture: the copy below takes everything */
     g_rg_ntl = 0;
-    collect(c);
+    if (!collect(c)) {
+        g_rg_nomem = 2; unpark();
+        LOG("r1: RING rebase refused: incomplete range inventory; no published base\n");
+        return 0;
+    }
     size_t nwin = g_rg_n1 + g_rg_n2, copied = 0, dropped = 0, freed = 0;
     uint8_t *in = calloc(nwin, 1);
     static Extra nx[8192]; int nnx = 0;
