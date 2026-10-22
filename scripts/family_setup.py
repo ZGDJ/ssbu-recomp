@@ -9,10 +9,26 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import zipfile
 
 CHUNK = 8 * 1024 * 1024
 RESERVE = 12 * 1024**3  # build/tools beyond extracted data
+
+
+def check_path_lengths(root, names):
+    # Stay compatible with Windows tools even on PCs that enable long paths.
+    # MAX_PATH includes the terminating NUL; Windows counts UTF-16 code units.
+    for name in ('import.json', *names):
+        target = root / (name + '.install-part')
+        length = len(str(target).encode('utf-16-le')) // 2
+        if length >= 260 or any(len(p.encode('utf-16-le')) // 2 > 255 for p in target.parts):
+            raise ValueError(
+                'Installation folder is too deep for this archive '
+                f'({length} characters including the temporary filename; maximum 259). '
+                'Close setup and move the OpenSmash folder containing Install OpenSmash.bat '
+                'directly into your C: drive, so the file is C:\\OpenSmash\\Install OpenSmash.bat. '
+                'Then run it again and select the same game ZIP. File: ' + name)
 
 
 def safe_name(name):
@@ -119,6 +135,7 @@ def import_archive(archive, root, reserve=RESERVE):
     contained(root, 'import.json')
     with zipfile.ZipFile(archive) as z:
         identity, files = inspect_archive(z)
+        check_path_lengths(root, files)
         marker = root / 'import.json'
         if marker.exists():
             if json.loads(marker.read_text())['manifest_sha256'] != identity:
@@ -144,11 +161,22 @@ def import_archive(archive, root, reserve=RESERVE):
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = contained(root, name + '.install-part')
             h = hashlib.sha256()
+            copied = 0
+            last_report = time.monotonic()
+            if info.file_size >= 1024**3:
+                print(f'  Large file ({info.file_size / 1024**3:.1f} GiB). '
+                      'Keep this window open; extraction may take several minutes.', flush=True)
             try:
                 with z.open(info) as src, temp.open('wb') as dst:
                     for block in iter(lambda: src.read(CHUNK), b''):
                         dst.write(block)
                         h.update(block)
+                        copied += len(block)
+                        now = time.monotonic()
+                        if now - last_report >= 5:
+                            print(f'  {copied / info.file_size:.0%} '
+                                  f'({copied / 1024**2:.0f} / {info.file_size / 1024**2:.0f} MiB)', flush=True)
+                            last_report = now
                 if h.hexdigest() != meta['sha256']:
                     raise ValueError('Checksum mismatch: ' + name + '. Obtain an intact copy of your ZIP.')
                 os.replace(temp, target)

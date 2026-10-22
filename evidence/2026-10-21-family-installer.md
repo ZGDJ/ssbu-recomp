@@ -12,3 +12,8 @@ Scope: M0.8 source implementation; M0.9 owns clean-PC end-to-end qualification. 
 - Source-only package built from `dd9b13c`: 6,762,916 bytes, 635 managed source files, accepted by the updater's source validator. Extracted into an isolated ignored smoke-test folder. Its real Windows PowerShell bootstrap downloaded hash-verified Python 3.13.16 and pip, installed all seven pinned requirements, passed package imports and exited 0. No system Python installation, game extraction or game build was performed by this smoke test. Final documentation revisions produce a newly versioned package through the same packager.
 
 The working developer installation and running game were not rebuilt or replaced for these tests. Release publication remains separate from source pushes and local packaging. Clean-PC setup, two-version live updates and actual shortcut launch remain M0.9.
+# Follow-up validation
+
+The [UTF-8, path preflight and import progress follow-up](2026-10-21-installer-encoding-paths.md) records fixes from the first family installation reports and 24 passing synthetic installer/updater tests. Clean-PC qualification remains M0.9.
+
+The [native setup wizard](2026-10-21-family-wizard.md) adds instructions, live loading status and retry, validated with disposable workers before source packaging.

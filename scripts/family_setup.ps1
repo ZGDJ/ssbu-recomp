@@ -1,11 +1,16 @@
 # The extracted source package is the permanent installation folder. No administrator rights required.
-param([string]$Archive, [switch]$Update)
+param([string]$Archive, [switch]$Update, [switch]$NonInteractive)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 $repo = Split-Path -Parent $PSScriptRoot
 $mutex = $null
 $ownsMutex = $false
+$previousConsoleEncoding = [Console]::OutputEncoding
 try {
+    # Python writes UTF-8 to the pipeline; PowerShell must decode it as UTF-8 too.
+    $env:PYTHONIOENCODING = 'utf-8'
+    $env:PYTHONUTF8 = '1'
+    [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'OpenSmash requires 64-bit Windows.' }
     $hash = [Security.Cryptography.SHA256]::Create()
     $id = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($repo.ToLowerInvariant()))).Replace('-', '')
@@ -24,6 +29,7 @@ try {
     }
     if ($runningGame) { throw 'Close OpenSmash before installing or updating, then try again.' }
     if (-not $Update -and -not $Archive) {
+        if ($NonInteractive) { throw 'Choose your prepared game ZIP in the setup wizard.' }
         $picker = New-Object System.Windows.Forms.OpenFileDialog
         $picker.Title = 'Choose your prepared Smash Ultimate 13.0.5 game ZIP (not a save ZIP)'
         $picker.Filter = 'Prepared game ZIP (*.zip)|*.zip'
@@ -70,12 +76,14 @@ try {
     if (Test-Path -LiteralPath (Join-Path $repo 'artifacts\local\family-update\pending.json')) {
         $message = 'Game files repaired. Now run Update OpenSmash to finish the pending update before playing.'
     }
-    [System.Windows.Forms.MessageBox]::Show($message, 'OpenSmash') | Out-Null
+    Write-Output $message
+    if (-not $NonInteractive) { [System.Windows.Forms.MessageBox]::Show($message, 'OpenSmash') | Out-Null }
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
-    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'OpenSmash setup stopped', 'OK', 'Error') | Out-Null
+    if (-not $NonInteractive) { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'OpenSmash setup stopped', 'OK', 'Error') | Out-Null }
     exit 1
 } finally {
+    [Console]::OutputEncoding = $previousConsoleEncoding
     if ($ownsMutex) { $mutex.ReleaseMutex() }
     if ($mutex) { $mutex.Dispose() }
 }

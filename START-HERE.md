@@ -8,17 +8,26 @@ This is the OpenSmash fork at [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-re
 - Your prepared **Smash Ultimate 13.0.5 game ZIP**, including ExeFS, RomFS, DLC, fonts and SHA256SUMS.json. A save-file ZIP alone is not enough. You do not need to extract the game ZIP first.
 - Time: the first build took about 45 minutes on the developer's PC; allow an hour or longer on other PCs. First launch also prepares shaders and can take several minutes.
 
-## Three steps
+## Install
 
-1. Extract the **OpenSmash-Family** installer ZIP to a permanent folder you can write to, such as `C:\Users\YourName\Games`. Open the extracted `OpenSmash` folder. Do not run it from inside the ZIP or put it in Program Files.
-2. Double-click **Install OpenSmash.bat**, then select your prepared game ZIP. Leave the setup window open while it downloads tools, checks files and builds the game. No Git, compiler setup or administrator account is required.
-3. When setup reports success, use **OpenSmash Play** on your desktop. The first launch needs time to prepare shaders. **Z** confirms prompts; **F1** opens settings.
+1. **Extract the installer ZIP.** Right-click **OpenSmash-Family** and choose **Extract All**. Inside the extracted folders, find **OpenSmash**: it contains **Install OpenSmash.bat**.
+2. **Put the game folder in its permanent home.** Move that inner **OpenSmash** folder directly into **Local Disk (C:)**. Open it and check that the installer is now at **`C:\OpenSmash\Install OpenSmash.bat`**. The outer folder named `OpenSmash-Family-...` does not need to move with it.
+3. **Start setup.** Double-click **Install OpenSmash.bat** to open the setup wizard. Check the folder shown, click **Choose ZIP...** to select your prepared game ZIP, then click **Install**. The wizard includes these instructions, an animated activity bar and a live log. Leave it open while it downloads tools, checks files and builds the game. No Git or compiler setup is required.
+4. **Play.** When setup reports success, use **OpenSmash Play** on your desktop. The first launch needs time to prepare shaders. **Z** confirms prompts; **F1** opens settings.
+
+Why `C:\OpenSmash`? Some game filenames are long. A short folder location gives Windows enough room for them. If you cannot write there, use another short, writable location such as `D:\OpenSmash`. Avoid Desktop/OneDrive, Program Files and extra nested folders. Run setup from the extracted folder, not from inside the ZIP.
 
 Keep the extracted OpenSmash folder in its original location: the game reads its data there. Setup starts a new installation with online play and rollback disabled. It does not import or replace existing saves. Saves created by this installation live in `build/saves` inside that folder.
+
+**Is it stuck on `dump/romfs/data.arc`?** This is the large game-data file, so it can take much longer than the small files before it. The file counter counts files, not time or bytes: reaching file 72 of 83 does not mean the import is nearly finished. Keep the window open. New installers show the amount copied about every five seconds while extraction advances; older installers stay on the same line until the file finishes. On an older installer, you can check Task Manager for Python disk/CPU activity or watch the size of `artifacts/local/family-inputs/dump/romfs/data.arc.install-part` grow. A retry checks completed files but restarts an interrupted file from the beginning.
 
 ## If setup stops
 
 Run **Install OpenSmash.bat** again and choose the same game ZIP. Verified files are reused, interrupted extraction is repaired, and the underlying build resumes. If there is a checksum error, obtain an intact copy of your prepared archive. If it reports insufficient space, free space on the installation drive and retry.
+
+If the wizard is still open, correct the reported issue and click **Retry**. The activity bar means the setup process is running, not that a particular amount of time remains. Keep the window open until it reports success or an error. Detailed logs, including tool-download output, are kept under `build/logs`.
+
+If setup says the installation folder is too deep, close setup and move the whole **OpenSmash** folder to `C:\OpenSmash` as described above, then retry. Do not rename files inside the game ZIP. Current installers handle international filenames automatically; no terminal commands or Python settings are needed.
 
 For help, send the error message and `build/logs/family-setup.log` to the person maintaining your installation. Review logs for personal folder names before sharing. Do not send game data or keys to GitHub. For an incomplete Python download that cannot resume, extract the installer package to a fresh folder; keep any existing game installation and saves.
 

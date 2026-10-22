@@ -1,0 +1,13 @@
+# Family installer: Unicode output and path preflight
+
+- Date / author: 2026-10-21, Codex. Review: local diff inspection; no independent review.
+- Task / requirements: M0.8 follow-up, FSD-011 and FSD-012. Source-only synthetic tests; M0.9 remains open.
+- Revision: base `46a8f6c` plus changes to `scripts/family_setup.py`, `scripts/family_setup.ps1`, `tests/test_family_setup.py` and `START-HERE.md`. Unrelated runtime work was already present and is outside this validation.
+- Problem: a user's deeply nested destination exceeded MAX_PATH once the import temporary suffix was appended; another import stopped while printing a Unicode filename to PowerShell's pipeline.
+- Changes: launch Python with UTF-8 environment settings and configure PowerShell's decoder to match; restore console encoding on exit. Preflight all selected archive destinations before import writes using UTF-16 lengths including temporary suffixes. Keep conservative Windows compatibility even on machines with long paths enabled. Explain how to place the inner folder at `C:\OpenSmash`, and print bytes/percentage about every five seconds while extraction advances.
+- Environment: Windows, bundled development Python 3.12, Windows PowerShell. No game inputs or network needed.
+- Validation: `deps/python/Scripts/python.exe -m unittest discover -s tests -p 'test_family*.py' -q` passed all 24 tests, exit 0. Includes actual PowerShell UTF-8 decoding/log preservation, Unicode archive extraction, preflight-before-writes, UTF-16 boundary counts, periodic progress, resume/repair and updater recovery.
+- Initial failures: sandbox temporary-directory file replacements failed with WinError 5; moving test temp into the ignored workspace resolved import operations but the updater's BAT replacement remained blocked. The same suite passed outside the sandbox. The new PowerShell probe initially omitted the launcher's execution-policy flag; it now uses the same process-scoped Bypass flag as the shipped BAT launcher.
+- Artifacts: synthetic fixtures are disposable; test temp parent is ignored under `artifacts/local/installer-test-temp`. No private files retained in this evidence.
+- Limitations: no full clean-PC installation, real large-archive timing, or package publication performed. Progress tests use an injected clock and small fixtures. Existing installer ZIPs are unchanged. See the [wizard follow-up](2026-10-21-family-wizard.md) for source packaging and native UI validation.
+- Handoff: M0.8 source regression fixed; M0.9 still requires clean-PC install/update qualification. Current imports can finish without restarting to receive these changes.
