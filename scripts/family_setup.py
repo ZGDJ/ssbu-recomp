@@ -154,6 +154,10 @@ def import_archive(archive, root, reserve=RESERVE):
                 continue
             pending.append((name, info, meta, target))
         needed = sum(info.file_size for _, info, _, _ in pending) + reserve
+        # Cancellation can leave a huge partial file. Reclaim only known import
+        # temporaries before checking space; retry restarts these files anyway.
+        for name, _, _, _ in pending:
+            contained(root, name + '.install-part').unlink(missing_ok=True)
         if shutil.disk_usage(root).free < needed:
             raise ValueError(f'Need at least {needed / 1024**3:.1f} GB free to extract and build. Free space and retry.')
         for i, (name, info, meta, target) in enumerate(pending, 1):
@@ -174,6 +178,8 @@ def import_archive(archive, root, reserve=RESERVE):
                         copied += len(block)
                         now = time.monotonic()
                         if now - last_report >= 5:
+                            if shutil.disk_usage(root).free < reserve:
+                                raise ValueError('Free disk space dropped below the build reserve during extraction. Free space and retry; completed files are kept.')
                             print(f'  {copied / info.file_size:.0%} '
                                   f'({copied / 1024**2:.0f} / {info.file_size / 1024**2:.0f} MiB)', flush=True)
                             last_report = now
@@ -214,6 +220,15 @@ def main():
     parser.add_argument('--import-only', action='store_true')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
+    if not args.import_only:
+        import precheck
+        print('Checking Windows, memory, graphics and installation drive before importing...', flush=True)
+        checks = precheck.checks(str(repo / 'build'), need_msvc=False,
+                                dump_dir=str(repo / 'artifacts/local/family-inputs/dump'))
+        for check in checks:
+            print(f"{check['level'].upper()}: {check['what']}: {check['msg']}", flush=True)
+        if any(check['level'] == 'fail' for check in checks):
+            raise ValueError('This PC needs attention before installation. Read the checks above and save a support ZIP if you need help.')
     # Never redirect an existing installation to a different build directory.
     if (repo / 'build_location.txt').exists():
         raise ValueError('This checkout has a custom build location. Use a fresh installer folder.')

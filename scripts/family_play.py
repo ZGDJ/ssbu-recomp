@@ -18,8 +18,14 @@ handle = kernel.CreateMutexW(None, False, name)
 if not handle or kernel.WaitForSingleObject(handle, 0) not in (0, 0x80):
     input('OpenSmash or its installer is already running. Close it first. Press Enter to close.')
     sys.exit(1)
+if (repo / 'build/family-install-pending.json').exists():
+    input('Setup was interrupted. Run Install OpenSmash again before playing. Press Enter to close.')
+    sys.exit(1)
 if (repo / 'artifacts/local/family-update/pending.json').exists():
     input('An update needs to finish. Run Update OpenSmash before playing. Press Enter to close.')
+    sys.exit(1)
+if (repo / 'artifacts/local/save-backups/pending.json').exists():
+    input('Save import was interrupted. Run Import Save again before playing. Press Enter to close.')
     sys.exit(1)
 try:
     result = subprocess.call([sys.executable, str(repo / 'scripts/run.py'), '--play', '--seconds', '0'], cwd=repo)

@@ -17,7 +17,9 @@ LOCAL_FILES = {'FAMILY-UPDATE.json', 'INSTALLER-SOURCE.json', 'INSTALLER-VERSION
 PRIVATE = {'build', 'deps', 'artifacts', 'config', '.git', 'dist', 'sd', 'binaries', 'romfs', 'sysdata'}
 BLOCKED_EXT = {'.keys', '.nsp', '.xci', '.nca', '.arc', '.nso', '.dll', '.exe'}
 REQUIRED = ('scripts/family_setup.py', 'scripts/family_update.py', 'scripts/family_play.py',
-            'scripts/family_setup.ps1', 'scripts/family_wizard.ps1', 'scripts/bootstrap.ps1', 'scripts/install.py',
+            'scripts/family_setup.ps1', 'scripts/family_wizard.ps1', 'scripts/family_process.ps1',
+            'scripts/family_support.ps1', 'scripts/family_support_gui.ps1', 'Collect Logs.bat',
+            'scripts/family_save.py', 'Import Save.bat', 'scripts/bootstrap.ps1', 'scripts/install.py', 'scripts/install_download.py',
             'scripts/setup.py', 'scripts/run.py', 'requirements.txt', 'LICENSE',
             'Install OpenSmash.bat', 'Update OpenSmash.bat', 'Play SSBU.bat')
 

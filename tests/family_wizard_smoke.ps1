@@ -59,6 +59,23 @@ try {
     Assert ($ui.State.Result -eq 0) ('Retry failed: ' + $ui.Details.Text)
     Assert ($ui.Progress.Value -eq 100) 'Success indicator missing.'
     Assert ($ui.Status.Text.Contains('Setup finished')) 'Success instructions missing.'
+    # A persistent log read failure must not prevent process completion or Retry.
+    $reader = ${function:Read-SetupTail}
+    try {
+        function Read-SetupTail { throw 'injected sharing failure' }
+        $ui.Start.Enabled = $true
+        $ui.Start.PerformClick()
+        Wait-ForSetup
+        Assert ($ui.State.Result -eq 0) 'Log read failure hid process completion.'
+    } finally { Set-Item Function:Read-SetupTail $reader }
+    # Small viewport and enlarged controls remain reachable through scrolling.
+    $ui.Form.ClientSize = New-Object Drawing.Size(560, 400)
+    $ui.Form.Scale((New-Object Drawing.SizeF(1.5, 1.5)))
+    $ui.Form.ClientSize = New-Object Drawing.Size(560, 400)
+    $ui.Form.ScrollControlIntoView($ui.Export)
+    [Windows.Forms.Application]::DoEvents()
+    Assert ($ui.Form.AutoScroll -and $ui.Form.VerticalScroll.Visible) 'Small display has no scrollbar.'
+    Assert ($ui.Export.Bottom -le $ui.Form.ClientSize.Height) 'Support control unreachable at enlarged scale.'
     Write-Output 'Wizard smoke test passed: Unicode, busy, close guard, failure, retry, success.'
 } finally {
     $ui.Timer.Stop()

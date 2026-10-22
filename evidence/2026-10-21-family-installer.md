@@ -17,3 +17,5 @@ The working developer installation and running game were not rebuilt or replaced
 The [UTF-8, path preflight and import progress follow-up](2026-10-21-installer-encoding-paths.md) records fixes from the first family installation reports and 24 passing synthetic installer/updater tests. Clean-PC qualification remains M0.9.
 
 The [native setup wizard](2026-10-21-family-wizard.md) adds instructions, live loading status and retry, validated with disposable workers before source packaging.
+
+The [combined hardening](2026-10-21-family-hardening.md) adds save opt-in, contained cancellation, support reports, staged recovery and bounded downloads. It retains the separate M0.9 clean-PC gate.

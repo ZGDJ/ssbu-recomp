@@ -4,9 +4,11 @@
 # deps folder removes everything. Only if that private install fails it falls back to a Python already on the PC
 # (or the per-user python.org installer) and the older tkinter window (scripts\installer_gui.py).
 # Structure of the download/verify/install steps adapted from WindowSmash's tools\install_windowsmash.ps1 (SNO2207).
-param([switch]$NoLaunch, [switch]$PrivateOnly)
+param([switch]$NoLaunch, [switch]$PrivateOnly, [switch]$NonInteractive)
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
+if (-not $NonInteractive) { Add-Type -AssemblyName System.Windows.Forms }
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
 $repo = Split-Path -Parent $PSScriptRoot
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ProgressPreference = 'SilentlyContinue'
@@ -28,15 +30,44 @@ $depsPy = Join-Path $repo 'deps\python'
 $pyExe = Join-Path $depsPy 'python.exe'
 
 function Say([string]$text, [string]$buttons = 'OK', [string]$icon = 'Information') {
+    if ($NonInteractive) { throw $text }
     return [System.Windows.Forms.MessageBox]::Show($text, 'SSBU installer', $buttons, $icon)
 }
 
 function Get-Verified([string]$url, [string]$file, [string]$sha) {
-    if (Test-Path $file) { if ((Get-FileHash $file -Algorithm SHA256).Hash -eq $sha.ToUpper()) { return } ; Remove-Item $file -Force }
-    Write-Host "Downloading $url"
-    Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing
-    $h = (Get-FileHash $file -Algorithm SHA256).Hash
-    if ($h -ne $sha.ToUpper()) { Remove-Item $file -Force; throw "SHA-256 mismatch for $(Split-Path -Leaf $file): got $h" }
+    if ((Test-Path -LiteralPath $file) -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -eq $sha.ToUpper()) { return }
+    # Publish only a complete, verified download. An interrupted .download-part is safe to overwrite on Retry.
+    $part = "$file.download-part"
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Write-Host "Downloading $(Split-Path -Leaf $file) (attempt $attempt/3; timeout 120 seconds) ..."
+            Invoke-WebRequest -Uri $url -OutFile $part -UseBasicParsing -TimeoutSec 120
+            $h = (Get-FileHash -LiteralPath $part -Algorithm SHA256).Hash
+            if ($h -ne $sha.ToUpper()) { throw "SHA-256 mismatch: got $h" }
+            Move-Item -LiteralPath $part -Destination $file -Force
+            return
+        } catch {
+            Write-Host "Download attempt $attempt failed: $($_.Exception.Message)"
+            if ($attempt -eq 3) {
+                throw "Could not download or verify $(Split-Path -Leaf $file) after 3 attempts. Check your connection, free disk space, and folder permissions, then choose Retry. Details: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
+# Only move direct children of this install's real deps directory; reject junctions/symlinks.
+function Assert-PrivatePath([string]$path) {
+    $parent = [IO.Path]::GetFullPath((Join-Path $repo 'deps')).TrimEnd('\')
+    $full = [IO.Path]::GetFullPath($path)
+    if ((Split-Path -Parent $full) -ne $parent) { throw "Unsafe private Python path: $path" }
+    foreach ($candidate in @($repo, $parent, $full)) {
+        if (Test-Path -LiteralPath $candidate) {
+            if ((Get-Item -LiteralPath $candidate -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Private Python recovery cannot use a linked folder: $candidate. Use a regular installation folder."
+            }
+        }
+    }
 }
 
 # Files from a downloaded ZIP carry the Mark-of-the-Web; clear it so Windows does not block the scripts and tools.
@@ -48,25 +79,28 @@ function Unblock-Tree {
     } catch {}
 }
 
-function Test-Private {
-    if (-not (Test-Path $pyExe)) { return $false }
+function Test-Private([string]$exe = $pyExe) {
+    if (-not (Test-Path -LiteralPath $exe)) { return $false }
     try {
-        & $pyExe -c "import numpy, lz4, zstandard, PIL, unicorn, capstone, Crypto" 2>$null | Out-Null
+        & $exe -c "import numpy, lz4, zstandard, PIL, unicorn, capstone, Crypto" 2>$null | Out-Null
         return $LASTEXITCODE -eq 0
     } catch { return $false }
 }
 
 function Install-Private {
     New-Item -ItemType Directory -Force $dl | Out-Null
-    if (-not (Test-Path $pyExe)) {
-        $zip = Join-Path $dl "python-$pyVersion-embed-amd64.zip"
-        Get-Verified $embedUrl $zip $embedSha
-        if (Test-Path $depsPy) { throw 'Existing private Python folder is incomplete. Preserve it and use a fresh installer folder.' }
-        New-Item -ItemType Directory -Force $depsPy | Out-Null
-        Expand-Archive -LiteralPath $zip -DestinationPath $depsPy -Force
-    }
+    # Build a fresh runtime beside the active one. Interrupted attempts never poison the next Retry.
+    $stage = Join-Path $repo ("deps\python-stage-" + [Guid]::NewGuid().ToString('N'))
+    Assert-PrivatePath $depsPy
+    Assert-PrivatePath $stage
+    $zip = Join-Path $dl "python-$pyVersion-embed-amd64.zip"
+    Get-Verified $embedUrl $zip $embedSha
+    New-Item -ItemType Directory -Force $stage | Out-Null
+    Write-Host 'Preparing a fresh private Python runtime ...'
+    Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force
+    $installExe = Join-Path $stage 'python.exe'
     # enable site-packages: pythonXY._pth has "#import site"
-    $pth = Get-ChildItem $depsPy -Filter 'python*._pth' | Select-Object -First 1
+    $pth = Get-ChildItem $stage -Filter 'python*._pth' | Select-Object -First 1
     if (-not $pth) { throw 'python._pth not found in the embeddable package' }
     $txt = (Get-Content $pth.FullName) -replace '^\s*#\s*import site', 'import site'
     Set-Content -Path $pth.FullName -Value $txt -Encoding ASCII
@@ -74,8 +108,7 @@ function Install-Private {
     $whl = Join-Path $dl $pipName
     Get-Verified $pipUrl $whl $pipSha
     Write-Host 'Installing pip and the Python packages (about 100 MB) ...'
-    $ErrorActionPreference = 'Continue'      # pip writes notices to stderr; only the exit codes count here
-    $site = Join-Path $depsPy 'Lib\site-packages'
+    $site = Join-Path $stage 'Lib\site-packages'
     New-Item -ItemType Directory -Force $site | Out-Null
     $zipCopy = Join-Path $dl 'pip-wheel.zip'
     Copy-Item $whl $zipCopy -Force
@@ -85,11 +118,27 @@ function Install-Private {
     # import their neighbours. A .pth line puts the running script's folder first, as a normal Python does.
     Set-Content -Path (Join-Path $site 'ssbu_scriptdir.pth') -Encoding ASCII -Value `
         "import sys, os; a = sys.argv[0] if sys.argv else ''; (a and os.path.isfile(a) and sys.path.insert(0, os.path.dirname(os.path.abspath(a))))"
-    & $pyExe -m pip --version
+    $ErrorActionPreference = 'Continue' # Native stderr is diagnostic; test the exit code.
+    & $installExe -m pip --version
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw "pip could not be installed (code $LASTEXITCODE)" }
-    & $pyExe -m pip install --only-binary=:all: --no-warn-script-location --disable-pip-version-check -r (Join-Path $repo 'requirements.txt')
+    $ErrorActionPreference = 'Continue'
+    & $installExe -m pip install --timeout 60 --retries 3 --only-binary=:all: --no-warn-script-location --disable-pip-version-check -r (Join-Path $repo 'requirements.txt')
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw "pip install -r requirements.txt failed (code $LASTEXITCODE)" }
-    if (-not (Test-Private)) { throw 'the private Python does not import its packages' }
+    if (-not (Test-Private $installExe)) { throw 'the private Python does not import its packages' }
+    $ErrorActionPreference = 'Stop'
+    # Retain the previous runtime for recovery; no recursive deletion or overwrite of user data.
+    Assert-PrivatePath $depsPy
+    Assert-PrivatePath $stage
+    if (Test-Path -LiteralPath $depsPy) {
+        $backup = Join-Path $repo ("deps\python-backup-" + [Guid]::NewGuid().ToString('N'))
+        Assert-PrivatePath $backup
+        Move-Item -LiteralPath $depsPy -Destination $backup
+        Write-Host "Previous private Python preserved in $(Split-Path -Leaf $backup)."
+    }
+    Move-Item -LiteralPath $stage -Destination $depsPy
+    Write-Host 'Private Python is ready.'
 }
 
 # --- the older way, kept as a fallback ---
@@ -146,7 +195,11 @@ try {
     $ok = Test-Private
     if (-not $ok) {
         try { Install-Private; $ok = $true }
-        catch { Write-Host "Private Python install failed: $($_.Exception.Message)"; Write-Host 'Trying a Python already on this PC instead ...' }
+        catch {
+            Write-Host "Private Python install failed: $($_.Exception.Message)"
+            if ($PrivateOnly -or $NonInteractive) { throw }
+            Write-Host 'Trying a Python already on this PC instead ...'
+        }
     }
     if ($ok) {
         Set-Content -Path (Join-Path $repo 'build\python_path.txt') -Value $pyExe -Encoding ASCII
@@ -155,10 +208,12 @@ try {
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', "`"$repo\scripts\installer_window.ps1`"")
         }
     } else {
-        if ($PrivateOnly) { throw 'Private Python setup failed; no system installation was attempted. Check the network and retry.' }
+        if ($PrivateOnly -or $NonInteractive) { throw 'Private Python setup failed; no system installation was attempted. Check the network and retry.' }
         Start-Fallback
     }
 } catch {
+    Write-Host "SETUP STOPPED: $($_.Exception.Message)"
+    if ($NonInteractive) { exit 1 }
     Say "The installer could not start: $($_.Exception.Message)" 'OK' 'Error' | Out-Null
     exit 1
 }

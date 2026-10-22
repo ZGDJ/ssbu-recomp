@@ -28,7 +28,7 @@ M7 completion means source failure regressions and production wiring are verifie
 - Evidence: evidence/2026-10-21-family-installer.md
 - Acceptance: Prepared ZIP import validates paths and hashes; click-to-update follows a fork branch, preserves data/saves and resumes failures; source-only distributable and synthetic failure cases verified.
 - Owner: unassigned
-- Next: Native wizard, UTF-8 output, path preflight and import progress validated with fixtures; package the isolated installer revision for sharing. Qualify full installation and two-version update on a clean PC under M0.9; publish only after owner authorization.
+- Next: Combined save/wizard recovery validated with fixtures and fresh private-Python bootstrap; package and align family channel. Full game installation/launch and two-version update on a separate clean PC remain M0.9.
 - Blocker: none
 
 ### M0.9 - Qualify family setup and updates on a clean PC
