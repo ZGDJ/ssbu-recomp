@@ -8,7 +8,7 @@
 #define LOG(...) ((void)0)
 static uint64_t g_hs_note[16][2];
 static int g_hs_nnote,g_hs_on=-1;
-static volatile LONG g_hs_note_failed,g_bf_failed;
+static volatile LONG g_hs_note_failed,g_bf_failed,g_hs_thread_failed;
 static uint8_t *g_ns2;
 static int exclusions;
 static uint64_t last_lo,last_hi;
@@ -18,7 +18,7 @@ static void hs_exclude(uint64_t lo,uint64_t hi,const char *why){
 /* NOTE_SOURCE */
 static void reset(void){
     memset(g_hs_note,0,sizeof g_hs_note);g_hs_nnote=0;
-    g_hs_note_failed=g_bf_failed=0;g_ns2=NULL;g_hs_on=-1;exclusions=0;
+    g_hs_note_failed=g_bf_failed=g_hs_thread_failed=0;g_ns2=NULL;g_hs_on=-1;exclusions=0;
 }
 static void fill(void){for(int i=0;i<16;i++)r1_host_stack_note(0x1000+(uint64_t)i*0x1000,0x1800+(uint64_t)i*0x1000);}
 int main(void){
@@ -56,5 +56,6 @@ int main(void){
     }
     reset();g_bf_failed=1;assert(!host_inventory_valid()&&!g_hs_note_failed);
     reset();g_hs_note_failed=1;assert(!host_inventory_valid()&&!g_bf_failed);
+    reset();g_hs_thread_failed=1;assert(!host_inventory_valid());
     puts("host_stack_notes_source_test: PASS");return 0;
 }

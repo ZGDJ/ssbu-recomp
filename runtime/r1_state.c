@@ -17,6 +17,7 @@
  * and on reading suspended threads' contexts; on Linux that would be signal handlers and ucontext. Off as when SSBU_R1 and
  * runahead are not set: every entry answers "off", so the callers take their normal paths. */
 #include <stdio.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <windows.h>
@@ -129,40 +130,78 @@ static void add_range(uint8_t *a, size_t n) {
 }
 static int rw(DWORD p) { return (p & 0xff) == PAGE_READWRITE || (p & 0xff) == PAGE_EXECUTE_READWRITE; }
 /* the committed read-write parts of [lo, hi) */
+static int inventory_query(uintptr_t p, MEMORY_BASIC_INFORMATION *m, uintptr_t *end) {
+    if (VirtualQuery((void *)p, m, sizeof *m) != sizeof *m) return 0;
+    uintptr_t base = (uintptr_t)m->BaseAddress;
+    if (base > p || !m->RegionSize || m->RegionSize > UINTPTR_MAX - base) return 0;
+    *end = base + m->RegionSize;
+    return *end > p;
+}
+static int inventory_bounds(uintptr_t *first, uintptr_t *limit) {
+    SYSTEM_INFO info; GetSystemInfo(&info);
+    *first = (uintptr_t)info.lpMinimumApplicationAddress;
+    uintptr_t last = (uintptr_t)info.lpMaximumApplicationAddress;
+    if (last == UINTPTR_MAX || *first > last) return 0;
+    *limit = last + 1; return *first < *limit;
+}
+static int inventory_alloc_span(void *inside, uintptr_t *base, uintptr_t *end) {
+    uintptr_t first, limit, next, p = (uintptr_t)inside; MEMORY_BASIC_INFORMATION m;
+    if (!inside || !inventory_bounds(&first, &limit) || p < first || p >= limit ||
+        !inventory_query(p, &m, &next) || next > limit || m.State == MEM_FREE || !m.AllocationBase) return 0;
+    uintptr_t allocation = (uintptr_t)m.AllocationBase;
+    if (allocation < first || allocation > p) return 0;
+    p = allocation;
+    while (p < limit) {
+        if (!inventory_query(p, &m, &next) || next > limit) return 0;
+        if ((uintptr_t)m.AllocationBase != allocation) break;
+        if (m.State == MEM_FREE) return 0;
+        p = next;
+    }
+    if (p == allocation) return 0;
+    *base = allocation; *end = p; return 1;
+}
 static void add_span(uint8_t *lo, uint8_t *hi) {
-    MEMORY_BASIC_INFORMATION m;
-    for (uint8_t *p = lo; p < hi && VirtualQuery(p, &m, sizeof m); p = (uint8_t *)m.BaseAddress + m.RegionSize) {
-        if (m.State == MEM_COMMIT && rw(m.Protect) && !(m.Protect & PAGE_GUARD)) {
-            uint8_t *a = (uint8_t *)m.BaseAddress, *b = a + m.RegionSize;
-            if (a < lo) a = lo;
-            if (b > hi) b = hi;
-            add_range(a, (size_t)(b - a));
-        }
+    uintptr_t p = (uintptr_t)lo, limit = (uintptr_t)hi;
+    if (p > limit) { g_collect_failed = 1; return; }
+    while (p < limit) {
+        MEMORY_BASIC_INFORMATION m; uintptr_t next;
+        if (!inventory_query(p, &m, &next)) { g_collect_failed = 1; return; }
+        uintptr_t end = next < limit ? next : limit;
+        if (m.State == MEM_COMMIT && rw(m.Protect) && !(m.Protect & PAGE_GUARD)) add_range((uint8_t *)p, (size_t)(end - p));
+        p = end;
     }
 }
 static void add_alloc(void *inside) {
-    MEMORY_BASIC_INFORMATION m;
-    if (!VirtualQuery(inside, &m, sizeof m) || !m.AllocationBase) return;
-    uint8_t *base = (uint8_t *)m.AllocationBase, *p = base;
-    while (VirtualQuery(p, &m, sizeof m) && m.AllocationBase == base) p = (uint8_t *)m.BaseAddress + m.RegionSize;
-    add_span(base, p);
+    if (!inside) return;                              /* optional TLS/arena may be absent */
+    uintptr_t base, end;
+    if (!inventory_alloc_span(inside, &base, &end)) { g_collect_failed = 1; return; }
+    add_span((uint8_t *)base, (uint8_t *)end);
 }
-static void find_heaps(void) {             /* once: the reservations of >= 16 GB (the game's address region) */
-    MEMORY_BASIC_INFORMATION m;
+static void find_heaps(void) {                        /* complete scan or lifetime-sticky refusal */
+    if (g_heap_inventory_failed) return;
+    uintptr_t first, limit;
+    if (!inventory_bounds(&first, &limit)) { g_heap_inventory_failed = 1; return; }
+    g_nheap = 0;
     uint8_t *cur = NULL; size_t span = 0;
-    for (uint8_t *p = (uint8_t *)0x10000; (uintptr_t)p < 0x7FFFFFFF0000ull && VirtualQuery(p, &m, sizeof m); p = (uint8_t *)m.BaseAddress + m.RegionSize) {
+    for (uintptr_t p = first; p < limit;) {
+        MEMORY_BASIC_INFORMATION m; uintptr_t next;
+        if (!inventory_query(p, &m, &next) || next > limit ||
+            (m.AllocationBase && ((uintptr_t)m.AllocationBase < first || (uintptr_t)m.AllocationBase > p))) {
+            g_heap_inventory_failed = 1; return;
+        }
         if (m.AllocationBase != cur) {
             if (cur && span >= (16ull << 30)) {
-                if (g_nheap < 8) g_heap_base[g_nheap++] = cur;
-                else g_heap_inventory_failed = 1;
+                if (g_nheap == 8) { g_heap_inventory_failed = 1; return; }
+                g_heap_base[g_nheap++] = cur;
             }
             cur = (uint8_t *)m.AllocationBase; span = 0;
         }
-        if (cur) span += m.RegionSize;
+        if (cur) span += next - p;
+        p = next;
     }
     if (cur && span >= (16ull << 30)) {
-        if (g_nheap < 8) g_heap_base[g_nheap++] = cur;
-        else g_heap_inventory_failed = 1;
+        if (g_nheap == 8) { g_heap_inventory_failed = 1; return; }
+        g_heap_base[g_nheap++] = cur;
     }
     for (int i = 0; i < g_nheap; i++) LOG("r1: game address region %d at %p\n", i, (void *)g_heap_base[i]);
 }
@@ -1280,10 +1319,11 @@ static void hs_fiber_cb(uint64_t key, Ctx *c, uint64_t stack, uint64_t size, voi
 extern void (*g_r1_fiber_born)(void *fiber);           /* os_threads.c: a host fiber made later (fib_init, a fresh one at a restore) */
 static void hs_fiber_born(void *fiber) { if (fiber) { long long b = g_hs_pages; hs_fiber_cb(0, NULL, 0, 0, fiber); if (g_hs_pages != b) g_hs_fibers_later++; } }
 static uint64_t g_hs_note[16][2]; static int g_hs_nnote;     /* host stacks this exe makes itself (not threads, not guest fibers): noted, left out at the setup */
-static volatile LONG g_hs_note_failed;
+static volatile LONG g_hs_note_failed, g_hs_thread_failed;
 static int host_inventory_valid(void) {
     return !InterlockedCompareExchange(&g_bf_failed, 0, 0) &&
-           !InterlockedCompareExchange(&g_hs_note_failed, 0, 0);
+           !InterlockedCompareExchange(&g_hs_note_failed, 0, 0) &&
+           !InterlockedCompareExchange(&g_hs_thread_failed, 0, 0);
 }
 static void r1_host_stack_note(uint64_t lo, uint64_t hi) {
     if (lo >= hi || hi - lo > (1ull << 32) || g_hs_nnote < 0 || g_hs_nnote > 16) {
@@ -1299,25 +1339,46 @@ static void r1_host_stack_note(uint64_t lo, uint64_t hi) {
     if (g_ns2 && (g_hs_on < 0 || g_hs_on)) hs_exclude(lo, hi, "host stack (noted)");
 }
 typedef struct { LONG st; void *teb; void *pid, *tid; ULONG_PTR mask; LONG pri, bpri; } HsTbi;
+static void hs_thread_close(HANDLE h) {
+    if (!CloseHandle(h)) { LOG("r1: HOST THREAD FATAL: handle release failed\n"); abort(); }
+}
+static int hs_threads_exclude(int *nth) {
+    typedef LONG (WINAPI *QitFn)(HANDLE, int, void *, ULONG, ULONG *);
+    HMODULE module = GetModuleHandleA("ntdll.dll");
+    QitFn qit = module ? (QitFn)(void *)GetProcAddress(module, "NtQueryInformationThread") : NULL;
+    if (!qit) goto failed;
+    HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (sn == INVALID_HANDLE_VALUE) goto failed;
+    THREADENTRY32 te; te.dwSize = sizeof te; DWORD pid = GetCurrentProcessId();
+    for (BOOL ok = Thread32First(sn, &te); ok; ok = Thread32Next(sn, &te)) {
+        if (te.dwSize < offsetof(THREADENTRY32, th32OwnerProcessID) + sizeof te.th32OwnerProcessID) { hs_thread_close(sn); goto failed; }
+        if (te.th32OwnerProcessID != pid) continue;
+        HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, te.th32ThreadID);
+        if (!h) { hs_thread_close(sn); goto failed; }
+        HsTbi tb; memset(&tb, 0, sizeof tb);
+        uint64_t lo = 0, hi = 0;
+        int valid = qit(h, 0, &tb, sizeof tb, NULL) >= 0 && tb.teb &&
+            (uintptr_t)tb.teb <= UINTPTR_MAX - 0x1480 &&
+            fiber_capture_read(NULL, (uint8_t *)tb.teb + 0x1478, &lo, sizeof lo) &&
+            fiber_capture_read(NULL, (uint8_t *)tb.teb + 0x08, &hi, sizeof hi) &&
+            lo && lo < hi && hi - lo <= (1ull << 32);
+        hs_thread_close(h);
+        if (!valid) { hs_thread_close(sn); goto failed; }
+        char name[48]; snprintf(name, sizeof name, "thread %lu stack", (unsigned long)te.th32ThreadID);
+        hs_exclude(lo, hi, name); (*nth)++;
+    }
+    DWORD end_error = GetLastError();
+    hs_thread_close(sn);
+    if (end_error != ERROR_NO_MORE_FILES) goto failed;
+    return 1;
+failed:
+    InterlockedExchange(&g_hs_thread_failed, 1); return 0;
+}
 static void hs_exclude_all(void) {
     if (g_hs_on < 0) { const char *e = getenv("SSBU_R1_HOST_STACKS"); g_hs_on = !(e && e[0] == '0'); }
     if (!g_hs_on) return;
-    typedef LONG (WINAPI *QitFn)(HANDLE, int, void *, ULONG, ULONG *);
-    QitFn qit = (QitFn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryInformationThread");
-    HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-    THREADENTRY32 te; te.dwSize = sizeof te; DWORD pid = GetCurrentProcessId(); int nth = 0;
-    for (BOOL ok = qit && sn != INVALID_HANDLE_VALUE && Thread32First(sn, &te); ok; ok = Thread32Next(sn, &te)) {
-        if (te.th32OwnerProcessID != pid) continue;
-        HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, te.th32ThreadID); if (!h) continue;
-        HsTbi tb; memset(&tb, 0, sizeof tb);
-        if (qit(h, 0, &tb, sizeof tb, NULL) >= 0 && tb.teb) {
-            uint8_t *teb = tb.teb; char nm[48]; snprintf(nm, sizeof nm, "thread %lu stack", (unsigned long)te.th32ThreadID);
-            hs_exclude(*(uint64_t *)(teb + 0x1478), *(uint64_t *)(teb + 0x08), nm);    /* DeallocationStack .. StackBase (the whole reservation) */
-            nth++;
-        }
-        CloseHandle(h);
-    }
-    if (sn != INVALID_HANDLE_VALUE) CloseHandle(sn);
+    int nth = 0;
+    if (!hs_threads_exclude(&nth)) { LOG("r1: host-stack exclusion refused: incomplete host thread inventory\n"); return; }
     os_r1_fibers(hs_fiber_cb);
     for (int i = 0; i < g_hs_nnote; i++) hs_exclude(g_hs_note[i][0], g_hs_note[i][1], "host stack (noted)");
     g_r1_fiber_born = hs_fiber_born;
@@ -1403,9 +1464,12 @@ static int mark_setup(void) {
     if (!mark_modules_prepare()) { LOG("r1: MARK setup refused: incomplete module export inventory\n"); return 0; }
     size_t big = 0; uint8_t *base = NULL;
     for (int i = 0; i < g_nheap; i++) {
-        MEMORY_BASIC_INFORMATION m; uint8_t *p = g_heap_base[i];
-        while (VirtualQuery(p, &m, sizeof m) && m.AllocationBase == g_heap_base[i]) p = (uint8_t *)m.BaseAddress + m.RegionSize;
-        if ((size_t)(p - g_heap_base[i]) > big && g_heap_base[i] != g_ar) { big = (size_t)(p - g_heap_base[i]); base = g_heap_base[i]; }
+        uintptr_t lo, hi;
+        if (!inventory_alloc_span(g_heap_base[i], &lo, &hi)) {
+            g_mark_module_count = g_mark_modules_prepared = 0;
+            LOG("r1: MARK setup refused: incomplete heap reservation inventory\n"); return 0;
+        }
+        if ((size_t)(hi - lo) > big && g_heap_base[i] != g_ar) { big = (size_t)(hi - lo); base = (uint8_t *)lo; }
     }
     g_win1 = base; g_wn1 = big;
     g_mctx = g_ctx_save;                               /* main's registers of this (full) save */

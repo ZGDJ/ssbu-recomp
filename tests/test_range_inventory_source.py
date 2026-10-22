@@ -19,7 +19,7 @@ from test_capture_reservation_source import branch
 class RangeInventorySourceTest(unittest.TestCase):
     def test_production_inventory(self):
         source = (ROOT / "runtime/r1_state.c").read_text()
-        names = ("add_range", "find_heaps", "ex_cb", "cmp_rng", "release", "collect")
+        names = ("inventory_query", "inventory_bounds", "add_range", "find_heaps", "ex_cb", "cmp_rng", "release", "collect")
         block = "\n".join(function(source, name) for name in names)
         fixture = (ROOT / "tests/range_inventory_source_fixture.c").read_text()
         ring = (ROOT / "runtime/r1_ring.c").read_text()

@@ -93,3 +93,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_ring_init_source.py -v
       - name: Module mark-map publication regressions
         run: python -m unittest discover -s tests -p test_mark_modules_source.py -v
+      - name: Memory inventory completeness regressions
+        run: python -m unittest discover -s tests -p test_memory_inventory_source.py -v
+      - name: Host thread inventory completeness regressions
+        run: python -m unittest discover -s tests -p test_host_thread_inventory_source.py -v

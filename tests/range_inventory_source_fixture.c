@@ -35,11 +35,13 @@ static const char *fixture_getenv(const char *name) {
 }
 static SIZE_T WINAPI fixture_query(LPCVOID p, PMEMORY_BASIC_INFORMATION m, SIZE_T n) {
     (void)p; (void)n;
+    if(!heap_count) { memset(m,0,sizeof *m);m->BaseAddress=(void *)0x10000;m->RegionSize=4096;m->State=MEM_FREE;query_count++;return sizeof *m; }
     if(query_count >= heap_count) return 0;
     memset(m,0,sizeof *m);
     m->AllocationBase=m->BaseAddress=(void *)(uintptr_t)(0x10000ull+(uint64_t)query_count*(16ull<<30));
     m->RegionSize=16ull<<30; query_count++; return sizeof *m;
 }
+static void fixture_system(SYSTEM_INFO *s){memset(s,0,sizeof *s);s->lpMinimumApplicationAddress=(void *)0x10000;s->lpMaximumApplicationAddress=(void *)(uintptr_t)(0x10000ull+(heap_count?(uint64_t)heap_count*(16ull<<30):4096)-1);}
 static void add_range(uint8_t *,size_t);
 static void add_span(uint8_t *lo,uint8_t *hi) { (void)lo;(void)hi; }
 static void add_alloc(void *p) { (void)p; }
@@ -66,6 +68,7 @@ static void os_r1_objs(ObjectCallback cb) {
 #define free tracked_free
 #define getenv fixture_getenv
 #define VirtualQuery fixture_query
+#define GetSystemInfo fixture_system
 /* INVENTORY_SOURCE */
 #undef free
 #undef getenv

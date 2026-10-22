@@ -24,7 +24,7 @@ def pointer_function(source, name):
 class MarkSetupSourceTests(unittest.TestCase):
     def test_exact_setup(self):
         source = (ROOT / "runtime/r1_state.c").read_text()
-        block = function(source, "extra_append") + "\n" + pointer_function(source, "in_shadow")
+        block = "\n".join(function(source,n) for n in ("inventory_query", "inventory_bounds", "inventory_alloc_span")) + "\n" + function(source, "extra_append") + "\n" + pointer_function(source, "in_shadow")
         block += "\n" + function(source, "sh_commit")
         block += "\n" + function(source, "mark_vfree")
         block += "\n" + function(source, "mark_undo") + "\n" + function(source, "mark_setup")

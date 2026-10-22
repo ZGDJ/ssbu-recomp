@@ -59,9 +59,15 @@ static void *fixture_copy(void *d,const void *s,size_t n){
         if(o<g_r[i].n&&n<=g_r[i].n-o)for(size_t j=o/PG;j<(o+n+PG-1)/PG;j++)assert(!retired[i][j]);}
     return memcpy(d,s,n);
 }
+static int query_calls,query_failure;
 static SIZE_T WINAPI fixture_query(LPCVOID p,PMEMORY_BASIC_INFORMATION m,SIZE_T n){
-    (void)n;if(p!=guest1)return 0;memset(m,0,sizeof *m);m->BaseAddress=m->AllocationBase=guest1;m->RegionSize=sizeof guest1;return sizeof *m;
+    assert(n==sizeof *m);if(++query_calls==query_failure)return 0;
+    memset(m,0,sizeof *m);m->BaseAddress=(void *)p;
+    if(p==guest1){m->AllocationBase=guest1;m->RegionSize=sizeof guest1;m->State=MEM_COMMIT;}
+    else {assert(p==guest1+sizeof guest1);m->RegionSize=PG;m->State=MEM_FREE;}
+    return sizeof *m;
 }
+static void fixture_system(SYSTEM_INFO *s){memset(s,0,sizeof *s);s->lpMinimumApplicationAddress=guest1;s->lpMaximumApplicationAddress=guest1+sizeof guest1+PG-1;}
 static HANDLE WINAPI fixture_snapshot(DWORD flags,DWORD pid){(void)flags;(void)pid;return INVALID_HANDLE_VALUE;}
 static int host_failed,host_scan_failure,module_allowed=1,module_prepares,module_publishes;
 static int g_mark_module_count,g_mark_modules_prepared;
@@ -78,6 +84,7 @@ static const char *where(uint8_t *a){(void)a;return "fixture";}
 #define VirtualAlloc fixture_alloc
 #define VirtualFree fixture_vfree
 #define VirtualQuery fixture_query
+#define GetSystemInfo fixture_system
 #define CreateToolhelp32Snapshot fixture_snapshot
 /* MARK_SOURCE */
 #undef malloc
@@ -107,7 +114,7 @@ static void teardown(void){
     for(int i=0;i<object_count;i++){assert(!objects[i].live);free(objects[i].p);}object_count=0;
 }
 static void configure(int extras_count,int long_extra){
-    teardown();module_allowed=1;module_prepares=module_publishes=0;host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
+    teardown();query_calls=query_failure=0;module_allowed=1;module_prepares=module_publishes=0;host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
     memset(&g_ctx_save,0x42,sizeof g_ctx_save);
 }
 static void verify(int extras_count){
@@ -119,6 +126,8 @@ static void verify(int extras_count){
     for(int i=0;i<g_nx;i++)for(size_t j=0;j<g_x[i].n;j++)assert(g_x[i].b[j]==0x32+i);
 }
 static void ordinary(void){
+    for(int q=1;q<=3;q++){configure(1,0);query_failure=q;assert(!mark_setup());unpublished();assert(!alloc_calls&&!module_publishes&&!drop_calls);configure(1,0);verify(1);}
+
     configure(1,0);module_allowed=0;assert(!mark_setup());unpublished();assert(!alloc_calls&&!module_publishes);
     configure(1,0);host_scan_failure=1;assert(!mark_setup());unpublished();assert(!commit_calls&&!drop_calls);
     host_scan_failure=0;assert(!mark_setup());unpublished();assert(host_failed);
