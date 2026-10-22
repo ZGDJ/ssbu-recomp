@@ -83,7 +83,8 @@ static uint64_t g_catch_addr;
 __declspec(dllexport) uint8_t *r1_m1, *r1_m2;          /* the exe's own copy (r1src\sdklift_gen.c built with R1_MARK) */
 __declspec(dllexport) uint64_t r1_lo1, r1_n1, r1_n2;
 static int g_fast = -1, g_learn = 5, g_fcheck;
-static void async_learn(void); static void fast_report(void); static void fast_check(void); static void mark_report(void);
+static int g_capture_mode_failed;
+static int async_learn(void); static void fast_report(void); static void fast_check(void); static void mark_report(void);
 #define LOG(...) do { fprintf(g_log, __VA_ARGS__); fflush(g_log); } while (0)
 
 /* end-of-first-pass copies of the pages the first pass changed */
@@ -408,7 +409,7 @@ typedef struct { HANDLE h; Ctx *c; const char *name; uint64_t from; const char *
 /* (R3 hs16) cok: rsp / rip read by th_blocked while this thread is held (suspended by us ever since): live_rsps uses them
  * instead of asking Windows again (GetThreadContext of a thread blocked in the kernel costs ~20 us: 0.5 ms per capture) */
 static int g_audio_free;
-static void async_add(uint8_t *a);
+static int async_add(uint8_t *a);
 static long long g_th_audio_other;                   /* (R3 hs11) ring loads that took an audio thread at another wait (ra_hold_restore) */
 static Th g_th[256]; static int g_nth, g_th_mismatch, g_ninfo, g_park_ms = 500;
 static int g_th_running;                              /* (R3 pub1) ra_hold_restore: threads still RUNNING (not blocked at a wait) after the 500 ms */
@@ -944,6 +945,7 @@ static int g_ra, g_save_failed; static int ra_hold_quiet(double limit);
 size_t nvn_r1_cb_save(void); void nvn_r1_cb_capture_config(void); void nvn_r1_cb_restore(void); static size_t g_ra_cb_bytes;      /* nvn_gl.c; SIZE_MAX save result means refusal */
 static size_t g_saved_bytes;
 static void save(Ctx *c) {
+    if (g_capture_mode_failed) { g_save_failed = 2; LOG("r1: SAVE refused: incomplete capture-mode coverage\n"); return; }
     fibers_capture_config(); nvn_r1_cb_capture_config();
     double t0 = now_ms();
     if (!collect(c)) {
@@ -976,7 +978,7 @@ static void save(Ctx *c) {
         if (!bad && g_ecap < 65536) { void *ne = realloc(g_e, 65536 * sizeof *g_e); if (ne) { g_e = ne; g_ecap = 65536; } else { bad = 1; LOG("r1: FULL SAVE NOT MADE: list allocation FAILED\n"); } }   /* no allocation while threads are held */
         if (bad) { release(); g_save_failed = 2; return; }
     }
-    if (g_fast > 0 && g_cycle < g_learn) async_learn();
+    if (g_fast > 0 && g_cycle < g_learn && !async_learn()) { release(); g_save_failed = 2; return; }
     double tp0 = now_ms();
     if (g_ra > 0) { if (!ra_hold_quiet(200)) { LOG("r1: RA: first save: no quiet moment within 200 ms: not now\n"); g_save_failed = 1; return; } } else park_quiet(0);
     if (!fibers_save()) { unpark(); release(); g_save_failed = 3; return; }
@@ -993,7 +995,7 @@ static void save(Ctx *c) {
                 Rng *r = &g_r[i];
                 for (size_t p = 0; p < r->n / PG; p++)
                     if (memcmp(r->a + p * PG, r->s + p * PG, PG)) {
-                        r->async[p] = 1; np++; if (g_audio_free) async_add(r->a + p * PG);
+                        r->async[p] = 1; np++; if (g_audio_free && !async_add(r->a + p * PG)) { unpark(); release(); g_save_failed = 2; return; }
                         memcpy(r->s + p * PG, r->a + p * PG, PG);
                         if (g_cycle == 0 && shown < 40) g_e[shown++].a = r->a + p * PG;
                     }
@@ -1023,29 +1025,67 @@ static void save(Ctx *c) {
 static size_t g_learn_pages;
 static double learned_copy_ms(int restore_dir) {
     static uint8_t *buf; static size_t cap;
-    if (cap < g_learn_pages * PG) { free(buf); cap = g_learn_pages * PG + (64u << 20); buf = malloc(cap); }
-    double t0 = now_ms(); size_t o = 0;
+    (void)restore_dir;                                /* benchmark copies only into scratch */
+    size_t pages = 0;
+    if (g_nr < 0 || g_nr > MAXR) goto unavailable;
     for (int i = 0; i < g_nr; i++) {
         Rng *r = &g_r[i];
         if (!r->learn) continue;
-        for (size_t p = 0; p < r->n / PG; p++) if (r->learn[p]) {
-            if (restore_dir) memcpy(buf + o, r->a + p * PG, PG); else memcpy(buf + o, r->a + p * PG, PG);
-            o += PG;
+        if (!r->a || r->n % PG || r->n > UINTPTR_MAX - (uintptr_t)r->a) goto unavailable;
+        for (size_t j = 0; j < r->n / PG; j++) if (r->learn[j]) {
+            if (pages == SIZE_MAX / PG) goto unavailable;
+            pages++;
         }
     }
+    size_t bytes = pages * PG;
+    if (cap < bytes) {
+        if (bytes > SIZE_MAX - (64u << 20)) goto unavailable;
+        size_t capacity = bytes + (64u << 20);
+        uint8_t *next = realloc(buf, capacity);
+        if (!next) goto unavailable;
+        buf = next; cap = capacity;
+    }
+    double t0 = now_ms(); size_t offset = 0;
+    for (int i = 0; i < g_nr; i++) {
+        Rng *r = &g_r[i]; if (!r->learn) continue;
+        for (size_t j = 0; j < r->n / PG; j++) if (r->learn[j]) {
+            if (offset > bytes || PG > bytes - offset) goto unavailable;
+            memcpy(buf + offset, r->a + j * PG, PG); offset += PG;
+        }
+    }
+    if (offset != bytes) goto unavailable;
     return now_ms() - t0;
+unavailable:
+    LOG("r1: learned copy benchmark unavailable: inventory or allocation failure\n"); return NAN;
 }
 typedef struct { uint8_t *a; size_t n; uint8_t *learn; } Learn;      /* the learned set survives the range list */
 static Learn g_l[MAXR]; static int g_nl;
-static void learn_merge(void) {
+static int learn_merge(void) {
+    if (g_capture_mode_failed) return 0;
+    if (g_nr < 0 || g_nr > MAXR || g_nl < 0 || g_nl > MAXR) goto failed;
+    for (int j = 0; j < g_nl; j++)
+        if (!g_l[j].a || !g_l[j].learn || !g_l[j].n || g_l[j].n % PG || g_l[j].n > UINTPTR_MAX - (uintptr_t)g_l[j].a) goto failed;
     g_learn_pages = 0;
     for (int i = 0; i < g_nr; i++) {
         Rng *r = &g_r[i];
+        if (!r->a || !r->dirty || !r->n || r->n % PG || r->n > UINTPTR_MAX - (uintptr_t)r->a) goto failed;
         int j; for (j = 0; j < g_nl; j++) if (g_l[j].a == r->a && g_l[j].n == r->n) break;
-        if (j == g_nl && g_nl < MAXR) { g_l[g_nl].a = r->a; g_l[g_nl].n = r->n; g_l[g_nl].learn = calloc(r->n / PG, 1); g_nl++; }
-        if (j < g_nl) { for (size_t p = 0; p < r->n / PG; p++) g_l[j].learn[p] |= r->dirty[p]; r->learn = g_l[j].learn; }
+        if (j == g_nl) {
+            if (g_nl == MAXR) goto failed;
+            uint8_t *map = calloc(r->n / PG, 1);
+            if (!map) goto failed;
+            g_l[g_nl] = (Learn){r->a, r->n, map}; g_nl++;
+        }
+        for (size_t k = 0; k < r->n / PG; k++) g_l[j].learn[k] |= r->dirty[k];
+        r->learn = g_l[j].learn;
     }
-    for (int j = 0; j < g_nl; j++) for (size_t p = 0; p < g_l[j].n / PG; p++) g_learn_pages += g_l[j].learn[p];
+    for (int j = 0; j < g_nl; j++) for (size_t k = 0; k < g_l[j].n / PG; k++) if (g_l[j].learn[k]) {
+        if (g_learn_pages == SIZE_MAX / PG) goto failed;
+        g_learn_pages++;
+    }
+    return 1;
+failed:
+    g_capture_mode_failed = 1; LOG("r1: learned capture coverage unavailable\n"); return 0;
 }
 static const char *where(uint8_t *a) {
     static char b[96];
@@ -1099,7 +1139,7 @@ static void restore(Ctx *c) {
     LOG("r1: holding the guest threads at their save-point waits took %.2f ms; %d of %d not at the same wait\n", t0 - tp0, g_th_mismatch, g_nth);
     if (g_cycle == 0 || g_th_mismatch) park_report("at the restore");
     LOG("r1: fibers at the restore: %d at their save-point state (registers restored), %d not, %d new\n", g_fib_same, g_fib_diff, g_fib_new);
-    learn_merge();
+    (void)learn_merge();                              /* memory already restored: finish recorded-input replay; sticky failure refuses future captures */
     LOG("r1: cycle %d RESTORE at fight frame %lld: %zu pages changed (%.1f MB) in %zu of %d ranges (those ranges %.1f MB); compare + copy back %.2f ms; %zu ranges partly decommitted in the window (committed again)\n",
         g_cycle, g_ff, pages, pages * PG / 1048576.0, ranges_hit, g_nr, ranges_hit_bytes / 1048576.0, t1 - t0, skipped);
     {   /* where the changed pages are: one line per contiguous group (first 40) */
@@ -1153,41 +1193,77 @@ static void release(void) { if (g_nr < 0 || g_nr > MAXR) { LOG("r1: FULL SAVE FA
 static uint8_t **g_async; static size_t g_nasync, g_async_cap;
 static int cmp_ptr(const void *a, const void *b) { uint8_t *x = *(uint8_t *const *)a, *y = *(uint8_t *const *)b; return x < y ? -1 : x > y; }
 static int g_use_async = -1;
-static void async_add(uint8_t *a) {
-    for (size_t i = 0; i < g_nasync; i++) if (g_async[i] == a) return;
-    if (g_nasync >= g_async_cap) { g_async_cap = g_async_cap ? g_async_cap * 2 : 4096; g_async = realloc(g_async, g_async_cap * sizeof *g_async); }   /* (threads are not held here: after unpark) */
-    g_async[g_nasync++] = a;
-    qsort(g_async, g_nasync, sizeof *g_async, cmp_ptr);
+static int async_add(uint8_t *a) {
+    if (g_capture_mode_failed) return 0;
+    if (!a || g_nasync > g_async_cap || g_async_cap > SIZE_MAX / sizeof *g_async || (g_async_cap && !g_async)) goto failed;
+    for (size_t i = 0; i < g_nasync; i++) if (g_async[i] == a) return 1;
+    if (g_nasync == g_async_cap) {
+        if (g_async_cap > SIZE_MAX / 2) goto failed;
+        size_t capacity = g_async_cap ? g_async_cap * 2 : 4096;
+        if (capacity > SIZE_MAX / sizeof *g_async) goto failed;
+        uint8_t **next = realloc(g_async, capacity * sizeof *g_async);
+        if (!next) goto failed;
+        g_async = next; g_async_cap = capacity;
+    }
+    g_async[g_nasync++] = a; qsort(g_async, g_nasync, sizeof *g_async, cmp_ptr); return 1;
+failed:
+    g_capture_mode_failed = 1; LOG("r1: async capture coverage unavailable\n"); return 0;
 }
-static int is_async(uint8_t *a) { if (g_use_async < 0) g_use_async = getenv("SSBU_R1_FAST_ASYNC") != NULL || g_audio_free; return g_use_async && g_nasync && bsearch(&a, g_async, g_nasync, sizeof *g_async, cmp_ptr) != NULL; }
-static void async_learn(void) {               /* main held 30 ms, the others running: what do they write? (ranges collected, buffers allocated) */
+static int is_async(uint8_t *a) {
+    if (g_capture_mode_failed || g_nasync > g_async_cap || g_async_cap > SIZE_MAX / sizeof *g_async || (g_async_cap && !g_async)) { LOG("r1: CAPTURE MODE FATAL: incomplete async inventory consumed\n"); abort(); }
+    if (g_use_async < 0) g_use_async = getenv("SSBU_R1_FAST_ASYNC") != NULL || g_audio_free;
+    return g_use_async && g_nasync && bsearch(&a, g_async, g_nasync, sizeof *g_async, cmp_ptr) != NULL;
+}
+static int async_learn(void) {
+    if (g_capture_mode_failed) return 0;
+    if (g_nr < 0 || g_nr > MAXR) goto failed;
+    for (int i = 0; i < g_nr; i++)
+        if (!g_r[i].a || !g_r[i].s || !g_r[i].n || g_r[i].n % PG || g_r[i].n > UINTPTR_MAX - (uintptr_t)g_r[i].a) goto failed;
     for (int i = 0; i < g_nr; i++) memcpy(g_r[i].s, g_r[i].a, g_r[i].n);
     Sleep(30);
-    size_t added = 0;
-    for (int i = 0; i < g_nr; i++)
-        for (size_t p = 0; p < g_r[i].n / PG; p++)
-            if (memcmp(g_r[i].a + p * PG, g_r[i].s + p * PG, PG)) {
-                uint8_t *a = g_r[i].a + p * PG;
-                if (is_async(a)) continue;
-                if (g_nasync >= g_async_cap) { g_async_cap = g_async_cap ? g_async_cap * 2 : 4096; g_async = realloc(g_async, g_async_cap * sizeof *g_async); }
-                g_async[g_nasync++] = a; added++;
-                qsort(g_async, g_nasync, sizeof *g_async, cmp_ptr);
-            }
-    LOG("r1: async pages (written by other threads while main was held 30 ms, threads running): %zu new, %zu in all\n", added, g_nasync);
+    size_t before = g_nasync;
+    for (int i = 0; i < g_nr; i++) for (size_t k = 0; k < g_r[i].n / PG; k++)
+        if (memcmp(g_r[i].a + k * PG, g_r[i].s + k * PG, PG) && !async_add(g_r[i].a + k * PG)) return 0;
+    LOG("r1: async pages: %zu new, %zu in all\n", g_nasync - before, g_nasync); return 1;
+failed:
+    g_capture_mode_failed = 1; return 0;
 }
 static uint8_t **g_fpages; static size_t g_nfp, g_fcap; static uint8_t *g_fbuf; static uint8_t g_catch_copy[8192 * 16];
 static Ctx g_fctx;
+static int g_fast_saved_valid;
 
 static double g_fs_ms[4096], g_fr_ms[4096], g_fsh_ms[4096], g_frh_ms[4096]; static int g_nfs, g_nfr;
-static void fast_build(void) {
-    g_nfp = 0;
-    for (int j = 0; j < g_nl; j++) for (size_t p = 0; p < g_l[j].n / PG; p++) if (g_l[j].learn[p] && !is_async(g_l[j].a + p * PG)) g_nfp++;
-    g_fcap = g_nfp + 16384; g_fpages = realloc(g_fpages, g_fcap * sizeof *g_fpages); g_fbuf = realloc(g_fbuf, g_fcap * PG);
-    size_t k = 0;
-    for (int j = 0; j < g_nl; j++) for (size_t p = 0; p < g_l[j].n / PG; p++) if (g_l[j].learn[p] && !is_async(g_l[j].a + p * PG)) g_fpages[k++] = g_l[j].a + p * PG;
-    LOG("r1: FAST set: %zu pages = %.1f MB (learned %zu, %zu async left out)\n", g_nfp, g_nfp * PG / 1048576.0, g_learn_pages, g_nasync);
+static int fast_build(void) {
+    if (g_capture_mode_failed || g_nl < 0 || g_nl > MAXR) goto failed;
+    size_t count = 0;
+    for (int j = 0; j < g_nl; j++) {
+        if (!g_l[j].a || !g_l[j].learn || !g_l[j].n || g_l[j].n % PG || g_l[j].n > UINTPTR_MAX - (uintptr_t)g_l[j].a) goto failed;
+        for (size_t k = 0; k < g_l[j].n / PG; k++) if (g_l[j].learn[k] && !is_async(g_l[j].a + k * PG)) {
+            if (count == SIZE_MAX - 16384) goto failed;
+            count++;
+        }
+    }
+    size_t capacity = count + 16384;
+    if (capacity > SIZE_MAX / sizeof *g_fpages || capacity > SIZE_MAX / PG) goto failed;
+    uint8_t **pages = malloc(capacity * sizeof *pages);
+    if (!pages) goto failed;
+    uint8_t *buffer = malloc(capacity * PG);
+    if (!buffer) { free(pages); goto failed; }
+    size_t at = 0;
+    for (int j = 0; j < g_nl; j++) for (size_t k = 0; k < g_l[j].n / PG; k++) if (g_l[j].learn[k] && !is_async(g_l[j].a + k * PG)) {
+        if (at == count) { free(pages); free(buffer); goto failed; }
+        pages[at++] = g_l[j].a + k * PG;
+    }
+    if (at != count) { free(pages); free(buffer); goto failed; }
+    free(g_fpages); free(g_fbuf);
+    g_fpages = pages; g_fbuf = buffer; g_nfp = count; g_fcap = capacity; g_fast_saved_valid = 0;
+    LOG("r1: FAST set: %zu pages = %.1f MB (learned %zu, %zu async left out)\n", g_nfp, g_nfp * PG / 1048576.0, g_learn_pages, g_nasync); return 1;
+failed:
+    g_capture_mode_failed = 1; LOG("r1: FAST preparation refused: incomplete resources\n"); return 0;
 }
 static void fast_save(Ctx *c) {
+    g_fast_saved_valid = 0;
+    if (g_capture_mode_failed || !g_fpages || !g_fbuf || g_nfp > g_fcap || g_fcap > SIZE_MAX / PG) { g_save_failed = 2; return; }
     double t0 = now_ms();
     park(0);
     double th = now_ms();
@@ -1196,12 +1272,15 @@ static void fast_save(Ctx *c) {
     if (g_catch_addr) memcpy(g_catch_copy, (void *)(uintptr_t)g_catch_addr, sizeof g_catch_copy);
     if (!fibers_save()) { unpark(); g_save_failed = 3; return; }
     unpark();
-    g_fctx = *c;
+    g_fctx = *c; g_fast_saved_valid = 1;
     double t1 = now_ms();
     if (g_nfs < 4096) { g_fs_ms[g_nfs] = t1 - t0; g_fsh_ms[g_nfs] = th - t0; g_nfs++; }
     if (!g_fcheck) LOG("r1: cycle %d SAVE at fight frame %lld (fast): %.3f ms (holding threads %.3f)\n", g_cycle, g_ff, t1 - t0, th - t0);
 }
 static void fast_restore(Ctx *c) {
+    if (!g_fast_saved_valid || g_capture_mode_failed || !g_fpages || !g_fbuf || g_nfp > g_fcap || g_fcap > SIZE_MAX / PG) {
+        LOG("r1: FAST RESTORE FATAL: no complete capture\n"); abort();
+    }
     double t0 = now_ms();
     park(1);
     double th = now_ms();
@@ -1241,8 +1320,9 @@ static void fast_check(void) {
             if (!is_async(r->a + p * PG) && memcmp(r->a + p * PG, r->s + p * PG, PG)) {
                 miss++;
                 if (shown++ < 10) LOG("r1:   FAST missed %s\n", where(r->a + p * PG));
+                if (g_nfp >= g_fcap) { LOG("r1: FAST CHECK FATAL: page inventory exhausted\n"); abort(); }
                 memcpy(r->a + p * PG, r->s + p * PG, PG);
-                if (g_nfp < g_fcap) g_fpages[g_nfp++] = r->a + p * PG;          /* the set learns it (room made in fast_build: no allocation while threads are held) */
+                g_fpages[g_nfp++] = r->a + p * PG;          /* the set learns it (room made in fast_build: no allocation while threads are held) */
             }
     }
     LOG("r1: FAST check: %zu pages outside the set differed after the fast restore (put back from the full snapshot)\n", miss);
@@ -2537,7 +2617,12 @@ static void r1_frame_end(Ctx *c, void *user) {
         g_postponed = 0;
         g_save_failed = 0;
         if (g_mark > 0) { if (g_cycle == 0) save(c); else mark_save(c); }      /* (cycle 0: save() starts the marks itself) */
-        else if (g_fast > 0 && g_cycle >= g_learn) { if (!g_nfp) fast_build(); if (g_fcheck) save(c); fast_save(c); } else save(c);
+        else if (g_fast > 0 && g_cycle >= g_learn) {
+            g_fast_saved_valid = 0;
+            if (!g_nfp && !fast_build()) g_save_failed = 2;
+            if (!g_save_failed && g_fcheck) save(c);
+            if (!g_save_failed) fast_save(c);
+        } else save(c);
         if (g_save_failed) { g_phase = 3; LOG("r1: diagnostic capture refused: no replay scheduled (failure %d)\n", g_save_failed); return; }
         g_phase = 1; g_fe_busy = 1; g_npad = 0; g_save_ff = g_ff; g_target = g_ff + g_k; g_t_mark = now_ms();
     } else if (g_phase == 1 && g_ff >= g_target) {
@@ -2591,7 +2676,7 @@ void r1_init(void) {
     if (getenv("SSBU_R1_PARK_MS")) g_park_ms = atoi(getenv("SSBU_R1_PARK_MS"));
     AddVectoredExceptionHandler(1, r1_veh);
     atexit(r1_stats_report);
-    g_audio_free = getenv("SSBU_R1_AUDIO_FREE") != NULL; g_async_cap = 65536; g_async = malloc(g_async_cap * sizeof *g_async);
+    g_audio_free = getenv("SSBU_R1_AUDIO_FREE") != NULL; /* async inventory grows through checked append */
     g_mark = getenv("SSBU_R1_MARK") != NULL;
     g_prot = getenv("SSBU_R1_MARK_PROT") != NULL; if (g_prot) AddVectoredExceptionHandler(1, prot_veh); g_mcheck = getenv("SSBU_R1_MARK_CHECK") != NULL; if (g_mark && !mark_bind()) g_mark = 0;
     g_fast = getenv("SSBU_R1_FAST") != NULL; g_fcheck = getenv("SSBU_R1_FAST_CHECK") != NULL; if (getenv("SSBU_R1_LEARN")) g_learn = atoi(getenv("SSBU_R1_LEARN"));

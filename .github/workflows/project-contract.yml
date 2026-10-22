@@ -101,3 +101,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_fighter_inventory_source.py -v
       - name: Diagnostic allocation ownership regressions
         run: python -m unittest discover -s tests -p test_diagnostic_resources_source.py -v
+      - name: Optional capture-mode resource regressions
+        run: python -m unittest discover -s tests -p test_capture_mode_resources_source.py -v
+      - name: Scratch ownership and trace completion regressions
+        run: python -m unittest discover -s tests -p test_diagnostic_completion_source.py -v
