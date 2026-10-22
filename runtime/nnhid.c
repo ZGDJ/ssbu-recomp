@@ -128,11 +128,16 @@ static int mark_seen(const char *what) {
     return 0;
 }
 
+/* Optional read-only observer of the bounded pre-match confirmation wait. */
+void fight_rng_menu_boundary(const char *phase, int step, long long tick, int wait, int hold, const char *keys);
+
 static void seq_begin(int i) {
     g_seq_index = i;
     g_seq_holding = 0;
     g_seq_run = 0;
     g_seq_left = i < g_seq_count ? g_seq[i].wait : 0;
+    if (i == 15 && i < g_seq_count)
+        fight_rng_menu_boundary("begin", i, g_seq_polls, g_seq[i].wait, g_seq[i].hold, g_seq[i].keys);
 }
 
 static void seq_tick(void) {                              /* once per poll of player 1 */
@@ -231,6 +236,8 @@ static void seq_tick(void) {                              /* once per poll of pl
     if (g_seq_left > 0) { g_seq_left--; return; }
     if (!g_seq_holding) {
         if (!g_seq[g_seq_index].keys[0]) { seq_begin(g_seq_index + 1); return; }
+        if (g_seq_index == 15)
+            fight_rng_menu_boundary("confirm", g_seq_index, g_seq_polls, g_seq[g_seq_index].wait, g_seq[g_seq_index].hold, g_seq[g_seq_index].keys);
         g_seq_holding = 1;
         g_seq_left = g_seq[g_seq_index].hold;
         printf("input sequence: poll %lld step %d keys %s for %d (%ld draws)\n", (long long)g_seq_polls, g_seq_index, g_seq[g_seq_index].keys, g_seq[g_seq_index].hold, g_frame_draws_seen);

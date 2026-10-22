@@ -15,6 +15,8 @@ Fork: [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-recomp). Upstream: [Denkis
 - [Rollback contract](docs/ROLLBACK_DESIGN.md): GGPO responsibilities and Smash/Slippi methods; no GGPO library integration claimed.
 - [Validation](docs/VALIDATION.md), [evidence](evidence/README.md), [source map/provenance](docs/UPSTREAM.md).
 
+Development starts with the inherited code: establish the relevant state owner and violated invariant, make the smallest supported correction, and test actual restore/replay against an uninterrupted battle. Select diagnostics by how their outcomes change that engineering decision; reuse accepted tools and bound investigations to the next gameplay verdict.
+
 Development advances through observable outcomes: reproducible battles, correct restore/replay and prediction correction, confirmation-safe match endings, two-PC agreement, and measured performance. Each work packet contributes a verified fix, a causal finding, a narrowed divergence, or an experiment that advances one of these proofs. The ledger defines their dependencies and acceptance.
 
 Run `python tools/check_project_docs.py` for ready tasks and effort. Select the next dependency-ready task from the ledger proof-first queue; reuse completed harness and baseline tooling. Source fixes can proceed without private game inputs; battle acceptance cannot.

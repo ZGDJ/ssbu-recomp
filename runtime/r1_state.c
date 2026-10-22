@@ -107,6 +107,8 @@ static int ra_wanted(void) {
 }
 int r1_on(void) {
     if (g_on < 0) {
+        int rbn_init_only(void);
+        if (rbn_init_only()) { g_on = 0; return 0; }
         const char *e = getenv("SSBU_R1");
         g_on = (e && e[0] && e[0] != '0') || ra_wanted();
         if (g_on) {

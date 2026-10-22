@@ -22,6 +22,18 @@ Validation is risk-based: keep mandatory fatal/trace/reference gates and frozen 
 
 Deliver the change or finding, decisive evidence, earliest remaining divergence/refusal, evidence limits, and next action. Explain which gameplay outcome the result advances. A negative experiment is useful when it eliminates a hypothesis or identifies a prerequisite; capability completion still requires its acceptance evidence. Helper-test counts and effort totals describe scope, not rollback correctness.
 
+## Let the engineering decision select the experiment
+
+Start from the inherited implementation and an explicit requirement. Trace the relevant state owner, callers and lifecycle; identify a concrete violated invariant or the bounded uncertainty preventing a correction. Source inspection can establish a path-specific defect. Execution establishes whether the integrated correction preserves intended behavior and whether restore/replay matches an uninterrupted battle.
+
+For each proposed observation, name the decision and the actions supported by its likely outcomes. Give priority to observations that select a correction boundary, distinguish an incorrect fix, or enable the next gameplay verdict. When outcomes lead to the same supported correction and validation plan, proceed with that plan using existing evidence. A prepared observer remains an available instrument; its existence alone does not set task priority. Bound consumer searches to what can change ownership or semantic conclusions, and stop when the correction and its falsification test are supported.
+
+A reproduced invariant violation can justify a bounded correction before every historical failure is attributed. Establish the intended ownership and semantics, validate the correction against the specific violation, and retain unexplained failures separately. Keep acceptance dependencies and original reference obligations intact; incomplete attribution is not permission to force agreement.
+
+After required validation, exercise the relevant capture, restore, correction or initialization behavior, or identify the exact safety prerequisite preventing that experiment. Conclude with evidence supporting the implementation, a bounded remediation, or architecture reconsideration. An inconclusive result names the remaining uncertainty and the observation that can resolve it. An investigation verdict does not close an unmet capability gate.
+
+Choose complementary delegated roles for the task: disjoint implementations, ownership investigation, or independent challenge/review as appropriate. Integration owns shared edits, frozen candidates and serialized game trials. Task-specific experiment plans belong in the owning ledger entry and linked evidence; see the current handoff for active initialization work.
+
 ## Work loop
 
 1. Inspect the worktree; select unclaimed dependency-ready work. Independent source tasks can proceed around private-data blockers.
@@ -48,7 +60,8 @@ Keep validation principles and applicable gates easy to find. Move historical te
 
 ```text
 Task/outcome: Mx.y / one sentence
-Proof/defect: named gameplay gate or concrete failure; next decisive observation
+Proof/defect: named gameplay gate or concrete violated invariant
+Decision: correction/validation choice; likely observation outcomes and resulting actions
 Context: requirement, ADR, source symbols, relevant prior evidence
 Ownership: exact files/subsystem; other active writers
 Scope: included work and explicit deferred work

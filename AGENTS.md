@@ -17,7 +17,10 @@ Read ADR-0007 and docs/ROLLBACK_AUDIT.md before changing the inherited backend.
 ## Execute and verify
 
 - Work autonomously within acceptance criteria; ordinary local edits/tests need no reconfirmation.
-- Establish battle boundaries and state ownership from source and experiments before defining interfaces.
+- Inspect the inherited implementation first; name the violated invariant or unresolved ownership decision and trace the relevant callers.
+- Establish battle boundaries and state ownership with bounded source analysis and the smallest decisive experiment.
+- Before adding or running a diagnostic, state how its likely outcomes change the correction, required validation or next gameplay experiment. Reuse existing observations when they answer that decision.
+- Implement the smallest supported correction, then exercise actual save/restore/correction against an uninterrupted battle when its prerequisites hold. Separate firm path-specific source verdicts from gameplay qualification.
 - Give each packet a concrete defect or gameplay outcome, decisive observation and stopping criterion. Use the result to select the next action.
 - Prefer original recompiled behavior; justify semantic changes with ADRs and evidence.
 - Compare semantic changes to pinned upstream behavior; self-consistent replay alone is insufficient.

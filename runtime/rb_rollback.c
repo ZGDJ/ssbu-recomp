@@ -40,7 +40,11 @@ static int g_rbg_in_match, g_rbg_rebase; static double g_rbg_quit_t0;
  * and the passes before it get no pad (as frames 1..delay on the other game). SSBU_RB_NET_BASEFIX=0: the old way (test). */
 static long long g_rbg_ff_first = -1; static int g_rbg_basefix = -1;
 static int g_rbg = -1;
-static int rbg_on(void) { if (g_rbg < 0) g_rbg = rbn_on() > 0; return g_rbg; }
+static int rbg_on(void) {
+    int rbn_init_only(void);
+    if (g_rbg < 0) g_rbg = rbn_init_only() ? 0 : rbn_on() > 0;
+    return g_rbg;
+}
 static long long g_rbg_rb, g_rbg_k[RG_MAXSLOT + 2], g_rbg_rerun, g_rbg_miss, g_rbg_stalls, g_rbg_capfail, g_rbg_capskip, g_rbg_lastlocal, g_rbg_real, g_rbg_gone;
 static double g_rbg_stall_ms, g_rbg_load_ms, g_rbg_tick0, g_rbg_next, g_rbg_last_go;
 static volatile LONG g_rbg_last_k, g_rbg_max_k;

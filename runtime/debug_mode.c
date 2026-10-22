@@ -396,6 +396,9 @@ static uint64_t hash40(const char *s) {
  * name-tag profile state + 0x214 (table [[[[0x7105313510] + 0x58]]] + 0xf7d8 * profile + 0xc, default 0x7105313518).
  * Both games force + 0x454 = 1 with the agreed layout of each player, so a player's own controls are the same on both PCs. */
 #include "rb_hs.h"
+int rbn_init_only(void);
+void rbn_init_only_begin_setup(void);
+void rbn_init_only_agreement(int agreed);
 static int g_hs_wanted, g_hs_ok, g_hs_local;
 static RbhMatch g_hs_m;
 /* (hs12) player 1's panel state as the game's function got it (before any change here): the template of player 2's state
@@ -425,6 +428,7 @@ static int hs_layout(uint64_t st, uint16_t out[11]) {
 }
 static void hs_apply(uint64_t st, int idx, uint32_t type_was) {
     if (idx == 0) {
+        rbn_init_only_begin_setup();
         RbhMatch me; memset(&me, 0, sizeof me);
         uint32_t cur = rd32(GA(0x7105309968ULL)); uint64_t sel = GA(0x71053097c0ULL) + 0x20ull * (cur < 3 ? cur : 0);
         me.chara[0] = rd64(st + 0x88); me.colour[0] = rd8(st + 0x90); me.has_layout[0] = (uint8_t)hs_layout(st, me.layout[0]);
@@ -434,6 +438,7 @@ static void hs_apply(uint64_t st, int idx, uint32_t type_was) {
         if (getenv("SSBU_RB_NET_WATCH")) { uint64_t off = strtoull(getenv("SSBU_RB_NET_WATCH"), NULL, 16); if (off <= 1) off = 0x98;      /* (hs12: =<hex offset in the match block>) */
             uint64_t w[1] = {MELEE_INFO + (off & ~7ull)}; printf("[rbnet] research: match block + 0x%llx at the handshake = %016llx\n", (unsigned long long)(off & ~7ull), (unsigned long long)rd64(w[0])); debug_watch(w, 1); }
         g_hs_ok = rbn_handshake(&me, &g_hs_m); g_hs_local = 0;
+        rbn_init_only_agreement(g_hs_ok);
         {   int rbn_match_cancelled(void); if (!g_hs_ok && rbn_match_cancelled() == 2) return; }      /* (R3 pub2) a Local Wireless room fight: nothing changed */
         if (!g_hs_ok) {                                   /* (hs12) not agreed: a local match of this game (player 2 = this player's fighter again), left at once by rb_rollback.c */
             g_hs_m = me; g_hs_m.chara[1] = me.chara[0]; g_hs_m.colour[1] = (uint8_t)((me.colour[0] + 1) & 7); g_hs_m.has_layout[1] = me.has_layout[0];
@@ -658,6 +663,7 @@ static DWORD WINAPI panel_thread(LPVOID arg) {
     return 0;
 }
 void debug_mode_init(void) {
+    int init_only = rbn_init_only();
     if (getenv("SSBU_DEBUG_PANELS")) CreateThread(NULL, 0, panel_thread, NULL, 0, NULL);
     const char *end = getenv("SSBU_DEBUG_END"), *list = getenv("SSBU_DEBUG_MATCH_LIST");
     if (end && atof(end) > 0) { g_end_limit = (LONG64)(strchr(end, 's') ? atof(end) * 60.0 : atof(end)); printf("debug end: the run ends after %lld fight frames\n", (long long)g_end_limit); }
@@ -670,7 +676,14 @@ void debug_mode_init(void) {
                                          g_autop2 ? "on" : "off", g_p2none ? "; test: entry 1 copied as none" : ""); }
     if (getenv("SSBU_DEBUG_MATCH") || g_dm_list || g_hs_wanted) {
         if (getenv("SSBU_DEBUG_MATCH")) parse_match(getenv("SSBU_DEBUG_MATCH"));
-        printf("debug match: hook on the player record builder %llx: id %d\n", FN_PLAYER_RECORD, hook_install(FN_PLAYER_RECORD, match_player_hook, NULL, &g_orig_player_record));
+        int id = init_only ? hook_install_required(FN_PLAYER_RECORD, match_player_hook, NULL, &g_orig_player_record) :
+            hook_install(FN_PLAYER_RECORD, match_player_hook, NULL, &g_orig_player_record);
+        printf("debug match: hook on the player record builder %llx: id %d\n", FN_PLAYER_RECORD, id);
+    }
+    if (init_only) {
+        void rbn_init(void); rbn_init();
+        printf("[rbnet-init] enabled=1 handshake=real pads=local capture=0 replay=0 first_setup_only=1\n");
+        fflush(stdout);
     }
     if (getenv("SSBU_DEBUG_RESEARCH")) printf("debug research: hook on the entry set-up: id %d\n", hook_install(FN_ENTRY_SETUP, research_entry_setup, NULL, &g_orig_entry_setup));
     if (getenv("SSBU_DEBUG_DUMP") || g_dm.text[0] || g_end_limit ||getenv("SSBU_DEBUG_RESEARCH") || getenv("SSBU_DEBUG_WATCHENTRY")) CreateThread(NULL, 0, dump_thread, NULL, 0, NULL);

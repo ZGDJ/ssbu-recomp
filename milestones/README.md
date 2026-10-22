@@ -25,10 +25,11 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
 1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 owns finite resource acceptance; M3.5 separately owns early forward-divergence research. SDK restore controls remain unrun until its failed baseline/reference is understood. Independent investigation may proceed with disjoint ownership and coordinated game trials.
-2. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
-3. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
-4. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
-5. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
+2. For M3.5, reuse the completed battle-initialization ownership audit. Advance reproducible offline initialization and retained reference-failure attribution independently of network readiness. Select the smallest supported correction or justified fixture treatment and its falsification test. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
+3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
+4. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
+5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
+6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
 
 Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Optional SSBU_MEM_KEEP work must first determine whether the supported candidate uses it and whether isolation is safe; no present assertion that disabling it is sufficient. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
 
@@ -343,11 +344,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.7, M7.9
 - Size: 5
 - Requirement: FSD-004, FSD-013
-- Evidence: evidence/2026-10-22-sdk-forward-comparison.md
+- Evidence: evidence/2026-10-22-handshake-isolation.md
 - Acceptance: Attribute the preserved early RNG/reference discrepancy to a verified runtime writer/seed, scheduling or fixture cause; distinguish observed execution from candidate source/object identity. Validate a bounded correction or justified fixture treatment against preserved failures and original behavior without arbitrary reseeding, hash weakening or discarded references. Repeated uninstrumented same-tape runs agree for the chosen diagnostic interval; record coverage limits and unresolved cases. This does not close M3.2's 10,000-tick/state-coverage gate.
-- Owner: root integration; Astra provenance/review complete, 2026-10-22T21:22:37.613252+00:00
-- Next: Identified old-SDK/current forward-only pair passes fatal, sealed 500R/0S, original reference and direct equality with verified input/cache controls. Both still differ from the retained historical failure at frame 2 RNG folds; f28f3988 remains reconstructed. Next test one documented neutral pre-match timing contrast on the current package with existing selector/reset observations and unchanged fatal/completeness/reference obligations. Preserve original failures and interpret any mismatch diagnostically; no reseeding or identical-pair repetition.
-- Blocker: none
+- Owner: root integration; Astra activation audit, independent challenge and fresh frozen-candidate review complete, 2026-10-22T23:44:11Z
+- Next: Reviewed/built SSBU_RB_NET_INIT_ONLY diagnostic preserves actual successful handshake and original initialization while suppressing snapshot coordination. Prepare/review a distinct identified paired gate/launcher (existing forward-only gate correctly rejects NET), then disabled original-reference control and same-history actual handshake pair before differing histories/multiple seeds/uninstrumented repeats. Retain conditional input/owner contract and original references. Return to save/restore/correction under applicable M7.8/M7.1 gates.
+- Blocker: Paired feasibility failed declared 20GiB commit/20480MiB physical budget: 10.01/10.15GiB commit and 16371/16468MiB physical. No games launched; runtime controls and paired gate remain unrun/unprepared. Source tests/review/build do not qualify network initialization or rollback. Historical failures and M7.8/M7.1 prerequisites remain open.
 
 ## M4 - Offline rollback proof
 
@@ -566,7 +567,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 
 ## M7 - OpenSmash rollback hardening (source gates)
 
-See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“M6 remain mandatory game-backed qualification.
+See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1-M6 remain mandatory game-backed qualification.
 
 ### M7.1 - Complete-or-refuse native restoration
 - Status: todo

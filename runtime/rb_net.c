@@ -45,6 +45,43 @@ static volatile LONG64 g_cur;                          /* the frame this game is
 static LARGE_INTEGER g_qpf;
 static uint64_t now_us(void) { LARGE_INTEGER t; QueryPerformanceCounter(&t); if (!g_qpf.QuadPart) QueryPerformanceFrequency(&g_qpf); return (uint64_t)(t.QuadPart / (double)g_qpf.QuadPart * 1e6); }
 
+/* Bounded initialization diagnostic: retain the real handshake, but never ask
+ * the snapshot coordinator to run. Local pads are not network gameplay. */
+static void rbn_init_only_fatal(const char *why) {
+    void fight_trace_fail(const char *why);
+    fight_trace_fail("network_initialization_diagnostic");
+    fprintf(stderr, "NETWORK INITIALIZATION FATAL: %s\n", why);
+    fflush(stderr);
+    abort();
+}
+int rbn_init_only(void) {
+    const char *e = getenv("SSBU_RB_NET_INIT_ONLY");
+    if (!e || !*e || !strcmp(e, "0")) return 0;
+    if (strcmp(e, "1")) rbn_init_only_fatal("INIT_ONLY must be 0 or 1");
+    e = getenv("SSBU_RB_NET");
+    if (!e || strcmp(e, "net")) rbn_init_only_fatal("requires SSBU_RB_NET=net");
+    const char *zero[] = {"SSBU_R1", "SSBU_RUNAHEAD", "SSBU_RB_SIM", "SSBU_LS",
+        "SSBU_MEM_KEEP", "SSBU_SKYLINE", "SSBU_RB_NET_AUTOP2", "SSBU_RB_NET_P2NONE"};
+    for (size_t i = 0; i < sizeof zero / sizeof zero[0]; i++) {
+        e = getenv(zero[i]);
+        if (!e || strcmp(e, "0")) rbn_init_only_fatal(zero[i]);
+    }
+    e = getenv("SSBU_RB_NET_HANDSHAKE");
+    if (e && e[0] == '0') rbn_init_only_fatal("handshake disabled");
+    return 1;
+}
+void rbn_init_only_begin_setup(void) {
+    static unsigned setups;
+    if (rbn_init_only() && ++setups != 1)
+        rbn_init_only_fatal("only the first setup in a fresh process is supported");
+}
+void rbn_init_only_agreement(int agreed) {
+    if (!rbn_init_only()) return;
+    if (!agreed) rbn_init_only_fatal("handshake failed or bypassed");
+    printf("[rbnet-init] agreed=1 setup=1 pads=local capture=0 replay=0\n");
+    fflush(stdout);
+}
+
 int rbn_on(void) {
     if (g_on >= 0) return g_on;
     const char *e = getenv("SSBU_RB_NET");

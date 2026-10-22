@@ -53,6 +53,7 @@ static const struct { uint64_t reference, address, fingerprint; int site; } g_hk
     {0x71000a3fd8ull, 0x71000a3fd8ull, 0x712d843822b4f8cbull, 1},
     {0x7103760cf8ull, 0x71037612a8ull, 0xc74f9474a283cdefull, 1},
     {0x7100081980ull, 0x7100081980ull, 0xd3b4be67ff601040ull, 1},
+    {0x7101788260ull, 0x71017880c0ull, 0x342cc8cb2bd1ceddull, 0},
 };
 #define HK_CRITICAL_FIGHTER_NAME "_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv"
 #define HK_CRITICAL_FIGHTER_OFFSET 0x19b60ull
