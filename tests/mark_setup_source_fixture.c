@@ -69,6 +69,8 @@ static SIZE_T WINAPI fixture_query(LPCVOID p,PMEMORY_BASIC_INFORMATION m,SIZE_T 
 }
 static void fixture_system(SYSTEM_INFO *s){memset(s,0,sizeof *s);s->lpMinimumApplicationAddress=guest1;s->lpMaximumApplicationAddress=guest1+sizeof guest1+PG-1;}
 static HANDLE WINAPI fixture_snapshot(DWORD flags,DWORD pid){(void)flags;(void)pid;return INVALID_HANDLE_VALUE;}
+static int startup_allowed=1;
+static int ls_startup_prepare(uint8_t *base,uint64_t bytes){assert(base==guest1&&bytes==sizeof guest1);return startup_allowed;}
 static int host_failed,host_scan_failure,module_allowed=1,module_prepares,module_publishes;
 static int g_mark_module_count,g_mark_modules_prepared;
 static int mark_modules_prepare(void){module_prepares++;g_mark_modules_prepared=module_allowed;g_mark_module_count=module_allowed;return module_allowed;}
@@ -114,7 +116,7 @@ static void teardown(void){
     for(int i=0;i<object_count;i++){assert(!objects[i].live);free(objects[i].p);}object_count=0;
 }
 static void configure(int extras_count,int long_extra){
-    teardown();query_calls=query_failure=0;module_allowed=1;module_prepares=module_publishes=0;host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
+    teardown();startup_allowed=1;query_calls=query_failure=0;module_allowed=1;module_prepares=module_publishes=0;host_failed=host_scan_failure=0;sources(extras_count,long_extra);alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=learn_calls=block_calls=drop_calls=0;drop_pages=0;g_rs_drop=0;
     memset(&g_ctx_save,0x42,sizeof g_ctx_save);
 }
 static void verify(int extras_count){
@@ -126,6 +128,7 @@ static void verify(int extras_count){
     for(int i=0;i<g_nx;i++)for(size_t j=0;j<g_x[i].n;j++)assert(g_x[i].b[j]==0x32+i);
 }
 static void ordinary(void){
+    configure(1,0);startup_allowed=0;assert(!mark_setup());unpublished();assert(!alloc_calls&&!drop_calls&&!module_publishes&&!g_mark_modules_prepared);
     for(int q=1;q<=3;q++){configure(1,0);query_failure=q;assert(!mark_setup());unpublished();assert(!alloc_calls&&!module_publishes&&!drop_calls);configure(1,0);verify(1);}
 
     configure(1,0);module_allowed=0;assert(!mark_setup());unpublished();assert(!alloc_calls&&!module_publishes);

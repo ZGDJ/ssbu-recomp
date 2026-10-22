@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <stdarg.h>
 #define PG 4096u
 #define WIN2 ((uintptr_t)0x20000000)
 #define WN2 (4u * PG)
@@ -17,6 +18,7 @@ static volatile uint8_t *g_ls_st;
 static uint8_t *g_ns1, *g_ns2;
 static uint32_t *g_ls_list, *g_ls_lc;
 static size_t g_ls_n1, g_ls_np;
+static void *g_ls_veh_handle;static uint8_t *g_ls_storage_base;static size_t g_ls_storage_n1,g_ls_storage_np;static LONG g_ls_storage_cap;
 static volatile LONG g_ls_n, g_ls_over;
 static LONG g_ls_cap;
 static int g_ls_active, g_ls_bound;
@@ -53,7 +55,11 @@ static void *fake_handler(ULONG first, PVECTORED_EXCEPTION_HANDLER handler) {
 #define VirtualAlloc fake_alloc
 #define AddVectoredExceptionHandler fake_handler
 #define GetModuleHandleA(name) ((HMODULE)(uintptr_t)1)
-#define LOG(...) ((void)0)
+static char last_log[1024];
+static void record_log(const char *fmt,...){va_list a;va_start(a,fmt);vsnprintf(last_log,sizeof last_log,fmt,a);va_end(a);}
+#define LOG(...) record_log(__VA_ARGS__)
+static BOOL fake_free(void *p,size_t n,DWORD type){assert((p==state||p==list||p==lc)&&!n&&type==MEM_RELEASE);return TRUE;}
+#define VirtualFree fake_free
 /* LEARNED_TRACKING_SOURCE */
 static void reset(void) {
     memset(state, 0, sizeof state); memset(list, 0, sizeof list);
@@ -67,6 +73,7 @@ static void reset(void) {
     allocation_calls = allocation_fail = handler_fail = protect_all_calls = 0;
     g_ls_on = 1; g_ls_cmp = g_ls_decay = 0; pm1 = &r1_m1;
     g_ls_mod_exe = g_ls_mod_game = NULL;
+    g_ls_veh_handle=(void*)1;g_ls_storage_base=g_win1;g_ls_storage_n1=g_ls_n1;g_ls_storage_np=g_ls_np;g_ls_storage_cap=g_ls_cap;last_log[0]=0;
 }
 static void validation_tests(void) {
     reset(); assert(ls_validate_tracking());
@@ -133,22 +140,22 @@ static void range_tests(void) {
     assert(ls_open(0, NULL) && g_ls_protfail == 0 && g_ls_n == 1);
 }
 static void setup_tests(void) {
-    for (int i = 1; i <= 3; i++) {
-        reset(); g_ls_active = 0; g_ls_st = NULL; allocation_fail = i;
-        ls_after_setup(); assert(!g_ls_on && !g_ls_active && !protect_all_calls);
-        assert(!ls_validate_tracking());
-        ls_rebase(); assert(!g_ls_active && !protect_all_calls);
+    for(int i=1;i<=4;i++){
+        reset();g_ls_active=0;g_ls_st=NULL;g_ls_list=g_ls_lc=NULL;g_ls_veh_handle=NULL;
+        if(i<=3)allocation_fail=i;else handler_fail=1;
+        assert(!ls_startup_prepare(g_win1,g_wn1));assert(g_ls_on&&!g_ls_active&&!g_ls_st&&!g_ls_list&&!g_ls_lc&&!g_ls_veh_handle&&!protect_all_calls);
+        assert(allocation_calls==3&&!ls_validate_tracking());
     }
-    reset(); g_ls_active = 0; g_ls_st = NULL; handler_fail = 1;
-    ls_after_setup(); assert(!g_ls_on && g_ls_st && !protect_all_calls);
-    assert(!ls_validate_tracking());
-    ls_rebase(); assert(!g_ls_active && !protect_all_calls);
-    reset(); g_ls_active = 0; g_ls_st = NULL;
-    ls_after_setup(); assert(g_ls_active && protect_all_calls == 1);
-    assert(ls_validate_tracking());
-    ls_rebase(); assert(protect_all_calls == 2 && ls_validate_tracking());
+    reset();g_ls_active=0;g_ls_st=NULL;g_ls_list=g_ls_lc=NULL;g_ls_veh_handle=NULL;
+    assert(ls_startup_prepare(g_win1,g_wn1));ls_after_setup();assert(g_ls_active&&protect_all_calls==1&&ls_validate_tracking());
+    ls_rebase();assert(protect_all_calls==2&&ls_validate_tracking());
+}
+static void diagnostic_tests(void){
+    reset();g_ls_active=0;assert(!ls_validate_tracking()&&strstr(last_log,"inactive bound"));
+    reset();g_ls_protfail=3;assert(!ls_validate_tracking()&&strstr(last_log,"metadata")&&strstr(last_log,"protection=3"));
+    reset();g_ls_n=1;list[0]=0;assert(!ls_validate_tracking()&&strstr(last_log,"index=0 value=0 count=1"));
 }
 int main(void) {
-    validation_tests(); range_tests(); setup_tests();
+    diagnostic_tests();validation_tests(); range_tests(); setup_tests();
     puts("learned_tracking_source_test: PASS"); return 0;
 }

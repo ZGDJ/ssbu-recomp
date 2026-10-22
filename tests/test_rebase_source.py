@@ -21,7 +21,7 @@ class RebaseSourceTests(unittest.TestCase):
         ring = (ROOT / "runtime/r1_ring.c").read_text()
         fixture = (ROOT / "tests/rebase_source_fixture.c").read_text()
         fixture = fixture.replace("/* EXTRA_SOURCE */", function(state, "extra_append"))
-        fixture = fixture.replace("/* REBASE_SOURCE */", function(ring, "rg_rebase_vfree") + "\n" + function(ring, "r1_ring_rebase"))
+        fixture = fixture.replace("/* REBASE_SOURCE */", function(ring, "r1_ring_let_go") + "\n" + function(ring, "rg_rebase_vfree") + "\n" + function(ring, "r1_ring_rebase"))
         directory = ROOT / "artifacts/local/rebase-source"
         directory.mkdir(parents=True, exist_ok=True)
         out = Path(tempfile.mkdtemp(prefix="run-", dir=directory))

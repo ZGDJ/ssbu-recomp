@@ -57,6 +57,10 @@ jobs:
         run: python -m unittest discover -s tests -p test_catch_source.py -v
       - name: Catch restore preparation regressions
         run: python -m unittest discover -s tests -p test_catch_preflight_source.py -v
+      - name: Learned startup ownership regressions
+        run: python -m unittest discover -s tests -p test_learned_startup_source.py -v
+      - name: Presentation resource publication regressions
+        run: python -m unittest discover -s tests -p test_presentation_resources_source.py -v
       - name: Learned tracking failure regressions
         run: python -m unittest discover -s tests -p test_learned_tracking_source.py -v
       - name: Capture preparation failure regressions

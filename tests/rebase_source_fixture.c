@@ -59,12 +59,15 @@ static HANDLE WINAPI fixture_snapshot(DWORD flags,DWORD pid) {(void)flags;(void)
 static double now_ms(void) {return 0;}
 static void fibers_capture_config(void){}static void rg_meta_config(void){}static void nvn_r1_cb_capture_config(void){}
 static int r1_ring_capture(long long frame,Ctx *c){(void)frame;(void)c;assert(0);return 0;}
-static void r1_ring_let_go(void){}
+static int g_rg_kept;
+void r1_ring_let_go(void);
 static void r1_ring_release(void){g_rg_count=0;g_rg_head=0;release_calls++;}
 static int ra_hold_quiet(double ms){(void)ms;return 1;}static int fibers_save(void){return 1;}
 static size_t nvn_r1_cb_save(void){return 0;}
 static int rg_meta_prepare(RgSlot *s,SlotMetaPlan *p){(void)s;p->borrowed=1;return 1;}
 static void rg_meta_capture(RgSlot *s,Ctx *c,SlotMetaPlan *p){(void)s;(void)c;assert(p->borrowed);meta_calls++;}
+static int startup_allowed=1;
+static int ls_startup_prepare(uint8_t *base,uint64_t bytes){assert(base==g_win1&&bytes==g_wn1);return startup_allowed;}
 static int host_failed,host_scan_failure,module_allowed=1,module_publishes;
 static int mark_modules_prepare(void){return module_allowed;}
 static int mark_modules_publish(uint8_t *a,uint8_t *b,int changed){(void)a;(void)b;assert(changed);module_publishes++;return 0;}
@@ -102,7 +105,7 @@ static void ls_rebase(void){}static int ls_validate_tracking(void){return 1;}
 static void dispose(void){for(int i=0;i<allocation_count;i++)free(allocations[i].p);allocation_count=0;}
 static void initialize(void){
     dispose();enabled=0;g_rg_nfree=0;g_rg_bump=4;g_rg_n1=3;g_rg_n2=2;alloc_calls=fail_alloc=commit_calls=fail_commit=free_failure=0;
-    module_allowed=1;module_publishes=0;host_failed=host_scan_failure=0;unpark_calls=release_calls=meta_calls=copies=decommits=0;memset(pool_puts,0,sizeof pool_puts);
+    g_rg_kept=0;startup_allowed=1;module_allowed=1;module_publishes=0;host_failed=host_scan_failure=0;unpark_calls=release_calls=meta_calls=copies=decommits=0;memset(pool_puts,0,sizeof pool_puts);
     memset(g_x,0,sizeof g_x);memset(slots,0,sizeof slots);g_rg_nomem=0;g_rg_count=3;g_rg_caps=0;g_rg_nx=g_nx=1;g_xbytes=PG;
     memset(guest1,0x21,sizeof guest1);memset(guest2,0x32,sizeof guest2);memset(extras,0x43,sizeof extras);
     memset(shadow1,0x54,sizeof shadow1);memset(shadow2,0x65,sizeof shadow2);memset(cm1,1,sizeof cm1);memset(cm2,1,sizeof cm2);
@@ -180,5 +183,7 @@ int main(int argc,char **argv){
     initialize();host_scan_failure=1;Snapshot old=snapshot();assert(!r1_ring_rebase(42,&c));assert(g_rg_nomem==3);g_rg_nomem=2;refusal(&old);assert(!alloc_calls&&!commit_calls&&host_failed);
     host_scan_failure=0;g_rg_nomem=3;unpark_calls=release_calls=0;assert(!r1_ring_rebase(43,&c));assert(g_rg_nomem==3);g_rg_nomem=2;refusal(&old);
     initialize();module_allowed=0;old=snapshot();assert(!r1_ring_rebase(42,&c));refusal(&old);assert(!alloc_calls&&!commit_calls&&!module_publishes);
+    initialize();startup_allowed=0;g_rg_kept=1;int count_before=g_rg_count;old=snapshot();
+    for(int retry=0;retry<2;retry++){assert(!r1_ring_rebase(42,&c));assert(g_rg_count==count_before&&!release_calls&&unpark_calls==1&&!g_rg_kept&&!alloc_calls&&!commit_calls&&!module_publishes);assert(g_rg_idx==old.idx&&!memcmp(g_rg_idx,old.ids,sizeof old.ids)&&!memcmp(g_x[0].b,old.bytes,PG));}
     malformed(&c);repeat_success(&c);dispose();puts("rebase_source_test: PASS");return 0;
 }

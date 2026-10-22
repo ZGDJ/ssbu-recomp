@@ -39,6 +39,10 @@ static int g_ls_on = -1, g_ls_active, g_ls_cmp, g_ls_off_done;
 static int g_ls_bound;                                /* placeholder maps require a healthy learned backend */
 static volatile uint8_t *g_ls_st;                       /* per ring page id (windows 1 + 2): 0 untracked, 1 read-only, 2 learned, 3 opening */
 static size_t g_ls_n1, g_ls_np;
+static void *g_ls_veh_handle;
+static uint8_t *g_ls_storage_base;
+static size_t g_ls_storage_n1, g_ls_storage_np;
+static LONG g_ls_storage_cap;
 static uint32_t *g_ls_list; static volatile LONG g_ls_n; static LONG g_ls_cap = 1 << 21; static volatile LONG g_ls_over;
 static volatile LONG64 g_ls_faults, g_ls_fault_mod[5], g_ls_wrote_open, g_ls_dec_learn, g_ls_commit_prot, g_ls_spin, g_ls_refault, g_ls_protfail;
 static long long g_ls_prot_pages, g_ls_bases, g_ls_unprot_pages, g_ls_caps, g_ls_cap_pages, g_ls_cap_same; static double g_ls_prot_ms, g_ls_cmp_ms;
@@ -80,18 +84,35 @@ static uint32_t *g_ls_lc; static int g_ls_decay; static SRWLOCK g_ls_lk = SRWLOC
  * incomplete membership; the existing hold scope still does not prove that
  * every host writer is stopped. Protection failure remains lifetime-sticky. */
 static int ls_validate_tracking(void) {
-    if (!g_ls_active) return !g_ls_bound;
+    static unsigned reports;
+    if (!g_ls_active) {
+        if (g_ls_bound && reports++ < 20) LOG("r1: LS tracking refused: inactive bound backend\n");
+        return !g_ls_bound;
+    }
     LONG count = g_ls_n;
     if (!g_ls_st || !g_ls_list || !g_ls_lc || g_ls_cap <= 0 ||
         count < 0 || count > g_ls_cap || g_ls_over || g_ls_protfail ||
         g_ls_n1 != (size_t)(g_wn1 >> 12) || g_ls_np < g_ls_n1 ||
         g_ls_np - g_ls_n1 != (size_t)(WN2 >> 12) || g_ls_np > UINT32_MAX ||
-        (g_ls_n1 && !g_ns1) || (g_ls_np > g_ls_n1 && !g_ns2)) return 0;
+        (g_ls_n1 && !g_ns1) || (g_ls_np > g_ls_n1 && !g_ns2)) {
+        if (reports++ < 20) LOG("r1: LS tracking refused: metadata count=%ld cap=%ld overflow=%ld protection=%lld n1=%zu np=%zu window1=%llu owners=%d%d%d exclusions=%d%d\n",
+            (long)count, (long)g_ls_cap, (long)g_ls_over, (long long)g_ls_protfail, g_ls_n1, g_ls_np,
+            (unsigned long long)(g_wn1 >> 12), !!g_ls_st, !!g_ls_list, !!g_ls_lc, !!g_ns1, !!g_ns2);
+        return 0;
+    }
     for (LONG k = 0; k < count; k++) {
         uint32_t v = g_ls_list[k];
-        if (!v || (size_t)v - 1 >= g_ls_np) return 0;
+        if (!v || (size_t)v - 1 >= g_ls_np) {
+            if (reports++ < 20) LOG("r1: LS tracking refused: list entry index=%ld value=%u count=%ld np=%zu\n", (long)k, v, (long)count, g_ls_np);
+            return 0;
+        }
     }
-    return g_ls_n == count && !g_ls_over && !g_ls_protfail;
+    LONG after = g_ls_n, overflow = g_ls_over; LONG64 protection = g_ls_protfail;
+    if (after != count || overflow || protection) {
+        if (reports++ < 20) LOG("r1: LS tracking refused: final observation before=%ld after=%ld overflow=%ld protection=%lld\n", (long)count, (long)after, (long)overflow, (long long)protection);
+        return 0;
+    }
+    return 1;
 }
 static void ls_push(size_t id) {                         /* (shared: SSBU_LS_DECAY's compaction takes it exclusive, threads held) */
     AcquireSRWLockShared(&g_ls_lk);
@@ -153,24 +174,49 @@ static void ls_protect_all(void) {                       /* threads held: every 
     g_ls_prot_ms += now_ms() - t0; g_ls_bases++; g_ls_active = 1; g_ls_off_done = 0;
     LOG("r1: LS: %lld pages (%.1f MB) made read-only in %.1f ms; learned set emptied\n", g_ls_prot_pages - before, (g_ls_prot_pages - before) * (double)PG / 1048576.0, now_ms() - t0);
 }
-static void ls_after_setup(void) {                       /* mark_setup done, threads still held: the base is in the shadow */
-    if (!ls_on() || pm1 != &r1_m1) return;               /* (a marked game DLL is loaded: the marks are used) */
-    g_ls_n1 = (size_t)(g_wn1 >> 12); g_ls_np = g_ls_n1 + (size_t)(WN2 >> 12);
-    if (!g_ls_st) {
-        g_ls_st = VirtualAlloc(NULL, g_ls_np, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        g_ls_list = VirtualAlloc(NULL, (size_t)g_ls_cap * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        g_ls_lc = VirtualAlloc(NULL, (size_t)g_ls_cap * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (!g_ls_st || !g_ls_list || !g_ls_lc) { LOG("r1: LS: allocation FAILED: off\n"); g_ls_st = NULL; g_ls_on = 0; return; }
-        g_ls_cmp = !(getenv("SSBU_LS_CMP") && getenv("SSBU_LS_CMP")[0] == '0');      /* (R3 net3) default ON: the same tick time, a quarter of the ring memory (SSBU_LS_CMP=0: every learned page copied) */
-        if (getenv("SSBU_LS_DECAY")) { g_ls_decay = atoi(getenv("SSBU_LS_DECAY")); if (g_ls_decay > 0) g_ls_cmp = 1; }
-        g_ls_mod_exe = GetModuleHandleA(NULL);
-        {   const char *names[] = {getenv("SSBU_R1_GAMEDLL"), "ssbu_game.dll", "ssbu_game_p15n3.dll", "ssbu_game_eh_o1.dll", "ssbu_game_1305x.dll"};
-            for (int i = 0; i < 5 && !g_ls_mod_game; i++) if (names[i] && names[i][0]) g_ls_mod_game = GetModuleHandleA(names[i]); }
-        if (!AddVectoredExceptionHandler(1, ls_veh)) {
-            LOG("r1: LS: exception handler installation FAILED: off\n");
-            g_ls_on = 0;
-            return;                                     /* do not protect pages without a handler */
-        }
+static void ls_startup_vfree(void *p) {
+    if (p && !VirtualFree(p, 0, MEM_RELEASE)) { LOG("r1: LS STARTUP FATAL: reservation release failed\n"); abort(); }
+}
+static int ls_startup_prepare(uint8_t *base, uint64_t bytes) {
+    if (!ls_on() || pm1 != &r1_m1) return 1;
+    if (!base || !bytes || ((uintptr_t)base & (PG - 1)) || (bytes & (PG - 1)) ||
+        bytes > UINTPTR_MAX - (uintptr_t)base || (WN2 & (PG - 1)) || g_ls_cap <= 0 ||
+        (size_t)g_ls_cap > SIZE_MAX / sizeof(uint32_t)) return 0;
+    uint64_t n1 = bytes / PG, n2 = WN2 / PG;
+    if (n1 > UINT32_MAX || n2 > UINT32_MAX - n1) return 0;
+    size_t np = (size_t)(n1 + n2);
+    if (g_ls_st || g_ls_list || g_ls_lc || g_ls_veh_handle) {
+        return g_ls_st && g_ls_list && g_ls_lc && g_ls_veh_handle &&
+            g_ls_storage_base == base && g_ls_storage_n1 == n1 && g_ls_storage_np == np &&
+            g_ls_storage_cap == g_ls_cap && g_ls_n1 == n1 && g_ls_np == np;
+    }
+    if (g_ls_active) return 0;
+    uint8_t *state = VirtualAlloc(NULL, np, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    uint32_t *list = VirtualAlloc(NULL, (size_t)g_ls_cap * sizeof *list, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    uint32_t *copy = VirtualAlloc(NULL, (size_t)g_ls_cap * sizeof *copy, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void *handler = NULL;
+    if (state && list && copy) handler = AddVectoredExceptionHandler(1, ls_veh);
+    if (!handler) {
+        ls_startup_vfree(copy); ls_startup_vfree(list); ls_startup_vfree(state);
+        LOG("r1: LS startup refused: allocation or handler installation failed\n"); return 0;
+    }
+    /* Handler observes inactive tracking until activation after map publication.
+     * Retain these complete owners if a later mark/shadow allocation refuses. */
+    g_ls_st = state; g_ls_list = list; g_ls_lc = copy;
+    g_ls_n1 = (size_t)n1; g_ls_np = np;
+    g_ls_storage_base = base; g_ls_storage_n1 = (size_t)n1; g_ls_storage_np = np; g_ls_storage_cap = g_ls_cap;
+    g_ls_veh_handle = handler;
+    g_ls_cmp = !(getenv("SSBU_LS_CMP") && getenv("SSBU_LS_CMP")[0] == '0');
+    if (getenv("SSBU_LS_DECAY")) { g_ls_decay = atoi(getenv("SSBU_LS_DECAY")); if (g_ls_decay > 0) g_ls_cmp = 1; }
+    g_ls_mod_exe = GetModuleHandleA(NULL);
+    { const char *names[] = {getenv("SSBU_R1_GAMEDLL"), "ssbu_game.dll", "ssbu_game_p15n3.dll", "ssbu_game_eh_o1.dll", "ssbu_game_1305x.dll"};
+      for (int i = 0; i < 5 && !g_ls_mod_game; i++) if (names[i] && names[i][0]) g_ls_mod_game = GetModuleHandleA(names[i]); }
+    return 1;
+}
+static void ls_after_setup(void) {
+    if (!ls_on() || pm1 != &r1_m1) return;
+    if (!g_ls_veh_handle || !ls_startup_prepare(g_win1, g_wn1)) {
+        LOG("r1: LS STARTUP FATAL: activation without prepared geometry\n"); abort();
     }
     ls_protect_all();
 }
@@ -293,9 +339,8 @@ static void ls_capture_plan_commit(size_t pages) {
 static void ls_capture_end(void) {                       /* r1_ring_capture, after the copies (threads still held) */
     if (g_ls_active && g_ls_decay > 0 && g_ls_caps % g_ls_decay == 0) ls_decay_run();
 }
-static void ls_rebase(void) {                            /* r1_ring_rebase, threads held, the new base in the shadow: protection again */
-    if (!g_ls_st || g_ls_on <= 0) return;                /* failed setup must not protect pages without a handler */
-    ls_protect_all();
+static void ls_rebase(void) {                            /* complete prepared geometry before protection */
+    ls_after_setup();
 }
 static void ls_fight_off(void) {                         /* the fight is over: every page still read-only writable again */
     if (!g_ls_st || g_ls_off_done) return;
@@ -346,6 +391,7 @@ typedef struct {
     uint8_t bm[LPM_BM];
 } LpMeta;
 static uint8_t *g_lp; static LpMeta *g_lpm;
+static volatile LONG g_lp_routing_ready;
 static SRWLOCK g_lp_lock = SRWLOCK_INIT;
 static long long g_lp_n, g_lp_bytes, g_lp_frees, g_lp_double, g_lp_reallocs, g_lp_large, g_lp_full;
 #define LP_SN 1024
@@ -354,13 +400,18 @@ static uint8_t *ls_pool_meta(size_t *n) { *n = g_lpm ? (sizeof(LpMeta) + PG - 1)
 static int lp_in(uint64_t p) { return g_lp && p >= (uint64_t)(uintptr_t)g_lp && p < (uint64_t)(uintptr_t)g_lp + LP_RES; }
 static uint64_t lp_alloc(uint64_t n, uint64_t align) {  /* lock held; 0 = no room (the caller goes to jemalloc) */
     LpMeta *m = g_lpm;
+    if (!InterlockedCompareExchange(&g_lp_routing_ready, 0, 0)) return 0;
+    if (!g_lp || !m || n > LP_RES || m->bump > LP_NCH || m->bm_used > LPM_BM) return 0;
     if (align < 16) align = 16;
+    if (align > LP_CH || (align & (align - 1))) return 0;
     uint64_t need = n > align ? n : align; if (need < 16) need = 16;
     if (need <= (LP_CH >> 1)) {
         int c = 0; while ((16ull << c) < need) c++;
         uint64_t sz = 16ull << c, slots = LP_CH / sz, words = (slots + 63) / 64;
+        if (m->ncls[c] > LP_PER) return 0;
         for (uint32_t t = 0; t < m->ncls[c]; t++) {
             uint32_t idx = (m->cur[c] + t) % m->ncls[c], ch = m->list[c][idx];
+            if (ch >= LP_NCH || m->bmo[ch] > LPM_BM || words * 8 > LPM_BM - m->bmo[ch]) return 0;
             uint64_t *w = (uint64_t *)(m->bm + m->bmo[ch]);
             for (uint64_t k = 0; k < words; k++) {
                 if (w[k] == ~0ull) continue;
@@ -371,7 +422,7 @@ static uint64_t lp_alloc(uint64_t n, uint64_t align) {  /* lock held; 0 = no roo
             }
         }
         uint32_t bytes = (uint32_t)((words * 8 + 7) & ~7ull);
-        if (m->ncls[c] >= LP_PER || m->bump >= LP_NCH || m->bm_used + bytes > LPM_BM) { g_lp_full++; return 0; }
+        if (m->ncls[c] >= LP_PER || m->bump >= LP_NCH || bytes > LPM_BM - m->bm_used) { g_lp_full++; return 0; }
         uint32_t ch = (uint32_t)m->bump;
         if (!VirtualAlloc(g_lp + (uint64_t)ch * LP_CH, LP_CH, MEM_COMMIT, PAGE_READWRITE)) { g_lp_full++; return 0; }
         m->bump++; m->bmo[ch] = (uint32_t)m->bm_used; m->bm_used += bytes; memset(m->bm + m->bmo[ch], 0, bytes);
@@ -380,9 +431,12 @@ static uint64_t lp_alloc(uint64_t n, uint64_t align) {  /* lock held; 0 = no roo
         return (uint64_t)(uintptr_t)g_lp + (uint64_t)ch * LP_CH;
     }
     if (align > LP_CH) return 0;
-    uint32_t nch = (uint32_t)((need + LP_CH - 1) / LP_CH);
+    if (need > LP_RES || need > UINT64_MAX - (LP_CH - 1)) return 0;
+    uint64_t chunks = (need + LP_CH - 1) / LP_CH;
+    if (!chunks || chunks > LP_NCH || chunks > UINT32_MAX) return 0;
+    uint32_t nch = (uint32_t)chunks;
     for (uint64_t ch = 0; ch < m->bump; ch++) if (m->cls[ch] == 102 && m->lsz[ch] == nch) { m->cls[ch] = 100; m->live++; m->made++; g_lp_n++; g_lp_large++; return (uint64_t)(uintptr_t)g_lp + ch * LP_CH; }
-    if (m->bump + nch > LP_NCH || !VirtualAlloc(g_lp + m->bump * LP_CH, (uint64_t)nch * LP_CH, MEM_COMMIT, PAGE_READWRITE)) { g_lp_full++; return 0; }
+    if (nch > LP_NCH - m->bump || !VirtualAlloc(g_lp + m->bump * LP_CH, (uint64_t)nch * LP_CH, MEM_COMMIT, PAGE_READWRITE)) { g_lp_full++; return 0; }
     uint64_t c0 = m->bump; m->bump += nch;
     m->cls[c0] = 100; for (uint32_t i = 1; i < nch; i++) m->cls[c0 + i] = 101; m->lsz[c0] = nch;
     m->live++; m->made++; g_lp_n++; g_lp_large++; g_lp_bytes += (long long)nch * (long long)LP_CH;
@@ -425,8 +479,8 @@ static int lps_find(uint64_t lr, uint64_t lr2) {
 /* which site a pool block came from (for the second-free report): a small table of block -> site */
 #define LPB_N (1u << 20)
 static uint64_t *g_lpb_p; static int16_t *g_lpb_s;
-static void lpb_put(uint64_t p, int s) { if (!g_lpb_p) return; uint32_t h = (uint32_t)((p * 0x9e3779b97f4a7c15ull) >> 44) & (LPB_N - 1); for (int i = 0; i < 64; i++) { uint32_t k = (h + i) & (LPB_N - 1); if (!g_lpb_p[k] || g_lpb_p[k] == p) { g_lpb_p[k] = p; g_lpb_s[k] = (int16_t)s; return; } } }
-static int lpb_get(uint64_t p) { if (!g_lpb_p) return -1; uint32_t h = (uint32_t)((p * 0x9e3779b97f4a7c15ull) >> 44) & (LPB_N - 1); for (int i = 0; i < 64; i++) { uint32_t k = (h + i) & (LPB_N - 1); if (g_lpb_p[k] == p) return g_lpb_s[k]; if (!g_lpb_p[k]) return -1; } return -1; }
+static void lpb_put(uint64_t p, int s) { if (!g_lpb_p || !g_lpb_s) return; uint32_t h = (uint32_t)((p * 0x9e3779b97f4a7c15ull) >> 44) & (LPB_N - 1); for (int i = 0; i < 64; i++) { uint32_t k = (h + i) & (LPB_N - 1); if (!g_lpb_p[k] || g_lpb_p[k] == p) { g_lpb_p[k] = p; g_lpb_s[k] = (int16_t)s; return; } } }
+static int lpb_get(uint64_t p) { if (!g_lpb_p || !g_lpb_s) return -1; uint32_t h = (uint32_t)((p * 0x9e3779b97f4a7c15ull) >> 44) & (LPB_N - 1); for (int i = 0; i < 64; i++) { uint32_t k = (h + i) & (LPB_N - 1); if (g_lpb_p[k] == p) return g_lpb_s[k]; if (!g_lpb_p[k]) return -1; } return -1; }
 static ImportFn g_lpo_aa, g_lpo_pm, g_lpo_ra, g_lpo_fr, g_lpo_ms;
 static uint64_t ls_lr2(Ctx *c) { uint64_t fp = c->x[29]; return (fp > 0x10000 && !(fp & 7)) ? *(uint64_t *)(uintptr_t)(fp + 8) : 0; }
 static void lph_aa(Ctx *c, void *u) {                    /* aligned_alloc(align, size) */
@@ -470,7 +524,35 @@ static void lph_ms(Ctx *c, void *u) {                    /* malloc_size(p) */
     if (!lp_in(p)) { g_lpo_ms(c); return; }
     AcquireSRWLockShared(&g_lp_lock); c->x[0] = lp_size(p); ReleaseSRWLockShared(&g_lp_lock);
 }
+static void lp_resource_free(void *p) {
+    if (p && !VirtualFree(p, 0, MEM_RELEASE)) { LOG("r1: PRESENTATION RESOURCE FATAL: reservation release failed\n"); abort(); }
+}
+static int lp_resources_prepare(void) {
+    if (g_lp || g_lpm || g_lpb_p || g_lpb_s) return 0;
+    uint8_t *pool = NULL; LpMeta *meta = NULL;
+    for (uint64_t hint = 0x40000000000ull; !pool && hint < 0x80000000000ull; hint += 0x400000000ull)
+        pool = VirtualAlloc((void *)(uintptr_t)hint, LP_RES, MEM_RESERVE, PAGE_READWRITE);
+    if (pool) for (uint64_t hint = 0x80000000000ull; !meta && hint < 0xC0000000000ull; hint += 0x10000000ull)
+        meta = VirtualAlloc((void *)(uintptr_t)hint, sizeof *meta, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!pool || !meta) { lp_resource_free(meta); lp_resource_free(pool); return 0; }
+    uint64_t *keys = calloc(LPB_N, sizeof *keys);
+    int16_t *sites = calloc(LPB_N, sizeof *sites);
+    if (!keys || !sites) { free(keys); free(sites); keys = NULL; sites = NULL; }
+    g_lp = pool; g_lpm = meta; g_lpb_p = keys; g_lpb_s = sites; return 1;
+}
+static void lp_hooks_install(void) {
+    /* Allocation hooks fall back to the original allocator until every hook is live. */
+    if (!hook_install(GA(0x710392dce0ull), lph_aa, NULL, &g_lpo_aa) ||
+        !hook_install(GA(0x710392dc40ull), lph_pm, NULL, &g_lpo_pm) ||
+        !hook_install(GA(0x710392dd80ull), lph_ra, NULL, &g_lpo_ra) ||
+        !hook_install(GA(0x710392e590ull), lph_fr, NULL, &g_lpo_fr) ||
+        !hook_install(GA(0x710392e8a0ull), lph_ms, NULL, &g_lpo_ms)) {
+        LOG("r1: PRESENTATION HOOK FATAL: incomplete allocator interception\n"); abort();
+    }
+    InterlockedExchange(&g_lp_routing_ready, 1);
+}
 static void ls_init(void) {                              /* r1_init */
+    if (g_lp || g_lpm || g_lpb_p || g_lpb_s) return;
     const char *fn = getenv("SSBU_LS_ROUTE");
     if (!ls_on() || (fn && (!*fn || !strcmp(fn, "0")))) return;
     if (fn) {                                            /* (test) a site file instead of the built-in list */
@@ -491,18 +573,9 @@ static void ls_init(void) {                              /* r1_init */
         for (int i = 0; i < 3; i++) { g_lps[g_lps_n][0] = GA(big3[i][0]); g_lps[g_lps_n][1] = big3[i][1] ? GA(big3[i][1]) : 0; g_lps_n++; }
         fn = "the built-in list (rt_big3)";
     }
-    for (uint64_t hint = 0x40000000000ull; !g_lp && hint < 0x80000000000ull; hint += 0x400000000ull)      /* away from window 2 (0x7100000000 + 8 GB) */
-        g_lp = VirtualAlloc((void *)(uintptr_t)hint, LP_RES, MEM_RESERVE, PAGE_READWRITE);
-    for (uint64_t hint = 0x80000000000ull; !g_lpm && hint < 0xC0000000000ull; hint += 0x10000000ull)
-        g_lpm = VirtualAlloc((void *)(uintptr_t)hint, sizeof(LpMeta), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    g_lpb_p = calloc(LPB_N, 8); g_lpb_s = calloc(LPB_N, 2);
-    if (!g_lp || !g_lpm) { LOG("r1: LS: presentation pool: allocation FAILED: off\n"); g_lps_n = 0; return; }
-    int h = !!hook_install(GA(0x710392dce0ull), lph_aa, NULL, &g_lpo_aa);
-    h += !!hook_install(GA(0x710392dc40ull), lph_pm, NULL, &g_lpo_pm);
-    h += !!hook_install(GA(0x710392dd80ull), lph_ra, NULL, &g_lpo_ra);
-    h += !!hook_install(GA(0x710392e590ull), lph_fr, NULL, &g_lpo_fr);
-    h += !!hook_install(GA(0x710392e8a0ull), lph_ms, NULL, &g_lpo_ms);
-    LOG("r1: LS: presentation pool on: %d sites from %s, blocks %p + %.0f GB (never saved), bookkeeping %p + %.1f MB (saved with the state), jemalloc hooks %d of 5\n", g_lps_n, fn, (void *)g_lp, LP_RES / 1073741824.0, (void *)g_lpm, sizeof(LpMeta) / 1048576.0, h);
+    if (!lp_resources_prepare()) { LOG("r1: LS: presentation pool: allocation FAILED: off\n"); g_lps_n = 0; return; }
+    lp_hooks_install();
+    LOG("r1: LS: presentation pool on: %d sites from %s, blocks %p + %.0f GB (never saved), bookkeeping %p + %.1f MB (saved with the state), jemalloc hooks %d of 5\n", g_lps_n, fn, (void *)g_lp, LP_RES / 1073741824.0, (void *)g_lpm, sizeof(LpMeta) / 1048576.0, 5);
 }
 static void ls_report(void) {
     if (!g_ls_st && !g_lps_n) return;

@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-capture-modes.md
+- Evidence: evidence/2026-10-22-learned-startup.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root capture-mode resources, 2026-10-22T05:15:00Z
-- Next: Optional capture-mode resources/scratch/trace completion pass exact O1/O3 failures and review; all six frozen control types have passing strict replay/observers, with reuse A incomplete-learned-tracking/no-replay failure preserved before same-binary B pass. Next tracking startup/presentation resources and bounded learned-validator diagnostics, then guest allocator/pad-history boundaries. Preserve historical-stacks command-buffer A incomplete-learned-tracking base refusal and M3.2 forward-reference divergence; neither is explained by passing retries. Loader/writer quiescence, authoritative equality and online qualification remain open.
+- Owner: root learned/presentation startup, 2026-10-22T05:28:00Z
+- Next: Learned startup/presentation resources and bounded refusal diagnostics pass exact O1/O3 failures, independent review and six frozen controls with strict replay and four-observer restore audits. Next guest arena/pad-history boundaries, then watchdog/sampler/exception-handler startup resources. Preserve prior incomplete-learned-tracking no-replay failures and M3.2 forward-reference divergence; passing controls do not explain them. Partial restore remains M7.1; loader/writer quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

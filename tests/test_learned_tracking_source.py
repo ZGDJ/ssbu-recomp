@@ -20,7 +20,7 @@ class LearnedTrackingSourceTest(unittest.TestCase):
         bodies = next(line for line in source.splitlines() if line.startswith("static uint8_t *ls_addr("))
         bodies += "\n" + "\n".join(function(source, name) for name in
                            ("ls_id", "ls_ns", "ls_validate_tracking", "ls_open", "ls_range",
-                            "ls_after_setup", "ls_rebase"))
+                            "ls_startup_vfree", "ls_startup_prepare", "ls_after_setup", "ls_rebase"))
         fixture = (ROOT / "tests/learned_tracking_source_fixture.c").read_text()
         directory = ROOT / "artifacts/local/learned-tracking-source"
         directory.mkdir(parents=True, exist_ok=True)

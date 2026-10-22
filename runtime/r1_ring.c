@@ -608,6 +608,10 @@ int r1_ring_rebase(long long frame, Ctx *c) {
     fibers_capture_config(); rg_meta_config(); nvn_r1_cb_capture_config();
     if (g_rg_nomem == 2) return 0;                        /* (hs13) the ring broke earlier: no rollback */
     if (!g_rg_ready) return r1_ring_capture(frame, c);
+    if (!ls_startup_prepare(g_win1, g_wn1)) {
+        r1_ring_let_go(); /* Refusal preserves history, but must release prior capture holds. */
+        LOG("r1: RING rebase refused: learned startup resources or geometry\n"); return 0;
+    }
     double t0 = now_ms();
     r1_ring_let_go();
     r1_ring_release();

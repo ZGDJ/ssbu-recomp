@@ -1592,6 +1592,7 @@ static void mark_undo(void) {
 }
 /* after the first (full) save: shadows, extras, maps on. 1 = done; 0 = out of memory (mark_undo done: no marks) */
 static void ls_after_setup(void);                      /* R4 (rb_learned.c) */
+static int ls_startup_prepare(uint8_t *base, uint64_t bytes);
 static int mark_setup(void) {
     if (!mark_modules_prepare()) { LOG("r1: MARK setup refused: incomplete module export inventory\n"); return 0; }
     size_t big = 0; uint8_t *base = NULL;
@@ -1602,6 +1603,10 @@ static int mark_setup(void) {
             LOG("r1: MARK setup refused: incomplete heap reservation inventory\n"); return 0;
         }
         if ((size_t)(hi - lo) > big && g_heap_base[i] != g_ar) { big = (size_t)(hi - lo); base = (uint8_t *)lo; }
+    }
+    if (!ls_startup_prepare(base, big)) {
+        g_mark_module_count = g_mark_modules_prepared = 0;
+        LOG("r1: MARK setup refused: learned startup resources or geometry\n"); return 0;
     }
     g_win1 = base; g_wn1 = big;
     g_mctx = g_ctx_save;                               /* main's registers of this (full) save */
