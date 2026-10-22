@@ -1,0 +1,37 @@
+# Prepared ring restoration
+
+2026-10-21; M7.8 remains in progress, M7.1 remains open. Root integrated exclusive command-buffer and continuation/memory agent scopes with independent read-only review. This follows the [allocation plan](2026-10-21-restore-allocation-plan.md).
+
+## Change and boundary
+
+The ring builds an immutable sparse target-page overlay before changing live indices, freeing pool references or dropping history. It reserves copy jobs, a page journal, detached command-buffer staging/live replacements, verifier storage and continuation actions before destructive rewind. Command-buffer membership is checked under a shared registry lock held through commit or abort. Commit uses the reserved stores; unexpected copy-job growth is fatal rather than continuing a partial restore.
+
+Windows preparation journals exact page commitments and original protections. Unaligned logical ranges can touch two physical pages; reverse cleanup handles overlap and partial preparation. Failure restores protections and decommits only pages committed by this attempt. Cleanup failure stops the process without resuming simulation. Guard/inaccessible and copy-on-write destinations refuse conservatively. The guarantee concerns explicit resource allocations, not eliminating Windows page faults or proving mapping stability under concurrent writers.
+
+Fiber preparation enumerates without temporary heap allocation, checks inventory, destination/payload bounds and continuation compatibility. A never-run fiber requiring recreation is refused: detached fresh-fiber construction is not implemented. Existing matching-wait register-only restoration is still partial semantic coverage. Refusal unwinds page/CB preparation and balances successful thread holds before returning retryable failure. The logged `unchanged=1` describes source ordering/history bookkeeping; it is not a whole-process byte comparison.
+
+## Validation
+
+Production helper suite: `deps/python/Scripts/python.exe tools/run_rollback_tests.py`, local result `artifacts/local/rollback-tests/run-gi67_zex/results.json`. All tests passed, with the explicitly expected M7.4 future-input collision still reproduced (32 trials). New coverage includes late allocation refusal, detached buffer identity/payload preservation and retry, immutable overlays, allocation-free helper commits, and real Windows unaligned/protected/reserved/mapped-COW memory cleanup. Memory helper tests also passed at O1 and O3. This is not an integrated allocator-disabled whole-runtime test.
+
+The first control, `restore-default-a`, failed: repeated page-preparation refusals, launcher exit 0 after 213.391 seconds, strict comparator exit 1 for an incomplete diagnostic line. The original page journal incorrectly required aligned logical ranges. That failed evidence is retained; exit 0 was not accepted as replay.
+
+After supporting unaligned ranges, `restore-default-b` completed in 62.907 seconds: 500 real passes and two one-frame rollback cycles matched the uninterrupted fighter-telemetry oracle with `--require-replay`. Raw replay memory still differs (for example, the second replay reported 137 window-1, 8 window-2 and 2 extra pages). Fighter equality is not authoritative-state or gameplay qualification.
+
+Transient controls also passed the mandatory-replay comparator with 500 real passes and two one-frame rollback cycles. `restore-late-retry` (62.828 seconds, exit 0) injected one refusal after core page/CB/fiber preparation and before optional verifier reservation. `restore-cb-retry` (62.922 seconds, exit 0) injected one CB preparation refusal. Both logged target frame 118, eight retained states, oldest 112/newest 119, then retried successfully. These observations are not integrated byte-level preservation assertions. Each command and executable identity is retained beside its local trace under `artifacts/local/save-import-20261021/`.
+
+The first persistent-refusal control, `restore-late-persistent`, failed the strict comparator at an incomplete frame-472 line after the 210-second launcher limit (213.094 seconds total, launcher exit 0). It is not a pass. Repeated refusal is much slower than the default; the follow-up keeps the same binary, 500-frame requirement and comparator while allowing 300 seconds. The local wrapper timeout now follows the requested launcher duration plus cleanup allowance.
+
+The longer `restore-late-persistent-b` completed in 245.890 seconds (exit 0). Its sealed trace passed with 500 real passes, zero replay and identical fighter telemetry. Refusal logs retain eight states; three capture attempts separately reported audio-thread hold skips. No RESTORE FATAL was logged. This is a forward-only persistent-refusal pass, not successful rollback. The machine-readable four-control result is `artifacts/local/save-import-20261021/restore-preparation-results.json`; the earlier failed matrix and raw logs are retained separately.
+
+The reviewer localized a major cost in the retained watchdog samples: `game.log:4798–4806` records 265.6 ms game-thread CPU in a 300 ms sample inside VirtualQuery. Final-build map resolution gives `restore_memory_query -> restore_memory_prepare -> rg_plan_memory_prepare -> restore_plan_prepare -> r1_ring_load`; lines 6112–6123 contain twelve further samples of the same path. Persistent refusal repeats preparation every pass because the simulation retry interval resets on success. This supports repeated page queries as a cost, not the earlier suspicion of long restore-hold waits. Future optimization should measure phase/query counts, cache stable source-region extents within one attempt, preserve page journals, invalidate after mapping changes and discard validation between attempts. Do not weaken thread holds or retain stale validation across retries.
+
+Final runtime manifest: `artifacts/local/runtime-restore-memory-final/package/manifest.json`; source tree `d70e25f66d1cb97271f3d11e81628f709379aeb7dfed7754bbe021b1d75c03dc`; isolated executable SHA-256 `b5a927a1cd20c3fcb4100e28b5cb8649df2830b14494da30c50ff1c273fb5ecc`; local package SHA-256 `b5206dc9d830d38e9d223a073517a0b97a6ee9e1925d73dd5bf6350715c0bcce`. No package published. Tests use a distinct executable and disposable copied userdata.
+
+## Remaining work
+
+Extend integrated before/after state assertions beyond history logs and helper tests. Detached fresh-fiber recreation, full continuation/catch-table coverage, initial-base holds, tracking completeness and concurrency remain open. Legacy non-ring restore paths are outside this transaction. Writer probing is refused by this prepared ring path because its diagnostics allocate after restoration; historical writer evidence remains valid for its recorded build. Do not close M7.8 or infer online safety from this packet.
+
+Final normalized manifest comparison found no source mismatches. The normal playable executable remained `ec39391dab2a03d43201becd82bb806264701b9150b96462ea2d4d149152d5b9`, the game DLL remained `30094b7db70a40856b6e2fbd1ed0b07343ef91e2cd504887871941ee1ed059e5`, and all 24 installed save files matched the original extracted fixture. Documentation validation and whitespace checks passed.
+
+The collaboration workflow now requires exclusive file scopes, frozen interfaces/source before build, reviewer acknowledgment, normalized manifest checks and a sequential default-first battle matrix. Failed controls remain evidence and stop the fault matrix until diagnosed.

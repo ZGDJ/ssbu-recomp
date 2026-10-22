@@ -9,10 +9,26 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import zipfile
 
 CHUNK = 8 * 1024 * 1024
 RESERVE = 12 * 1024**3  # build/tools beyond extracted data
+
+
+def check_path_lengths(root, names):
+    # Stay compatible with Windows tools even on PCs that enable long paths.
+    # MAX_PATH includes the terminating NUL; Windows counts UTF-16 code units.
+    for name in ('import.json', *names):
+        target = root / (name + '.install-part')
+        length = len(str(target).encode('utf-16-le')) // 2
+        if length >= 260 or any(len(p.encode('utf-16-le')) // 2 > 255 for p in target.parts):
+            raise ValueError(
+                'Installation folder is too deep for this archive '
+                f'({length} characters including the temporary filename; maximum 259). '
+                'Close setup and move the OpenSmash folder containing Install OpenSmash.bat '
+                'directly into your C: drive, so the file is C:\\OpenSmash\\Install OpenSmash.bat. '
+                'Then run it again and select the same game ZIP. File: ' + name)
 
 
 def safe_name(name):
@@ -119,6 +135,7 @@ def import_archive(archive, root, reserve=RESERVE):
     contained(root, 'import.json')
     with zipfile.ZipFile(archive) as z:
         identity, files = inspect_archive(z)
+        check_path_lengths(root, files)
         marker = root / 'import.json'
         if marker.exists():
             if json.loads(marker.read_text())['manifest_sha256'] != identity:
@@ -137,6 +154,10 @@ def import_archive(archive, root, reserve=RESERVE):
                 continue
             pending.append((name, info, meta, target))
         needed = sum(info.file_size for _, info, _, _ in pending) + reserve
+        # Cancellation can leave a huge partial file. Reclaim only known import
+        # temporaries before checking space; retry restarts these files anyway.
+        for name, _, _, _ in pending:
+            contained(root, name + '.install-part').unlink(missing_ok=True)
         if shutil.disk_usage(root).free < needed:
             raise ValueError(f'Need at least {needed / 1024**3:.1f} GB free to extract and build. Free space and retry.')
         for i, (name, info, meta, target) in enumerate(pending, 1):
@@ -144,11 +165,24 @@ def import_archive(archive, root, reserve=RESERVE):
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = contained(root, name + '.install-part')
             h = hashlib.sha256()
+            copied = 0
+            last_report = time.monotonic()
+            if info.file_size >= 1024**3:
+                print(f'  Large file ({info.file_size / 1024**3:.1f} GiB). '
+                      'Keep this window open; extraction may take several minutes.', flush=True)
             try:
                 with z.open(info) as src, temp.open('wb') as dst:
                     for block in iter(lambda: src.read(CHUNK), b''):
                         dst.write(block)
                         h.update(block)
+                        copied += len(block)
+                        now = time.monotonic()
+                        if now - last_report >= 5:
+                            if shutil.disk_usage(root).free < reserve:
+                                raise ValueError('Free disk space dropped below the build reserve during extraction. Free space and retry; completed files are kept.')
+                            print(f'  {copied / info.file_size:.0%} '
+                                  f'({copied / 1024**2:.0f} / {info.file_size / 1024**2:.0f} MiB)', flush=True)
+                            last_report = now
                 if h.hexdigest() != meta['sha256']:
                     raise ValueError('Checksum mismatch: ' + name + '. Obtain an intact copy of your ZIP.')
                 os.replace(temp, target)
@@ -186,6 +220,15 @@ def main():
     parser.add_argument('--import-only', action='store_true')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
+    if not args.import_only:
+        import precheck
+        print('Checking Windows, memory, graphics and installation drive before importing...', flush=True)
+        checks = precheck.checks(str(repo / 'build'), need_msvc=False,
+                                dump_dir=str(repo / 'artifacts/local/family-inputs/dump'))
+        for check in checks:
+            print(f"{check['level'].upper()}: {check['what']}: {check['msg']}", flush=True)
+        if any(check['level'] == 'fail' for check in checks):
+            raise ValueError('This PC needs attention before installation. Read the checks above and save a support ZIP if you need help.')
     # Never redirect an existing installation to a different build directory.
     if (repo / 'build_location.txt').exists():
         raise ValueError('This checkout has a custom build location. Use a fresh installer folder.')
@@ -205,6 +248,8 @@ def main():
         config.write_text('online_mode = off\nrollback = off\n', encoding='utf-8')
     print('Building OpenSmash. The first installation can take an hour or longer. Keep this window open.', flush=True)
     subprocess.run(install_command(repo, dump, dlc), cwd=repo, check=True)
+    # Also written here for upgrades launched by an older PowerShell wrapper.
+    (repo / 'build/family-installed.json').write_text('{"installed":true}', encoding='utf-8')
     print('Installation complete. Use the OpenSmash Play shortcut. First launch prepares shaders; allow several minutes.', flush=True)
 
 

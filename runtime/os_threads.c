@@ -269,6 +269,14 @@ int guest_thread_info(int i, Ctx **c, const char **name, HANDLE *h) {
     *c = g_threads[i].c; *name = g_threads[i].o->name ? (const char *)(uintptr_t)g_threads[i].o->name : NULL; *h = g_threads[i].o->finished ? NULL : g_threads[i].o->thread;
     return 1;
 }
+/* Diagnostic eligibility gate: guest_thread_info stops on holes and therefore
+ * cannot by itself establish that its enumeration covered the raw inventory. */
+int os_r1_thread_inventory_valid(void) {
+    LONG count=g_threads_n;
+    if(count<0 || count>256) return 0;
+    for(LONG i=0;i<count;i++) if(!g_threads[i].o || !g_threads[i].c) return 0;
+    return count==g_threads_n;
+}
 void hitch_cur_ctx(Ctx *c);
 /* Name of the guest thread running on host thread `tid`, or NULL (nvn_gl.c: CPU time per thread, P3). */
 const char *guest_thread_name_of(DWORD tid) {
@@ -342,6 +350,61 @@ void os_r1_objs(void (*cb)(uint64_t key, int signaled, int count, uint64_t len, 
 /* (R2 round 3) the objects that have a host fiber are cached in table order: the full walk of the 65,536 buckets cost
  * ~0.15 ms per call, 3 calls per ring capture. The cache is rebuilt when a fiber is made or handed back (g_fib_gen). */
 static volatile LONG g_fib_gen = 1; static LONG g_fib_cgen; static Obj **g_fib_c; static int g_fib_cn, g_fib_ccap;
+/* Bounded, allocation-free diagnostic visitor. Published Obj records are never
+ * removed, but their mutable fields are not quiescent: this is not an atomic
+ * snapshot. The caller copies exact field spans and owns readability/failure
+ * handling. Counts are partial on failure; padding and unrelated sync state are
+ * deliberately excluded. Do not use the FLS accessor here: it mutates counters. */
+int os_r1_native_audit(int (*span)(void *, const void *, size_t), void *ctx,
+                       size_t *threads, size_t *fibers) {
+    size_t nodes = 0;
+    if (!threads || !fibers) return 0;
+    *threads = *fibers = 0;
+    if (!span) return 0;
+    LONG n = g_threads_n;
+    if (n < 0 || n > 256) return 0;
+#define NATIVE_SPAN(field) do { if (!span(ctx, (const void *)&(field), sizeof(field))) return 0; } while (0)
+    NATIVE_SPAN(g_threads_n);
+    NATIVE_SPAN(g_table);
+    NATIVE_SPAN(g_fib_gen);
+    for (LONG i = 0; i < n; i++) {
+        Obj *o = g_threads[i].o;
+        if (!o || !g_threads[i].c) return 0;
+        NATIVE_SPAN(g_threads[i].o);
+        NATIVE_SPAN(g_threads[i].c);
+        NATIVE_SPAN(o->key);
+        NATIVE_SPAN(o->thread);
+        NATIVE_SPAN(o->finished);
+        ++*threads;
+    }
+    for (int h = 0; h < BUCKETS; h++) {
+        for (Obj *o = *(Obj *volatile *)&g_table[h]; o; o = o->next) {
+            if (++nodes > 65536) return 0;
+            if (!o->fiber) continue;
+            if (*fibers >= 1024) return 0;
+            NATIVE_SPAN(o->key);
+            NATIVE_SPAN(o->fiber);
+            NATIVE_SPAN(o->fctx);
+            NATIVE_SPAN(o->fn);
+            NATIVE_SPAN(o->arg);
+            NATIVE_SPAN(o->stack);
+            NATIVE_SPAN(o->stack_size);
+            NATIVE_SPAN(o->fls);
+            NATIVE_SPAN(o->fls_fiber);
+            NATIVE_SPAN(o->run_tid);
+            NATIVE_SPAN(o->tp);
+            ++*fibers;
+        }
+    }
+#undef NATIVE_SPAN
+    return 1;
+}
+/* Restore preparation must not allocate or rebuild a fallible enumeration cache. */
+void os_r1_fibers_direct(void (*cb)(uint64_t, Ctx *, uint64_t, uint64_t, void *)) {
+    for (int h = 0; h < BUCKETS; h++)
+        for (Obj *o = g_table[h]; o; o = o->next)
+            if (o->fiber) cb(o->key, o->fctx, o->stack, o->stack_size, o->fiber);
+}
 void os_r1_fibers(void (*cb)(uint64_t key, Ctx *c, uint64_t stack, uint64_t stack_size, void *fiber)) {
     if (g_fib_cgen != g_fib_gen) {
         LONG gen = g_fib_gen; g_fib_cn = 0;
@@ -717,6 +780,13 @@ static Obj *obj_peek(uint64_t key) {
     return f;
 }
 DWORD os_r1_fiber_tid(uint64_t key) { Obj *o = obj_peek(key); return o ? o->run_tid : 0; }
+/* Raw ownership fields for diagnostics; unlike os_r1_fiber_fls this does not
+ * alter stale-FLS counters. Not an atomic snapshot or a writer lock. */
+int os_r1_fiber_audit_identity(uint64_t key,void **fiber,Ctx **c,void **fls,void **fls_fiber,DWORD *tid) {
+    Obj *o=obj_peek(key); if(!o) return 0;
+    *fiber=o->fiber; *c=o->fctx; *fls=o->fls; *fls_fiber=o->fls_fiber; *tid=o->run_tid;
+    return 1;
+}
 long long g_r1_fls_stale;                              /* (R2) notes of a block that belong to another host fiber than the Obj's now */
 void *os_r1_fiber_fls(uint64_t key) { Obj *o = obj_peek(key); if (!o) return NULL; if (o->fls && o->fls_fiber != o->fiber) { g_r1_fls_stale++; return NULL; } return o->fls; }
 void os_r1_fiber_put_fls(uint64_t key, void *fiber, void *fls) { Obj *o = obj_peek(key); if (o) { o->fls = fls; o->fls_fiber = fls ? fiber : NULL; } }      /* (R2) ring load: the note goes back with the host fiber */

@@ -1,9 +1,14 @@
 """Small synthetic archives only; no game files or network required."""
 import hashlib
+import contextlib
+import io
+import itertools
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -13,10 +18,11 @@ setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 
 
-def archive(path, extra=None, wrong_hash=False, version='13.0.5'):
+def archive(path, extra=None, wrong_hash=False, version='13.0.5', data=None):
     files = {n: b'fixture' for n in ('dump/exefs/main', 'dump/exefs/sdk', 'dump/exefs/rtld',
              'dump/exefs/subsdk0', 'dump/romfs/data.arc', 'dump/sysdata/fonts/font.ttf', 'dlc/test.nsp')}
     files['PREPARATION.json'] = json.dumps({'version': version}).encode()
+    files.update(data or {})
     files['verify.py'] = b'raise RuntimeError("never run me")'
     manifest = {n: {'bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest()} for n, b in files.items()}
     if wrong_hash:
@@ -36,6 +42,49 @@ class FamilySetupTests(unittest.TestCase):
         self.base = Path(self.tmp.name)
         self.zip = self.base / 'game.zip'
         self.dest = self.base / 'inputs'
+
+    def test_long_temporary_path_rejected_before_any_writes(self):
+        archive(self.zip)
+        # Final filename fits; the temporary suffix puts it over the limit.
+        dest = self.base / ('x' * (235 - len(str(self.base))))
+        with self.assertRaisesRegex(ValueError, 'Installation folder is too deep'):
+            setup.import_archive(self.zip, dest, reserve=0)
+        self.assertFalse(dest.exists())
+
+    def test_path_boundary_counts_temporary_suffix_and_utf16(self):
+        root = Path('C:/OpenSmash')
+        overhead = len(str(root / '.install-part').encode('utf-16-le')) // 2
+        setup.check_path_lengths(root, ['x' * (259 - overhead)])
+        with self.assertRaises(ValueError):
+            setup.check_path_lengths(root, ['x' * (260 - overhead)])
+        with self.assertRaises(ValueError):
+            setup.check_path_lengths(root, ['\U0001f600' * 130])
+
+    def test_unicode_import_and_periodic_progress(self):
+        name = 'dlc/\u3010Bonus\u3011.nsp'
+        archive(self.zip, data={name: b'unicode fixture'})
+        output = io.StringIO()
+        ticks = itertools.count(0, 6)
+        with contextlib.redirect_stdout(output), patch.object(setup.time, 'monotonic', side_effect=lambda: next(ticks)):
+            setup.import_archive(self.zip, self.dest, reserve=0)
+        self.assertEqual((self.dest / name).read_bytes(), b'unicode fixture')
+        self.assertIn(name, output.getvalue())
+        self.assertIn('100%', output.getvalue())
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell pipeline regression')
+    def test_powershell_decodes_python_utf8_and_preserves_log(self):
+        source = (Path(__file__).resolve().parents[1] / 'scripts/family_setup.ps1').read_text()
+        preamble = source.split('try {', 1)[1].split('    if (-not [Environment]', 1)[0]
+        probe = self.base / 'probe.ps1'
+        log = self.base / 'probe.log'
+        def quote(value):
+            return "'" + str(value).replace("'", "''") + "'"
+        probe.write_text(preamble + '\n& ' + quote(sys.executable) +
+                         ' -c "print(chr(0x3010) + chr(0x3011))" | Tee-Object -FilePath ' +
+                         quote(log) + '\n', encoding='utf-8')
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(probe)], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(log.read_text(encoding='utf-16').strip(), '\u3010\u3011')
 
     def test_import_resume_repair_and_never_extract_script(self):
         archive(self.zip)
@@ -115,6 +164,20 @@ class FamilySetupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'free'):
                 setup.import_archive(self.zip, self.dest, reserve=0)
         setup.import_archive(self.zip, self.dest, reserve=0)
+
+    def test_stale_partial_removed_before_space_check(self):
+        archive(self.zip)
+        setup.import_archive(self.zip, self.dest, reserve=0)
+        (self.dest / 'dump/romfs/data.arc').unlink()
+        partial = self.dest / 'dump/romfs/data.arc.install-part'
+        partial.write_bytes(b'interrupted data')
+        actual_usage = setup.shutil.disk_usage
+        def usage(path):
+            self.assertFalse(partial.exists())
+            return actual_usage(path)
+        with patch.object(setup.shutil, 'disk_usage', side_effect=usage):
+            setup.import_archive(self.zip, self.dest, reserve=0)
+        self.assertEqual((self.dest / 'dump/romfs/data.arc').read_bytes(), b'fixture')
 
     def test_linked_destination_rejected(self):
         archive(self.zip)

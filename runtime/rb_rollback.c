@@ -81,14 +81,18 @@ void rbn_put_mismatch(int m);
 static int rbg_capture(long long i, Ctx *c) { g_rg_need = rbn_confirmed(); if (g_rbg_pend > 0 && g_rbg_pend - 1 < g_rg_need) g_rg_need = g_rbg_pend - 1; return r1_ring_capture(i, c); }
 void rbn_stats(int *delay, int *last, int *maxk) { *delay = rbn_delay(); *last = (int)g_rbg_last_k; *maxk = (int)g_rbg_max_k; }   /* net_relay.c net_stats_get (F2) */
 
+static double rbg_pace_now(void *context) { (void)context; return now_ms(); }
+static void rbg_pace_timer(void *context, int64_t relative_due, unsigned timeout_ms) {
+    (void)context;
+    LARGE_INTEGER due; due.QuadPart = relative_due;
+    SetWaitableTimer(g_rbg_timer, &due, 0, NULL, NULL, FALSE);
+    WaitForSingleObject(g_rbg_timer, timeout_ms);
+}
+static void rbg_pace_sleep(void *context) { (void)context; Sleep(0); }
+static void rbg_pace_spin(void *context) { (void)context; YieldProcessor(); }
 static void rbg_wait_until(double t) {                  /* a high-resolution timer for the long part, a spin for the last 0.3 ms */
-    for (;;) {
-        double now = now_ms(), left = t - now;
-        if (left <= 0) return;
-        if (left > 1.3 && g_rbg_timer) { LARGE_INTEGER due; due.QuadPart = -(LONGLONG)((left - 1.0) * 10000.0); SetWaitableTimer(g_rbg_timer, &due, 0, NULL, NULL, FALSE); WaitForSingleObject(g_rbg_timer, 100); }
-        else if (left > 0.3) Sleep(0);
-        else YieldProcessor();
-    }
+    static const RbPaceOps ops = { rbg_pace_now, rbg_pace_timer, rbg_pace_sleep, rbg_pace_spin };
+    rb_pace_wait_until(t, g_rbg_timer != NULL, &ops, NULL);
 }
 static int rbg_rollback(Ctx *c, long long i, int m) {
     long long target = m - 1, best = -1;
@@ -149,9 +153,10 @@ static void rbg_step_body(Ctx *c) {
         rbn_set_lockstep(g_rbg_noring);
         if (g_rbg_noring) {
             g_rbg_noring_matches++;
-            LOG("r1: RB NET: ROLLBACK OFF FOR THIS MATCH: not enough memory for the snapshot ring (%s); the match goes on delay-based: every frame waits for the other player's pad\n",
-                g_rg_nomem == 1 ? "the base state needs about one copy of the game's memory in free commit" : "the ring broke on the way: off for the rest of this session");
-            printf("[rbnet] rollback OFF for this match (not enough memory): delay-based, the game waits for the other player's input every frame\n"); fflush(stdout);
+            const char *reason = g_rg_nomem == 3 ? "incomplete fiber capture" :
+                g_rg_nomem == 1 ? "not enough memory for the base" : "snapshot resources failed for this session";
+            LOG("r1: RB NET: ROLLBACK OFF FOR THIS MATCH: %s; delay-based input waiting requested\n", reason);
+            printf("[rbnet] rollback OFF for this match (%s): delay-based input waiting requested\n", reason); fflush(stdout);
         }
         if (g_rbg_wdfix) g_ra_wd_pause = 1;
         g_rbg_in_match = 1;
@@ -372,7 +377,7 @@ static void rbg_fight_off(void) {
     if (g_rbg_in_match == 1) { rbg_report(); r1_ring_let_go(); if (g_rg_ready) r1_ring_release(); g_rbg_rebase = 1; }
     else if (g_rbg_in_match == 3) LOG("r1: RB NET: the Local Wireless room fight is over\n");
     else LOG("r1: RB NET: the match that was not agreed is over after %.1f s (player 1 walked off)\n", (now_ms() - g_rbg_quit_t0) / 1000.0);
-    if (g_rg_nomem == 1) g_rg_nomem = 0;                /* (hs13) nothing was kept: the next match tries the ring again */
+    if (g_rg_nomem == 1 || g_rg_nomem == 3) g_rg_nomem = 0; /* no base published: retry next match */
     g_rbg_noring = 0;
     LOG("r1: RB NET: match %d over: ring emptied, session reset for the next match\n", rbn_match_number());
     { char mk[24]; snprintf(mk, sizeof mk, "match%dover", g_rbg_in_match == 1 ? rbn_match_number() : 0); if (g_rbg_in_match == 1) input_mark(mk); else input_mark("localmatchover"); }
@@ -395,7 +400,7 @@ static void rbg_dist(const char *what, const float *v, int n, const unsigned cha
 }
 static void rbg_report(void) {
     if (g_rbg <= 0 || (!g_rg_ready && !g_rbg_noring) || !g_rbg_real) return;
-    if (g_rbg_noring) LOG("r1: RB NET report: this match ran WITHOUT rollback (not enough memory for the ring: %s); matches without the ring so far %lld\n", g_rg_nomem == 2 ? "broken for the session" : "base not made", g_rbg_noring_matches);
+    if (g_rbg_noring) LOG("r1: RB NET report: this match ran WITHOUT rollback (%s); matches without the ring so far %lld\n", g_rg_nomem == 3 ? "incomplete fiber capture" : g_rg_nomem == 2 ? "snapshot resources failed for session" : "base not made", g_rbg_noring_matches);
     LOG("r1: RB NET report: %lld real frames, %lld rollbacks, %lld frames run again (k: 1 %lld, 2 %lld, 3 %lld, 4 %lld, 5 %lld, 6 %lld, 7 %lld, more %lld); rollbacks impossible (state not in the ring) %lld\n",
         g_rbg_real, g_rbg_rb, g_rbg_rerun, g_rbg_k[1], g_rbg_k[2], g_rbg_k[3], g_rbg_k[4], g_rbg_k[5], g_rbg_k[6], g_rbg_k[7], g_rbg_k[RG_MAXSLOT + 1] + g_rbg_k[8], g_rbg_miss);
     LOG("r1: RB NET report: stalls for the other player %lld (%.1f ms in all; %lld of them because the ring was short of memory); captures failed %lld, re-run captures not needed %lld; load mean %.3f ms; peer silent %lld\n",

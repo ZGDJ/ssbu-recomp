@@ -29,4 +29,37 @@ jobs:
         run: python -m unittest discover -s tests -p test_project_docs.py -v
       - name: Family installer archive regression tests
         run: python -m unittest discover -s tests -p 'test_family_*.py' -v
-      # Runtime fault-injection coverage is M7.9; this job makes no gameplay claim.
+      - name: Installer download recovery tests
+        run: python -m unittest discover -s tests -p test_install_download.py -v
+      # Uses PATH/Program Files LLVM on hosted Windows; no private inputs.
+      # Green includes an explicitly expected M7.4 defect, not gameplay proof.
+      - name: Production input, resource policy and rollback regression tests
+        run: python tools/run_rollback_tests.py
+      - name: Rollback comparison failure regressions
+        run: python -m unittest discover -s tests -p test_rollback_comparators.py -v
+      - name: Rollback trace integrity regressions
+        run: python -m unittest discover -s tests -p test_rollback_trace.py -v
+      - name: Bounded fighter trace regressions
+        run: python -m unittest discover -s tests -p test_bounded_trace_cmp.py -v
+      - name: Restore observation integrity regressions
+        run: python -m unittest discover -s tests -p test_restore_probe.py -v
+      - name: Refused restore preservation regressions
+        run: python -m unittest discover -s tests -p test_restore_refusal.py -v
+      - name: Native hold failure lifecycle regressions
+        run: python -m unittest discover -s tests -p test_native_hold_source.py -v
+      - name: Native bookkeeping observation regressions
+        run: python -m unittest discover -s tests -p test_native_audit_source.py -v
+      - name: Suspended fiber payload observation regressions
+        run: python -m unittest discover -s tests -p test_fiber_payload_source.py -v
+      - name: Writer observation integrity regressions
+        run: python -m unittest discover -s tests -p test_writer_probe.py -v
+      - name: Catch insertion capacity regressions
+        run: python -m unittest discover -s tests -p test_catch_source.py -v
+      - name: Catch restore preparation regressions
+        run: python -m unittest discover -s tests -p test_catch_preflight_source.py -v
+      - name: Learned tracking failure regressions
+        run: python -m unittest discover -s tests -p test_learned_tracking_source.py -v
+      - name: Capture preparation failure regressions
+        run: python -m unittest discover -s tests -p test_capture_reservation_source.py -v
+      - name: Capture pool ownership regressions
+        run: python -m unittest discover -s tests -p test_capture_pool_source.py -v

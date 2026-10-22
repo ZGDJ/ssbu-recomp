@@ -2,6 +2,8 @@
 
 Start with [AGENTS.md](../AGENTS.md) and [ledger](../milestones/README.md); load only relevant requirements, ADRs and source. These conventions serve GPT-6 Astra and other agents; they do not configure an API/model.
 
+For the current rollback continuation checkpoint, see [rollback handoff](ROLLBACK_HANDOFF.md). Recheck the ledger and worktree because the handoff records a dated checkpoint.
+
 ## Adopted upstream and gates
 
 Work from OpenSmash upstream `c7c874977ea7510c291ec8c278a58883a2f4e368` and [ADR-0007](../adr/0007-opensmash-adoption-and-hardening.md). Inspect the existing `r1_*` / `rb_*` implementation before proposing replacements. M7.1–M7.8 are bounded source-hardening tasks; completing them does not close private-data, gameplay or full-roster M1–M6 gates. Use root [BUILDING.md](../BUILDING.md), not the former WindowSmash build commands or evidence.
@@ -29,6 +31,22 @@ Artifacts: code/tests + evidence + ledger update
 Split/stop: missing prerequisite, architecture decision, excessive scope
 Handoff: results, uncertainty, next action
 ```
+
+## Shared-work integration checkpoint
+
+For stateful runtime changes, assign exclusive file ownership and agree on function signatures before parallel edits. The integration owner alone launches the game and owns shared caller wiring. A reviewer stays read-only until assigned a separate edit scope. Avoid concurrent builds while source writers are still changing files.
+
+Before building, each writer reports its frozen file list, interface contract, tests performed and remaining limitations. The reviewer acknowledges that exact candidate. Later source edits invalidate the corresponding runtime manifest: rebuild before claiming game evidence applies. Verify normalized source hashes against the manifest after the final trial. A helper test proves its policy, not the integrated runtime lifecycle.
+
+Use a sequential, fail-fast trial batch with fresh userdata and distinct executable identity. Run the default control first, then boundary refusals and recovery. Stop if the default cannot produce mandatory replay; preserve that failed control and investigate instead of weakening the comparator. Record process exit, sealed trace comparison, injected refusal reason, history observations and binary identity separately. A process exit alone is never a pass.
+
+Before memory-heavy snapshot trials, record available system commit and check for a separate normal game process as well as prior test processes. Idle-host headroom is not the snapshot-time headroom: game startup consumes additional commit. A normal game may run outside this checkout, so verify process identity/path rather than assuming the test executable is the only instance. Preserve an initial-snapshot refusal as a failed mandatory-replay control; resume after resolving the resource condition, without weakening the guard or comparator. Close a user game only with authorization, preferring its normal window-close path.
+
+Distinguish a launcher time limit from the required trace length. Repeated failure paths can run much slower than a normal control. Preserve timed-out runs; when extending a duration, retain the same binary, trace requirement and comparison checks, and keep the wrapper timeout longer than the launcher plus cleanup. Save a machine-readable matrix of launcher and comparator outcomes so a successful process exit cannot hide an incomplete trace.
+
+For restore transactions, review preparation, commit and abort together. List every allocation, lock, thread hold, page commitment/protection change and ownership transfer. Verify late failure after earlier success, cleanup failure escalation, and a commit with allocation disabled. Keep prior guest bytes/history unchanged on refusal; explicitly distinguish harmless retained host capacity and diagnostic counters. Preserve known semantic limitations rather than expanding a narrow resource test into a complete-state claim.
+
+For static runtime functions that cannot be linked independently, a source harness may compile their exact current bodies against narrow OS boundaries. Keep the generated translation unit and compiler/run output as local evidence, fail if extraction cannot find the function, and exercise caller cleanup as well as the return-code helper. State which surrounding caller paths remain source-reviewed or game-tested; an extracted hold function does not itself test the entire ring transaction.
 
 ## Keep changes readable and removable
 

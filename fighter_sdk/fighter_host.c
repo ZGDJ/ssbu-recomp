@@ -1165,6 +1165,31 @@ static ImportFn g_fh_orig;
 static struct { uint64_t boma; int entry; long long frame; } g_fh_f[8];
 static int g_fh_n, g_fh_det, g_fh_detoff;
 static FILE *g_fh_out;
+#include "bounded_trace.h"
+static BoundedTrace g_fh_trace;
+static int g_fh_trace_enabled;
+static int g_fh_trace_hash_enabled; /* immutable after startup, unlike the FILE during exit */
+static SRWLOCK g_fh_trace_lock = SRWLOCK_INIT;
+int fight_trace_enabled(void) { return g_fh_trace_enabled; }
+void fight_trace_fail(const char *reason) {
+    if (!g_fh_trace_enabled) return;
+    AcquireSRWLockExclusive(&g_fh_trace_lock);
+    bt_fail(&g_fh_trace, reason);
+    ReleaseSRWLockExclusive(&g_fh_trace_lock);
+}
+void fight_trace_boundary(char kind, int pending) {
+    if (!g_fh_trace_enabled) return;
+    AcquireSRWLockExclusive(&g_fh_trace_lock);
+    int before = g_fh_trace.state;
+    bt_boundary(&g_fh_trace, g_fh_out, kind, pending);
+    if (!before && g_fh_trace.state) {
+        printf("[trace] diagnostic interval %s: real %lld/%lld passes %lld reason %s\n",
+               g_fh_trace.state == 1 ? "sealed" : "FAILED", g_fh_trace.real, g_fh_trace.target,
+               g_fh_trace.passes, g_fh_trace.failure ? g_fh_trace.failure : "none");
+        fflush(stdout);
+    }
+    ReleaseSRWLockExclusive(&g_fh_trace_lock);
+}
 static uint64_t g_fh_run = 0xcbf29ce484222325ull;
 static long long g_fh_poll_hist[4]; static unsigned long g_fh_poll_tid;
 static long long g_fh_drop_calls, g_fh_drop_frames, g_fh_frame_ends;
@@ -1177,6 +1202,11 @@ static uint64_t fh_rng_base(void) {
 }
 static void fh_hook(Ctx *c, void *user) {
     (void)user;
+    if (g_fh_trace_enabled) {
+        AcquireSRWLockExclusive(&g_fh_trace_lock);
+        g_fh_trace.active++;
+        ReleaseSRWLockExclusive(&g_fh_trace_lock);
+    }
     uint64_t agent = c->x[0], boma = agent ? rd64(agent + 0x40) : 0;
     { static int dn; if (agent && dn < 12 && g_fh_n) { uint64_t key[2] = {agent, boma}; static uint64_t seen[16][2]; int f = 0; for (int q = 0; q < dn; q++) if (seen[q][0] == key[0]) f = 1; if (!f) { seen[dn][0] = agent; seen[dn][1] = boma; dn++; printf("[fight] S20t: frame line, agent %llx boma %llx category word %x, first fighter frame %lld\n", (unsigned long long)agent, (unsigned long long)boma, boma ? rd32(boma + 8) : 0, g_fh_f[0].frame); fflush(stdout); } } }
     if (boma && (rd32(boma + 8) >> 28) == 0) {
@@ -1228,8 +1258,9 @@ static void fh_hook(Ctx *c, void *user) {
                 input_mark("fight");
             }
         }
-        if (k < g_fh_n && !g_fh_out) ++g_fh_f[k].frame;
-        if (k < g_fh_n && g_fh_out) {
+        int hash_enabled = g_fh_trace_enabled ? g_fh_trace_hash_enabled : g_fh_out != NULL;
+        if (k < g_fh_n && !hash_enabled) ++g_fh_f[k].frame;
+        if (k < g_fh_n && hash_enabled) {
             long long f = ++g_fh_f[k].frame;
             float x = 0, y = 0, mf = 0, dmg = 0;
             int st = (int)fd_call(c, FD_N("30StatusModule__status_kind_impl"), boma, 0, 0, 0, 0, 0, 0, NULL);
@@ -1251,11 +1282,17 @@ static void fh_hook(Ctx *c, void *user) {
              * the line ("w <value>"); not part of H (the hash stays comparable with runs without it) */
             static int wk_on = -1; static double wk_id;
             if (wk_on < 0) { const char *w = getenv("SSBU_FIGHT_HASH_WORK"); wk_on = w && w[0] && (fd_value(w, &wk_id) || ((wk_id = (double)strtoul(w, NULL, 16)), wk_id != 0)); }
-            char wtxt[32] = "";
+            char wtxt[32] = "", slottext[32] = "";
+            if (g_fh_trace_enabled) snprintf(slottext, sizeof slottext, " slot %d", k);
             if (wk_on) snprintf(wtxt, sizeof wtxt, " w %d", (int)fd_call(c, FD_N("24WorkModule__get_int_impl") "i", boma, (uint64_t)(int64_t)wk_id, 0, 0, 0, 0, 0, NULL));
-            fprintf(g_fh_out, "F %lld e %d st %x mot %llx mf %08x x %08x y %08x dmg %08x rngcalls %u rng %08x H %016llx  (%.3f %.3f frame %.2f %.2f%%)%s\n",
-                    f, g_fh_f[k].entry, st, (unsigned long long)mot, bm, bx, by, bd, rc, (unsigned)(rh ^ (rh >> 32)), (unsigned long long)g_fh_run, (double)x, (double)y, (double)mf, (double)dmg, wtxt);
-            if ((f & 63) == 0) fflush(g_fh_out);
+            if (g_fh_trace_enabled) AcquireSRWLockExclusive(&g_fh_trace_lock);
+            if (!g_fh_trace_enabled || bt_can_write(&g_fh_trace, g_fh_out)) {
+            int wrote = fprintf(g_fh_out, "F %lld e %d st %x mot %llx mf %08x x %08x y %08x dmg %08x rngcalls %u rng %08x H %016llx  (%.3f %.3f frame %.2f %.2f%%)%s%s\n",
+                    f, g_fh_f[k].entry, st, (unsigned long long)mot, bm, bx, by, bd, rc, (unsigned)(rh ^ (rh >> 32)), (unsigned long long)g_fh_run, (double)x, (double)y, (double)mf, (double)dmg, wtxt, slottext);
+            if (g_fh_trace_enabled) bt_row(&g_fh_trace, k, f, wrote >= 0);
+            if ((f & 63) == 0 && fflush(g_fh_out) && g_fh_trace_enabled) bt_fail(&g_fh_trace, "flush");
+            }
+            if (g_fh_trace_enabled) ReleaseSRWLockExclusive(&g_fh_trace_lock);
             if (k == 0 && f % 300 == 0 && rb) {            /* which generators are drawn from: the 9 call counters */
                 printf("[fight] frame %lld: generator calls", f);
                 for (int i = 0; i < 9; i++) printf(" %u", w[i * 5 + 4]);
@@ -1263,6 +1300,11 @@ static void fh_hook(Ctx *c, void *user) {
                        g_fh_poll_hist[0], g_fh_poll_hist[1], g_fh_poll_hist[2], g_fh_poll_hist[3], g_fh_frame_ends, g_fh_drop_calls, g_fh_drop_frames);
             }
         }
+    }
+    if (g_fh_trace_enabled) {
+        AcquireSRWLockExclusive(&g_fh_trace_lock);
+        g_fh_trace.active--;
+        ReleaseSRWLockExclusive(&g_fh_trace_lock);
     }
     g_fh_orig(c);
 }
@@ -1307,14 +1349,28 @@ int fight_seq_ticks(void) {
     g_fh_poll_hist[n < 0 ? 0 : n > 3 ? 3 : n]++; g_fh_poll_tid = GetCurrentThreadId();
     return n < 0 ? 0 : n > 100000 ? 100000 : (int)n;
 }
-static void fh_exit(void) { if (g_fh_out) { fflush(g_fh_out); if (g_fh_out != stdout) fclose(g_fh_out); g_fh_out = NULL; } }
+static void fh_exit(void) {
+    if (g_fh_trace_enabled) AcquireSRWLockExclusive(&g_fh_trace_lock);
+    if (g_fh_trace_enabled) bt_fail(&g_fh_trace, "shutdown");
+    if (g_fh_trace_enabled && g_fh_trace.state != 1)
+        printf("[trace] FAILED: unsealed diagnostic interval (%s)\n", g_fh_trace.failure ? g_fh_trace.failure : "short");
+    if (g_fh_out) { fflush(g_fh_out); if (g_fh_out != stdout) fclose(g_fh_out); g_fh_out = NULL; }
+    if (g_fh_trace_enabled) ReleaseSRWLockExclusive(&g_fh_trace_lock);
+}
 static void fight_hash_start(void) {
+    const char *trace = getenv("SSBU_TRACE_FRAMES");
+    g_fh_trace_enabled = trace != NULL;
+    g_fh_trace.target = bt_target(trace);
+    if (g_fh_trace_enabled && g_fh_trace.target <= 0) bt_fail(&g_fh_trace, "invalid_target");
     const char *h = getenv("SSBU_FIGHT_HASH"), *d = getenv("SSBU_DETERMINISTIC"), *o = getenv("SSBU_DET_OFF");
     g_fh_det = (d && d[0] && d[0] != '0') || rbn_handshake_wanted();      /* R3: a match between online players needs it (no extra logic frames; generators from the agreed seed) */
     g_fh_detoff = o ? atoi(o) : 0;
-    if ((!h || !h[0] || h[0] == '0') && !g_fh_det) return;
+    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled) return;
     if (h && h[0] && h[0] != '0') g_fh_out = strcmp(h, "1") == 0 ? stdout : fopen(h, "w");
+    g_fh_trace_hash_enabled = g_fh_out != NULL;
+    if (g_fh_trace_enabled && (!g_fh_out || g_fh_out == stdout)) bt_fail(&g_fh_trace, "dedicated_file_required");
     int id = hook_install_name("_ZN7lua2cpp16L2CFighterCommon31sys_line_system_control_fighterEv", fh_hook, NULL, &g_fh_orig);
+    if (!id) fight_trace_fail("fighter_hook");
     printf("[fight] SSBU_FIGHT_HASH %s, SSBU_DETERMINISTIC %d (off mask %d); hook on the fighters' frame line: %s\n", g_fh_out ? "on" : "off", g_fh_det, g_fh_detoff, id ? "installed or waiting for lua2cpp_common" : hook_error());
     if (g_fh_det) printf("[fight] SSBU_DETERMINISTIC: hook on the frame end %llx (dropped refreshes -> extra logic frames): %s\n", (unsigned long long)GA(0x710386fc30ull),
                          hook_install(GA(0x710386fc30ull), fh_frame_end, NULL, &g_fh_orig_frame_end) ? "installed" : hook_error());

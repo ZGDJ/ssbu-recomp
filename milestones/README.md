@@ -14,11 +14,22 @@ Run `python tools/check_project_docs.py` for calculated counts, effort totals an
 
 Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 is closed against the recorded hosted planning CI run.
 
-Prioritize **M7.9**, then **M7.8 -> M7.1 -> M7.3 -> M7.2**. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
+After local setup, validate diagnostic gates with M0.10 alongside **M7.9**; do not run rollback comparisons through reporting-only scripts. Prioritize **M7.9**, then **M7.8 -> M7.1 -> M7.3 -> M7.2**. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
 
 M7 completion means source failure regressions and production wiring are verified, not that actual battle replay works. M2/M3/M4 qualify native behavior; M5 qualifies network outcomes. Do not retrofit gameplay evidence into synthetic passes. Sizes are re-estimated scope; M7.9 is shared test infrastructure, not duplicate implementation effort.
 
 ## M0 - Foundation and source reliability
+
+### M0.11 - Optional family save import
+- Status: done
+- Depends: M0.8
+- Size: 2
+- Requirement: FSD-011, FSD-012
+- Evidence: evidence/2026-10-21-family-save-helper.md
+- Acceptance: Optional save ZIP import validates layout, stages before replacement, preserves a backup and prevents gameplay during interrupted import; synthetic failures and supplied archive roundtrip pass.
+- Owner: unassigned
+- Next: Combined with wizard in family f86eca2; include save import in M0.9 clean-PC qualification. Distribute the prepared save ZIP separately.
+- Blocker: none
 
 ### M0.8 - Family installation helper
 - Status: done
@@ -28,7 +39,7 @@ M7 completion means source failure regressions and production wiring are verifie
 - Evidence: evidence/2026-10-21-family-installer.md
 - Acceptance: Prepared ZIP import validates paths and hashes; click-to-update follows a fork branch, preserves data/saves and resumes failures; source-only distributable and synthetic failure cases verified.
 - Owner: unassigned
-- Next: Qualify full installation and two-version update on a clean PC under M0.9; publish only after owner authorization.
+- Next: Combined installer f86eca2 packaged in dist and pushed to family; 47 family plus 13 download tests passed, fresh private-Python bootstrap verified, and old-to-new source update preserved a synthetic save (build mocked). ZIP CRC and 659 source hashes passed. Full game installation/launch and two-version update on a separate clean PC remain M0.9.
 - Blocker: none
 
 ### M0.9 - Qualify family setup and updates on a clean PC
@@ -119,6 +130,17 @@ M7 completion means source failure regressions and production wiring are verifie
 - Next: Inspect tools/lifter/difftest.py and scripts/macos/difftest_synthetic.py; preserve platform-specific scope.
 - Blocker: none
 
+### M0.10 - Make rollback diagnostic comparisons fail closed
+- Status: done
+- Depends: M0.3
+- Size: 2
+- Requirement: FSD-012, FSD-014
+- Evidence: evidence/2026-10-21-post-setup-rollback-audit.md
+- Acceptance: Rollback simulation and peer comparators reject empty, mismatched, incomplete or unverifiable samples with nonzero exit; valid synthetic fixtures pass with explicit coverage. This does not certify complete-state hashes.
+- Owner: unassigned
+- Next: Use strict comparators with separately required fixture counts; M0.7 differential tools and reporting-only r1_cmp.py remain outside this gate.
+- Blocker: none
+
 ## M1 - Reproducible 13.0.5 baseline
 
 ### M1.1 - Input and build identity tooling
@@ -134,7 +156,7 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ### M1.2 - Build and complete 13.0.5 offline matches
 - Status: blocked
-- Depends: M1.1, M1.4
+- Depends: M1.1, M1.4, M1.7
 - Size: 5
 - Requirement: FSD-001
 - Evidence: none
@@ -176,7 +198,52 @@ M7 completion means source failure regressions and production wiring are verifie
 - Next: Use Play SSBU.bat for local play; proceed with M1.1/M1.4 and formal M1.2 fixtures before capability claims.
 - Blocker: none
 
+### M1.6 - Import owner-provided completion save and probe navigation
+- Status: done
+- Depends: M1.5
+- Size: 2
+- Requirement: FSD-001, FSD-011
+- Evidence: evidence/2026-10-21-save-import-and-battle-probes.md
+- Acceptance: Archive paths/types validated, original save backed up, imported files hash-verified and bounded disposable-copy launch inspected; record actual navigation outcome without closing battle qualification.
+- Owner: unassigned
+- Next: Use the imported save for normal play; M1.7 fixes incomplete trial evidence before qualifying replay, and M3.1 must classify actual rewind memory differences.
+- Blocker: none
+
+### M1.7 - Complete bounded battle evidence
+- Status: done
+- Depends: M1.6, M0.10
+- Size: 3
+- Requirement: FSD-001, FSD-012
+- Evidence: evidence/2026-10-21-bounded-diagnostic-traces.md
+- Acceptance: Bounded probes record the explicitly requested diagnostic real-pass interval, complete fighter rows and matching pass-kind coverage before shutdown; reject short, missing, partial and post-summary unlabelled samples. Preserve raw failure logs and distinguish presentation counts from simulation ticks. Authoritative boundary/quiescence and state qualification remain M2/M3.
+- Owner: unassigned
+- Next: Reuse the sealed two-slot stream for controlled diagnostics. A 500-real-pass/two-replay comparison matches fighter fields, but tracked bytes still differ; M3.1 must separate immediate restore errors from replay-time writers. Keep M1.1/M1.4/M1.2 qualification prerequisites open.
+- Blocker: none
+
+### M1.8 - Locate observed restore differences
+- Status: done
+- Depends: M1.7
+- Size: 3
+- Requirement: FSD-005, FSD-012
+- Evidence: evidence/2026-10-21-restore-localization.md
+- Acceptance: Instrument opt-in comparisons after byte copy and after continuation restoration, run isolated source-built battle probes, correlate complete observations with replay diagnostics and record limitations. Negative findings finish this investigation only; no authoritative state or restore-correctness gate closes.
+- Owner: unassigned
+- Next: Five loads matched all readable selected pages in both restore phases; replay still differed. Investigate resumed writers/host services and source-decommitted exclusions without treating touched-page equality as complete restoration. M7.9 is complete; M7.8 is the next priority source-hardening packet.
+- Blocker: none
+
+### M1.9 - Attribute resumed writes after restore
+- Status: done
+- Depends: M1.8, M7.9
+- Size: 3
+- Requirement: FSD-004, FSD-005, FSD-012
+- Evidence: evidence/2026-10-21-replay-writer-probe.md
+- Acceptance: Run an opt-in bounded writer probe after the restore checkpoint, retain an uninstrumented control, report exact observed writers and incomplete coverage. Neither harmlessness nor safe state exclusion may be inferred from writer identity alone. Negative results complete only this investigation.
+- Owner: root, 2026-10-21 UTC
+- Next: Eight post-restore writes observed; native store helpers obscure callers. Capture guarded caller/module identity next, retain disabled controls and avoid state exclusions. M7.8 remains source-hardening priority.
+- Blocker: none
+
 ## M2 - Controlled simulation
+
 
 ### M2.1 - Discover tick and continuation boundary
 - Status: todo
@@ -221,7 +288,7 @@ M7 completion means source failure regressions and production wiring are verifie
 - Evidence: none
 - Acceptance: Inventory restored/reconstructed/excluded authoritative state, host continuations and future-affecting objects; justify exclusions and verify diagnostic hash coverage on actual battle state.
 - Owner: unassigned
-- Next: Map state owners and allocator/object lifetimes.
+- Next: Use M1.8 evidence: readable selected bytes match after copy and continuation restoration, but replay differs. Map resumed writers/host services, allocator/object lifetimes and decommitted exclusions; correlate VERIFY=2 offsets with owners. Do not assume gameplay or presentation ownership or full checkpoint coverage.
 - Blocker: none
 
 ### M3.2 - Prove forward replay
@@ -466,23 +533,23 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Blocker: none
 
 ### M7.8 - Fail safely on snapshot resource errors
-- Status: todo
+- Status: in_progress
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: none
-- Acceptance: Inject protection/list-capacity/allocation failure through production snapshot helpers; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: unassigned
-- Next: Own rb_learned/r1_ring allocation/protection paths; preserve capture failure semantics.
+- Evidence: evidence/2026-10-21-capture-pool-preparation.md
+- Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
+- Owner: root, 2026-10-22T02:58:47Z
+- Next: Detached page operations and prospective pool ownership now prepare before eviction; exact-source failure/lifecycle tests, independent review and isolated build pass. All six game controls pass (500 real frames plus replay each), including post-commit/strict-pool full-ring refusal recovery and both restore audits. Next harden copy-worker startup/dispatch/completion failures, followed by bounded inventory, rebase and initial-base resource failures listed in the evidence; fresh-fiber recreation remains refused until prepared safely. Full writer quiescence and raw-state replay equality remain open. Preserve earlier failed memory, loading and page-plan trials in linked evidence; subsequent passes do not diagnose them. Prior scratch/queue/undo and restore-refusal controls passed per evidence/2026-10-21-capture-preparation.md and its predecessor records.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness
-- Status: todo
+- Status: done
 - Depends: M0.3
 - Size: 3
 - Requirement: FSD-012, FSD-014
-- Evidence: none
+- Evidence: evidence/2026-10-21-resource-policy-harness.md
 - Acceptance: Provide game-free Windows test target with injectable OS/time/allocator boundaries calling actual runtime policy; demonstrate deterministic failing-case reproduction for at least one audited defect without treating it fixed. Existing rb_test runs; hook regression runner into source CI. No duplicated toy implementation as proof.
-- Owner: unassigned
-- Next: Start here: choose narrow policy seam, document commands/compiler prerequisites, then assign M7 hardening packets.
+- Owner: root, 2026-10-21
+- Next: Use production seams for dependency-ready M7 fixes; M7.4 remains explicitly reproduced and unfixed. Whole-capture failure handling and progress timeouts remain separate gates.
 - Blocker: none

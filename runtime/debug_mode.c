@@ -215,6 +215,149 @@ void debug_watch(const uint64_t *addrs, int n) {        /* from a helper thread,
     g_dw_n = n > 4 ? 4 : n; memcpy(g_dw_a, addrs, sizeof(uint64_t) * (size_t)g_dw_n);
     HANDLE t = CreateThread(NULL, 0, dw_thread, NULL, 0, NULL); if (t) { WaitForSingleObject(t, 5000); CloseHandle(t); }
 }
+
+/* Bounded writer research, independent of the legacy watch handler above. No allocation,
+ * logging, target reads or unwinding inside the exception handler. Hardware data-breakpoint
+ * RIP is AFTER the store. The deferred guest lookup is only a nearest-function candidate.
+ * Existing threads only; installation and exceptions perturb scheduling. Never a state oracle. */
+#ifdef _WIN32
+#define WP_EVENTS 128
+#define WP_THREADS 256
+#define WP_DR_MASK 0xffff00ffull
+#define WP_DR_BITS 0xdddd0055ull /* four local, write-only, four-byte watches */
+typedef struct { volatile LONG ready; DWORD thread; LONG phase; DWORD64 rip, mask; } WriterEvent;
+typedef struct { LONG changed, skipped, failed; } WriterInstall;
+static WriterEvent g_wp_events[WP_EVENTS];
+static WriterInstall g_wp_install, g_wp_cleanup;
+static DWORD64 g_wp_addr[4];
+static volatile LONG g_wp_phase, g_wp_next, g_wp_dropped, g_wp_cancel, g_wp_active;
+static int g_wp_attempted, g_wp_armed;
+static long long g_wp_frame;
+static int wp_owned(const CONTEXT *c) {
+    return (c->Dr7 & WP_DR_MASK) == WP_DR_BITS && c->Dr0 == g_wp_addr[0] &&
+        c->Dr1 == g_wp_addr[1] && c->Dr2 == g_wp_addr[2] && c->Dr3 == g_wp_addr[3];
+}
+static LONG CALLBACK wp_veh(EXCEPTION_POINTERS *ep) {
+    CONTEXT *c = ep->ContextRecord;
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !wp_owned(c) ||
+        !(c->Dr6 & 15) || (c->Dr6 & 0xe000)) return EXCEPTION_CONTINUE_SEARCH;
+    InterlockedIncrement(&g_wp_active);
+    LONG phase = InterlockedCompareExchange(&g_wp_phase, 0, 0);
+    if (phase) {
+        LONG i = InterlockedIncrement(&g_wp_next) - 1;
+        if (i < WP_EVENTS) {
+            WriterEvent *e = &g_wp_events[i];
+            e->thread = GetCurrentThreadId(); e->phase = phase; e->rip = c->Rip; e->mask = c->Dr6 & 15;
+            InterlockedExchange(&e->ready, 1);
+        } else InterlockedIncrement(&g_wp_dropped);
+        if (i >= WP_EVENTS - 1) c->Dr7 &= ~WP_DR_MASK;
+    } else c->Dr7 &= ~WP_DR_MASK;
+    c->Dr6 &= ~15ull;
+    InterlockedDecrement(&g_wp_active);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+/* Every successfully suspended thread is resumed, even after cancellation. A timed-out
+ * helper is never killed: doing so could strand a suspended game thread. Its static data
+ * survives until process exit; cancellation disables any context it just installed. */
+static DWORD WINAPI wp_threads(LPVOID arg) {
+    int cleanup = arg != NULL;
+    WriterInstall *out = cleanup ? &g_wp_cleanup : &g_wp_install;
+    ULONGLONG deadline = GetTickCount64() + 2000;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    THREADENTRY32 te; te.dwSize = sizeof te;
+    int seen = 0;
+    if (snap == INVALID_HANDLE_VALUE) { out->failed++; return 0; }
+    if (!Thread32First(snap, &te)) out->failed++;
+    else do {
+        if (te.th32OwnerProcessID != GetCurrentProcessId() || te.th32ThreadID == GetCurrentThreadId()) continue;
+        if (++seen > WP_THREADS || GetTickCount64() >= deadline ||
+            (!cleanup && InterlockedCompareExchange(&g_wp_cancel, 0, 0))) { out->failed++; break; }
+        HANDLE th = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, te.th32ThreadID);
+        if (!th) { out->failed++; continue; }
+        if (SuspendThread(th) == (DWORD)-1) { out->failed++; CloseHandle(th); continue; }
+        CONTEXT c; memset(&c, 0, sizeof c); c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        if (!GetThreadContext(th, &c)) out->failed++;
+        else if (cleanup) {
+            if (wp_owned(&c)) { c.Dr7 &= ~WP_DR_MASK; if (SetThreadContext(th, &c)) out->changed++; else out->failed++; }
+            else out->skipped++;
+        } else if ((c.Dr7 & 255) || c.Dr0 || c.Dr1 || c.Dr2 || c.Dr3 ||
+                   InterlockedCompareExchange(&g_wp_cancel, 0, 0)) out->skipped++;
+        else {
+            CONTEXT original = c;
+            c.Dr0 = g_wp_addr[0]; c.Dr1 = g_wp_addr[1]; c.Dr2 = g_wp_addr[2]; c.Dr3 = g_wp_addr[3];
+            c.Dr7 = (c.Dr7 & ~WP_DR_MASK) | WP_DR_BITS;
+            c.Dr6 &= ~15ull;
+            if (SetThreadContext(th, &c)) {
+                out->changed++;
+                if (InterlockedCompareExchange(&g_wp_cancel, 0, 0) && !SetThreadContext(th, &original)) out->failed++;
+            } else out->failed++;
+        }
+        if (ResumeThread(th) == (DWORD)-1) out->failed++;
+        CloseHandle(th);
+    } while (Thread32Next(snap, &te));
+    CloseHandle(snap); return 0;
+}
+void debug_writer_probe_begin(long long frame, long long target) {
+    const char *e = getenv("SSBU_RB_WRITER_PROBE");
+    if (!e || strcmp(e, "1") || g_wp_attempted) return;
+    g_wp_attempted = 1; g_wp_frame = frame;
+    /* These are ACTUAL 13.0.5 offsets, not GA's 13.0.4 reference addresses. */
+    const DWORD64 offsets[4] = {0x529b844, 0x529b848, 0x6dd52e8, 0x593b470};
+    const char *sim = getenv("SSBU_RB_SIM"), *verify = getenv("SSBU_RB_SIM_VERIFY"), *net = getenv("SSBU_RB_NET");
+    int every = 0, depth = 0, warm = 0; char tail;
+    int sim_ok = sim && sscanf(sim, "%d,%d,%d%c", &every, &depth, &warm, &tail) == 3 && every > 0 && depth == 1 && warm > 0;
+    int valid = target == frame + 1 && g_game_build == GAME_13_0_5 && sim_ok && verify && atoi(verify) > 0 &&
+        (!net || !strcmp(net, "0")) && !getenv("SSBU_DEBUG_WATCH") && !getenv("SSBU_DEBUG_WATCHENTRY") && !getenv("SSBU_RB_NET_WATCH");
+    for (int i = 0; i < 4; i++) g_wp_addr[i] = GUEST_BASE + offsets[i];
+    int joined = 0;
+    if (valid && AddVectoredExceptionHandler(1, wp_veh)) {
+        InterlockedExchange(&g_wp_phase, 1);
+        HANDLE t = CreateThread(NULL, 0, wp_threads, NULL, 0, NULL);
+        if (t) { joined = WaitForSingleObject(t, 2500) == WAIT_OBJECT_0; CloseHandle(t); }
+        g_wp_armed = joined && g_wp_install.changed > 0 && !g_wp_install.failed;
+    }
+    if (!g_wp_armed) { InterlockedExchange(&g_wp_cancel, 1); InterlockedExchange(&g_wp_phase, 0); }
+    printf("WRITER_BEGIN v=1 frame=%lld installed=%ld skipped=%ld failed=%ld status=%s offsets=529b844,529b848,6dd52e8,593b470 width=4 scope=existing_threads observer=debug_registers authoritative=0\n",
+        frame, joined ? g_wp_install.changed : -1L, joined ? g_wp_install.skipped : -1L,
+        joined ? g_wp_install.failed : -1L, g_wp_armed ? (g_wp_install.skipped ? "partial" : "armed") : "failed");
+    fflush(stdout);
+    /* Before unpark, after installation; this does not prove worker quiescence. */
+    if (g_wp_armed) InterlockedExchange(&g_wp_phase, 2);
+}
+void debug_writer_probe_end(long long frame) {
+    if (!g_wp_armed) return;
+    g_wp_armed = 0; InterlockedExchange(&g_wp_phase, 0);
+    ULONGLONG deadline = GetTickCount64() + 100;
+    while (InterlockedCompareExchange(&g_wp_active, 0, 0) && GetTickCount64() < deadline) Sleep(0);
+    LONG inflight = InterlockedCompareExchange(&g_wp_active, 0, 0);
+    HANDLE t = CreateThread(NULL, 0, wp_threads, (LPVOID)1, 0, NULL);
+    int joined = t && WaitForSingleObject(t, 2500) == WAIT_OBJECT_0;
+    if (t) CloseHandle(t);
+    LONG total = InterlockedCompareExchange(&g_wp_next, 0, 0), recorded = 0, pending = 0, arming = 0, replay = 0;
+    LONG n = total < WP_EVENTS ? total : WP_EVENTS;
+    for (LONG i = 0; i < n; i++) {
+        WriterEvent *e = &g_wp_events[i];
+        if (!InterlockedCompareExchange(&e->ready, 0, 0)) { pending++; continue; }
+        MEMORY_BASIC_INFORMATION mi; DWORD64 base = 0;
+        if (VirtualQuery((void *)(uintptr_t)e->rip, &mi, sizeof mi)) base = (DWORD64)(uintptr_t)mi.AllocationBase;
+        printf("WRITER_EVENT v=1 index=%ld phase=%s thread=%lu mask=%llx post_rip=%llx module_base=%llx module_offset=%llx guest_candidate=%llx\n",
+            i, e->phase == 1 ? "arming" : "replay", e->thread, (unsigned long long)e->mask,
+            (unsigned long long)e->rip, (unsigned long long)base, (unsigned long long)(base ? e->rip - base : 0),
+            (unsigned long long)guest_function_of(e->rip));
+        recorded++; if (e->phase == 1) arming++; else replay++;
+    }
+    LONG dropped = InterlockedCompareExchange(&g_wp_dropped, 0, 0);
+    printf("WRITER_END v=1 frame=%lld from=%lld recorded=%ld pending=%ld inflight=%ld dropped=%ld arming=%ld replay=%ld cleaned=%ld cleanup_failed=%ld status=%s\n",
+        frame, g_wp_frame, recorded, pending, inflight, dropped, arming, replay,
+        joined ? g_wp_cleanup.changed : -1L, joined ? g_wp_cleanup.failed : -1L,
+        frame < 0 ? "aborted" : !joined || g_wp_cleanup.failed || pending || inflight ? "incomplete" :
+        total >= WP_EVENTS ? "truncated" : g_wp_install.skipped ? "partial" : "collected");
+    fflush(stdout);
+}
+#else
+void debug_writer_probe_begin(long long frame, long long target) { (void)frame; (void)target; }
+void debug_writer_probe_end(long long frame) { (void)frame; }
+#endif
 int hook_install(uint64_t addr, void (*repl)(Ctx *, void *), void *user, ImportFn *orig);
 
 /* ---- the match set-up (from the game's own binary; see tests\DEBUG_MODE.md) */

@@ -2078,31 +2078,141 @@ static SRWLOCK g_list_lock = SRWLOCK_INIT;
  * state can put the recordings in progress back as they were at the save (the commands recorded so far are host data:
  * without this a speculative pass's commands would stay in the buffer and be submitted again by the real pass, or the
  * commands recorded before the save would be gone after the speculative pass ended the buffer). */
-static CmdBuf *g_all_cb[512]; static int g_all_cb_n; static SRWLOCK g_all_cb_lock = SRWLOCK_INIT;
+typedef CmdBuf CbCaptureRecord;
+#include "cb_capture.h"
+static CmdBuf *g_all_cb[CB_CAPTURE_MAX]; static int g_all_cb_n, g_all_cb_lost; static SRWLOCK g_all_cb_lock = SRWLOCK_INIT;
+static uint64_t g_all_cb_created, g_all_cb_forgotten, g_all_cb_overflow;
 static CmdBuf *cb_new(uint64_t g) {
     CmdBuf *cb = hnew(g, K_CMD, sizeof(CmdBuf));
     AcquireSRWLockExclusive(&g_all_cb_lock);
-    int i; for (i = 0; i < g_all_cb_n && g_all_cb[i]; i++) {}
-    if (i < 512) { g_all_cb[i] = cb; if (i == g_all_cb_n) g_all_cb_n++; }
+    ++g_all_cb_created;
+    if (!cb_capture_register(g_all_cb, &g_all_cb_n, &g_all_cb_lost, cb)) ++g_all_cb_overflow;
     ReleaseSRWLockExclusive(&g_all_cb_lock);
     return cb;
 }
-static void cb_forget(CmdBuf *cb) { AcquireSRWLockExclusive(&g_all_cb_lock); for (int i = 0; i < g_all_cb_n; i++) if (g_all_cb[i] == cb) g_all_cb[i] = NULL; ReleaseSRWLockExclusive(&g_all_cb_lock); }
-typedef struct { CmdBuf *cb, copy; uint8_t *data; size_t cap; } CbSave;
-static CbSave g_cbs[512]; static int g_ncbs;
+static void cb_forget(CmdBuf *cb) { AcquireSRWLockExclusive(&g_all_cb_lock); ++g_all_cb_forgotten; for (int i = 0; i < g_all_cb_n; i++) if (g_all_cb[i] == cb) g_all_cb[i] = NULL; ReleaseSRWLockExclusive(&g_all_cb_lock); }
+typedef CbCaptureSave CbSave;
+typedef char CbSave_layout_must_remain_144[(sizeof(CbSave) == 144) ? 1 : -1];
+typedef char CbSave_offsets_must_match_ring[(offsetof(CbSave, copy) == 8 &&
+    offsetof(CbSave, data) == 128 && offsetof(CbSave, cap) == 136 &&
+    offsetof(CmdBuf, len) == 8) ? 1 : -1];
+static CbSave g_cbs[CB_CAPTURE_MAX]; static int g_ncbs;
+#include "cb_restore.h"
+#include "cb_refusal_audit.h"
+static int g_cb_restore_configured, g_cb_restore_fault;
+static uint64_t g_cb_restore_after, g_cb_restore_count = UINT64_MAX, g_cb_restore_attempt;
+void nvn_r1_cb_restore_config(void) {
+    if (g_cb_restore_configured) return;
+    g_cb_restore_configured = 1;
+    const char *s = getenv("SSBU_RB_TEST_CB_RESTORE_FAIL_AFTER");
+    if (s && *s && *s != '-') {
+        char *end; unsigned long long n = strtoull(s, &end, 10);
+        if (!*end) { g_cb_restore_fault = 1; g_cb_restore_after = n; }
+    }
+    s = getenv("SSBU_RB_TEST_CB_RESTORE_FAIL_COUNT");
+    if (s && *s && *s != '-') {
+        char *end; unsigned long long n = strtoull(s, &end, 10);
+        if (!*end) g_cb_restore_count = n;
+    }
+}
+static void *cb_restore_allocate(void *context, size_t bytes) { (void)context; return malloc(bytes); }
+static void cb_restore_release(void *context, void *p) { (void)context; free(p); }
+static void (*g_cb_refusal_sink)(const char *);
+static LONG g_cb_refusal_claimed;
+void nvn_r1_cb_audit_log_sink(void (*sink)(const char *)) { g_cb_refusal_sink = sink; }
+static int cb_refusal_read(void *ctx, const void *address, void *out, size_t size, int kind) {
+#ifdef _WIN32
+    return refusal_audit_read_windows(ctx,address,out,size,kind);
+#else
+    (void)ctx; (void)address; (void)out; (void)size; (void)kind; return 0;
+#endif
+}
+static void cb_refusal_report(void *ctx,const CbRefusalAudit *audit,long long frame,int refused) {
+    (void)ctx; char line[1024]; const RefusalAudit *a=&audit->bytes;
+    if(a->first_changed[REFUSAL_METADATA] || a->first_unread_before[REFUSAL_METADATA] || a->first_unread_after[REFUSAL_METADATA]) {
+        snprintf(line,sizeof line,"r1: CB_REFUSAL_DETAIL frame=%lld changed_span=%p unread_before_span=%p unread_after_span=%p\n",
+            frame,a->first_changed[REFUSAL_METADATA],a->first_unread_before[REFUSAL_METADATA],a->first_unread_after[REFUSAL_METADATA]);
+        if(g_cb_refusal_sink) g_cb_refusal_sink(line); else fputs(line,stderr);
+    }
+    snprintf(line,sizeof line,"r1: CB_REFUSAL_AUDIT v=1 frame=%lld outcome=%s objects=%zu spans=%zu changed=%zu unread_before=%zu unread_after=%zu complete=%d holds=registry_membership_only authoritative=0\n",
+        frame,refused?"refused":"commit_not_checked",audit->objects,a->counts[REFUSAL_METADATA],a->changed[REFUSAL_METADATA],
+        a->unread_before,a->unread_after,refused&&refusal_audit_complete(a));
+    if(g_cb_refusal_sink) g_cb_refusal_sink(line); else fputs(line,stderr);
+}
+/* Successful prepare owns a shared registry lock until commit/abort. Ring
+ * rewind must not invoke registry writers while that transaction is open. */
+void *nvn_r1_cb_prepare(const void *records, int count, const uint8_t *payload, size_t bytes,long long frame,int auditing) {
+    if (g_cb_restore_attempt != UINT64_MAX) ++g_cb_restore_attempt;
+    int forced=g_cb_restore_fault && g_cb_restore_attempt > g_cb_restore_after &&
+        g_cb_restore_attempt - g_cb_restore_after <= g_cb_restore_count;
+    auditing=auditing && InterlockedCompareExchange(&g_cb_refusal_claimed,1,0)==0;
+    AcquireSRWLockShared(&g_all_cb_lock);
+    CbRefusalTransaction *p=cb_refusal_prepare(records,count,payload,bytes,
+        g_cbs,&g_ncbs,g_all_cb,&g_all_cb_n,&g_all_cb_lost,frame,auditing,forced,
+        64u<<20,cb_refusal_read,cb_restore_allocate,cb_restore_release,cb_refusal_report,NULL);
+    if (!p) ReleaseSRWLockShared(&g_all_cb_lock);
+    return p;
+}
+void nvn_r1_cb_abort(void *transaction) {
+    if (!transaction) return;
+    cb_refusal_abort(transaction);
+    ReleaseSRWLockShared(&g_all_cb_lock);
+}
+void nvn_r1_cb_commit(void *transaction) {
+    cb_refusal_commit(transaction);
+    ReleaseSRWLockShared(&g_all_cb_lock);
+}
+static int g_cb_stage_configured, g_cb_stage_fault;
+static uint64_t g_cb_stage_after, g_cb_stage_count = UINT64_MAX, g_cb_stage_attempt;
+void nvn_r1_cb_capture_config(void) { /* Called before guest holds / allocator-sensitive capture. */
+    if (g_cb_stage_configured) return;
+    g_cb_stage_configured = 1;
+    const char *s = getenv("SSBU_RB_TEST_CB_STAGE_FAIL_AFTER");
+    if (s && *s && *s != '-') {
+        char *end; unsigned long long n = strtoull(s, &end, 10);
+        if (!*end) { g_cb_stage_fault = 1; g_cb_stage_after = n; }
+    }
+    s = getenv("SSBU_RB_TEST_CB_STAGE_FAIL_COUNT");
+    if (s && *s && *s != '-') {
+        char *end; unsigned long long n = strtoull(s, &end, 10);
+        if (!*end) g_cb_stage_count = n;
+    }
+}
+static void *cb_stage_resize(void *context, void *old, size_t cap) {
+    (void)context; return realloc(old, cap);
+}
 /* (R3 pub1) r1_ring.c: the save area's addresses, without a linker map (the prebuilt runtime package has none) */
 void nvn_gl_r1_cb_area(void **cbs, void **ncbs, void **all) { *cbs = g_cbs; *ncbs = &g_ncbs; *all = g_all_cb; }
 size_t nvn_gl_r1_cb_size(void) { return sizeof(CbSave); }      /* (R3 pub1) the entry size r1_ring.c expects (RG_CBS_SIZE) */
 size_t nvn_r1_cb_save(void) {                      /* the guest threads are held */
-    size_t bytes = 0;
+    if (g_cb_stage_attempt != UINT64_MAX) ++g_cb_stage_attempt;
+    int fault = g_cb_stage_fault && g_cb_stage_attempt > g_cb_stage_after &&
+        g_cb_stage_attempt - g_cb_stage_after <= g_cb_stage_count;
     AcquireSRWLockShared(&g_all_cb_lock);
-    g_ncbs = g_all_cb_n;
-    for (int i = 0; i < g_ncbs; i++) {
-        CbSave *s = &g_cbs[i]; CmdBuf *cb = g_all_cb[i];
-        s->cb = cb;
-        if (!cb) continue;
-        s->copy = *cb;
-        if (cb->len) { if (s->cap < cb->len) { s->cap = cb->len + 65536; s->data = realloc(s->data, s->cap); } memcpy(s->data, cb->data, cb->len); bytes += cb->len; }
+    CbCaptureFailure failure;
+    size_t bytes = cb_capture_save_diagnostic(g_cbs, &g_ncbs, g_all_cb, g_all_cb_n,
+        g_all_cb_lost, fault, cb_stage_resize, NULL, &failure);
+    if (bytes == SIZE_MAX) {
+        static int refusals; int live = 0;
+        for (int i = 0; i < g_all_cb_n; ++i) if (g_all_cb[i]) ++live;
+        logf_limited(&refusals, 20, "nvn_gl: CB_CAPTURE refused reason=%s attempt=%llu index=%d len=%llu cap=%llu total=%llu registry=%d live=%d created=%llu forgotten=%llu overflow=%llu\n",
+            failure.reason, (unsigned long long)g_cb_stage_attempt, failure.index,
+            (unsigned long long)failure.len, (unsigned long long)failure.cap,
+            (unsigned long long)failure.total, g_all_cb_n, live,
+            (unsigned long long)g_all_cb_created, (unsigned long long)g_all_cb_forgotten,
+            (unsigned long long)g_all_cb_overflow);
+    } else {
+        static int reported;
+        if (!reported) {
+            int live = 0, payloads = 0;
+            for (int i = 0; i < g_all_cb_n; ++i) if (g_all_cb[i]) {
+                ++live; if (g_all_cb[i]->len) ++payloads;
+            }
+            logf_limited(&reported, 1, "nvn_gl: CB_CAPTURE saved attempt=%llu registry=%d live=%d saved=%d payloads=%d bytes=%llu limit=%d lost=%d overflow=%llu\n",
+                (unsigned long long)g_cb_stage_attempt, g_all_cb_n, live, g_ncbs,
+                payloads, (unsigned long long)bytes, CB_CAPTURE_MAX, g_all_cb_lost,
+                (unsigned long long)g_all_cb_overflow);
+        }
     }
     ReleaseSRWLockShared(&g_all_cb_lock);
     return bytes;

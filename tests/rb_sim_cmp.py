@@ -14,7 +14,10 @@ from collections import Counter
 
 def frames(path):
     out = {}
-    for ln in open(path, errors='replace'):
+    for ln in open(path, encoding='utf-8', errors='strict'):
+        # fighter_host appends human-readable floats after the running hash.
+        if ln.startswith('F ') and not re.fullmatch(r'F [1-9]\d* .+ H [0-9a-fA-F]+(?:\s+.*)?\s*', ln):
+            raise ValueError('malformed fighter hash line')
         if not ln.startswith('F ') or ' H ' not in ln:
             continue
         f = int(ln.split()[1])
@@ -31,26 +34,28 @@ def main():
 
     # 1. kinds, built as in r1_ra_cmp.py
     kinds = {}
-    for ln in open(log, errors='replace'):
-        m = re.match(r'r1: RA kinds (\d+): ([RS]+)', ln)
+    for ln in open(log, encoding='utf-8', errors='strict'):
+        m = re.fullmatch(r'r1: RA kinds ([1-9]\d*): ([RS]+)\s*', ln)
+        if ln.startswith('r1: RA kinds') and not m:
+            raise ValueError('malformed frame kinds')
         if m:
             for i, ch in enumerate(m.group(2)):
-                kinds[int(m.group(1)) + i] = ch
-    nk = max(kinds) if kinds else 0
-    spec = sum(1 for v in kinds.values() if v == 'S')
-    absent = bool(sim) and max(sim) < nk - spec // 2
-    if absent:
-        print('speculative frames have no hash lines (their fighters did not run): the hash frames are the real ones')
-        kinds = {}
-        nk = max(sim)
+                f = int(m.group(1)) + i
+                if f in kinds and kinds[f] != ch:
+                    raise ValueError('conflicting kinds for frame %d' % f)
+                kinds[f] = ch
+    if not sim or not ref or not kinds:
+        raise ValueError('nonempty simulation, reference and frame kinds required')
+    if set(sim) != set(kinds) or sorted(sim) != list(range(1, len(sim) + 1)):
+        raise ValueError('simulation/kind coverage missing, truncated or noncontiguous; skipped fighter passes cannot be verified')
 
     # frames in frame-number order, up to the last known kind: (frame, kind, body)
     seq = []
     for f in sorted(sim):
-        if f > nk:
-            break
-        seq.append((f, kinds.get(f, 'R'), sim[f]))
+        seq.append((f, kinds[f], sim[f]))
     real = [(f, b) for f, k, b in seq if k == 'R']
+    if not real or set(ref) != set(range(1, len(real) + 1)):
+        raise ValueError('nonempty identical real/reference frame coverage required')
 
     # 2. real timeline against the reference
     n = min(len(real), len(ref))
@@ -116,7 +121,14 @@ def main():
         'all equal' if frames_bad == 0 else '%d frames differ' % frames_bad,
         ', '.join('%d: %d' % (k, c) for k, c in sorted(hist.items())),
     ))
+    if not frames_checked:
+        print('INSUFFICIENT: no replay frames verified')
+    return 0 if real_ok and frames_checked and not frames_bad and not skipped else 1
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, IndexError) as exc:
+        print('INVALID: %s' % exc, file=sys.stderr)
+        sys.exit(2)

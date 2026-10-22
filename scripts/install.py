@@ -56,14 +56,15 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import zipfile
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 DEPS = os.path.join(REPO, 'deps')
 sys.path.insert(0, HERE)        # the python.org embeddable package does not put the script's folder on sys.path
 import build_location  # noqa: E402
+from install_download import DownloadIntegrityError, download  # noqa: E402
 # The install location: the build folder (dump, work, logs, saves, the .nsz decompression cache). --build-dir, else the one
 # remembered in build_location.txt (the installer window's "Install location"), else <repo>\build. set_build() changes it.
 BUILD = build_location.get()
@@ -620,45 +621,82 @@ def fetch_suyu():
         out = os.path.join(dst, *rel.split('/'))
         if os.path.exists(out):
             continue
-        data = urllib.request.urlopen(SUYU_BASE + rel).read()
-        if hashlib.sha256(data).hexdigest() != sha:
-            raise Stop('suyu %s: the download does not match its SHA-256: refused' % rel)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        open(out, 'wb').write(data)
+        download(SUYU_BASE + rel, out, sha, report=say)
     return dst
+
+
+def checked_tool_path(path):
+    """Refuse tool writes through linked ancestors or outside the dependency root."""
+    root = os.path.abspath(DEPS)
+    target = os.path.abspath(path)
+    try:
+        inside = os.path.commonpath([root, target]) == root and target != root
+        resolved_root, resolved_target = os.path.realpath(root), os.path.realpath(target)
+        inside = inside and os.path.commonpath([resolved_root, resolved_target]) == resolved_root
+    except ValueError:
+        inside = False
+    if not inside:
+        raise Stop('Tool path is outside the dependency folder: %s' % target)
+    current = target
+    while True:
+        if os.path.lexists(current):
+            info = os.lstat(current)
+            # Windows junction and symlink tags; cloud placeholders are not links.
+            if os.path.islink(current) or getattr(info, 'st_reparse_tag', 0) in (0xA0000003, 0xA000000C):
+                raise Stop('Tool path uses a symbolic link or junction: %s' % current,
+                           'Use an ordinary installation folder, then press Retry.')
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return target
+
+
+def preserve_incomplete_tool(path):
+    """Keep interrupted data aside without recursive deletion or link traversal."""
+    path = checked_tool_path(path)
+    if os.path.lexists(path):
+        saved = checked_tool_path(path + '.incomplete-' + uuid.uuid4().hex)
+        os.replace(path, saved)
+        say('   preserved interrupted tool files in %s' % os.path.basename(saved))
 
 
 def fetch(name):
     url, sha, folder, probe = TOOLS[name]
-    dst = os.path.join(DEPS, folder)
-    if os.path.exists(os.path.join(dst, probe)):
+    dst = checked_tool_path(os.path.join(DEPS, folder))
+    if os.path.exists(checked_tool_path(os.path.join(dst, probe))):
         return dst
     if not sha:
         raise Stop('%s is missing and its download is not verified yet (no SHA-256 listed in scripts/install.py)' % name,
                    'Install it by hand (BUILDING.md) or give its folder to setup.py.')
     os.makedirs(DEPS, exist_ok=True)
-    arc = os.path.join(DEPS, os.path.basename(url))
+    arc = checked_tool_path(os.path.join(DEPS, os.path.basename(url)))
+    checked_tool_path(arc + '.download-part')
     say('   downloading %s' % url)
-    urllib.request.urlretrieve(url, arc)
-    h = hashlib.sha256(open(arc, 'rb').read()).hexdigest()
-    if h != sha:
-        os.remove(arc)
-        raise Stop('%s: the download does not match its SHA-256 (got %s): refused' % (name, h))
+    download(url, arc, sha, report=say)
     if arc.endswith('.zip'):
-        if os.path.isdir(dst):                  # an unfinished folder of an earlier try (no probe file in it): replaced
-            shutil.rmtree(dst, ignore_errors=True)
-        tmp = dst + '.tmp'
+        preserve_incomplete_tool(dst)
+        tmp = checked_tool_path(dst + '.tmp')
+        # Preserve old interrupted stages; never recursively delete their contents.
+        preserve_incomplete_tool(tmp)
         with zipfile.ZipFile(arc) as z:
             z.extractall(tmp)
         inner = [os.path.join(tmp, d) for d in os.listdir(tmp)]
-        shutil.move(inner[0] if len(inner) == 1 and os.path.isdir(inner[0]) else tmp, dst)
-        shutil.rmtree(tmp, ignore_errors=True)
+        ready = inner[0] if len(inner) == 1 and os.path.isdir(inner[0]) else tmp
+        if not os.path.isfile(os.path.join(ready, probe)):
+            raise Stop('%s archive is missing its required file: %s' % (name, probe))
+        os.replace(ready, dst)  # same-volume rename publishes the complete extraction
+        if os.path.isdir(tmp):
+            os.rmdir(checked_tool_path(tmp))  # only the empty wrapper remains
     else:                                       # the LLVM installer: silent, into deps\llvm
         try:
             subprocess.run([arc, '/S', '/D=' + dst], check=True)
         except OSError as e:                    # 740: it asks for administrator rights; Windows shows its Yes/No prompt
             if getattr(e, 'winerror', None) != 740:
                 raise
+            if os.environ.get('SSBU_FAMILY_SETUP') == '1':
+                raise Stop('LLVM requires administrator rights; the family wizard cannot safely cancel an elevated installer.',
+                           'Ask the maintainer for a compatible LLVM tool setup before pressing Retry.')
             say('   the LLVM installer asks for administrator rights: answer Yes in the Windows prompt')
             ps = "Start-Process -FilePath '%s' -ArgumentList '/S','/D=%s' -Verb RunAs -Wait" % (arc.replace("'", "''"), dst.replace("'", "''"))
             subprocess.run(['powershell', '-NoProfile', '-Command', ps], check=True)
@@ -686,17 +724,17 @@ def find_runtime(a, why=None):
             os.makedirs(DEPS, exist_ok=True)
             say('   downloading the prebuilt runtime %s' % url)
             try:
-                urllib.request.urlretrieve(url, dst + '.part')
+                download(url, dst, sha, report=say)
+            except DownloadIntegrityError as e:
+                raise Stop(str(e), 'Check the connection and try again; if verification fails, contact the maintainer.')
             except OSError as e:
+                if os.environ.get('SSBU_FAMILY_SETUP') == '1':
+                    raise Stop('The prebuilt runtime download failed: %s' % e,
+                               'Check your internet connection, free disk space and folder permissions, then press Retry.')
                 say('   the prebuilt runtime could not be downloaded (%s): everything is built here instead' % e)
                 why.append('the prebuilt runtime could not be downloaded from GitHub (%s): check the internet connection '
                            '(or a firewall / antivirus blocking github.com) and press Resume' % e)
                 return None
-            got = hashlib.sha256(open(dst + '.part', 'rb').read()).hexdigest()
-            if got != sha:
-                os.remove(dst + '.part')
-                raise Stop('the prebuilt runtime does not match its SHA-256 (got %s): refused' % got)
-            os.replace(dst + '.part', dst)
         return dst
     if os.path.isfile(os.path.join(DEPS, 'runtime', 'manifest.json')):
         return os.path.join(DEPS, 'runtime')

@@ -186,6 +186,9 @@ static CatchSlot g_catch[CATCH_SLOTS];
  * linker map, which the prebuilt runtime package does not ship: the table was then never captured nor restored. */
 void *nnunwind_catch_table(size_t *bytes) { if (bytes) *bytes = sizeof g_catch; return g_catch; }
 static SRWLOCK g_catch_lock = SRWLOCK_INIT;
+/* Ring preparation must refuse a busy catch writer, never block behind a held thread. */
+int nnunwind_catch_try_lock(void) { return TryAcquireSRWLockExclusive(&g_catch_lock) != 0; }
+void nnunwind_catch_unlock(void) { ReleaseSRWLockExclusive(&g_catch_lock); }
 
 /* (R3 hs13) A record belongs to the HOST stack its jmp_buf is on: two coroutines can use the same guest stack (the same CFA)
  * on two host fibers (a coroutine object made again, a fiber given a new host fiber; with the rollback ring both stay
@@ -207,7 +210,8 @@ static int catch_here(const jmp_buf *jb) {            /* jb is on the stack this
  * host stacks a rollback abandoned (the coroutine made again on a new host fiber) stay in the table; once the window was
  * full a new record overwrote the slot at the bucket, i.e. a live record of another coroutine: its throw later found no
  * frame. Now (SSBU_UNWIND_CATCHFIX=0 = the old way, test): a mixing hash, the whole table is probed, a removed record next
- * to an empty slot becomes empty again (chains do not grow for ever), and a live record is never overwritten.
+ * to an empty slot becomes empty again (chains do not grow for ever). Normal entry still overwrites on exhaustion;
+ * checked ring reinsertion refuses it.
  * SSBU_UNWIND_TEST_PROBES=<n> (test only): the probe window is n slots (the old way's crowding, reached sooner). */
 static int g_cfix = 1, g_cprobes;
 static volatile LONG g_c_crowded, g_c_full, g_c_maxprobe;
@@ -216,21 +220,48 @@ static unsigned catch_hash(uint64_t cfa) {
     uint64_t x = cfa >> 4; x ^= x >> 33; x *= 0xff51afd7ed558ccdull; x ^= x >> 33; x *= 0xc4ceb9fe1a85ec53ull; x ^= x >> 33;
     return (unsigned)x & (CATCH_SLOTS - 1);
 }
-static unsigned catch_window(void) { return g_cprobes > 0 ? (unsigned)g_cprobes : g_cfix ? CATCH_SLOTS : 64; }
-static void catch_free_slot(unsigned i) {                                     /* lock held: record i removed */
-    g_catch[i].cfa = 1; g_catch[i].jb = NULL;
-    if (!g_cfix || g_catch[(i + 1) & (CATCH_SLOTS - 1)].cfa != 0) return;
-    for (unsigned n = 0; n < CATCH_SLOTS && g_catch[i].cfa == 1; n++) { g_catch[i].cfa = 0; i = (i - 1) & (CATCH_SLOTS - 1); }
+static unsigned catch_window(void) {
+    unsigned n = g_cprobes > 0 ? (unsigned)g_cprobes : g_cfix ? CATCH_SLOTS : 64;
+    return n < CATCH_SLOTS ? n : CATCH_SLOTS; /* revisiting slots cannot change selection */
 }
-/* lock held (or every guest thread held: r1_ring.c rgc_after). here: compare only records on this thread's stack. */
-static void catch_insert(uint64_t cfa, jmp_buf *jb, int here) {
+/* Ring staging uses an integer representation of jb; byte copies avoid typed
+ * aliasing between that representation and CatchSlot's pointer member. */
+static void catch_read_slot(const void *table, unsigned i, CatchSlot *slot) {
+    memcpy(slot, (const unsigned char *)table + (size_t)i * sizeof *slot, sizeof *slot);
+}
+static void catch_write_slot(void *table, unsigned i, const CatchSlot *slot) {
+    memcpy((unsigned char *)table + (size_t)i * sizeof *slot, slot, sizeof *slot);
+}
+static void catch_free_slot_in(void *table, unsigned i) {                     /* table exclusively owned */
+    CatchSlot slot = {1, NULL}, next;
+    catch_write_slot(table, i, &slot);
+    catch_read_slot(table, (i + 1) & (CATCH_SLOTS - 1), &next);
+    if (!g_cfix || next.cfa != 0) return;
+    for (unsigned n = 0; n < CATCH_SLOTS; n++) {
+        catch_read_slot(table, i, &slot);
+        if (slot.cfa != 1) break;
+        slot.cfa = 0; catch_write_slot(table, i, &slot);
+        i = (i - 1) & (CATCH_SLOTS - 1);
+    }
+}
+static void catch_free_slot(unsigned i) { catch_free_slot_in(g_catch, i); }
+/* Live callers hold the catch lock; detached callers exclusively own their table.
+ * here: compare only records on this thread's stack. */
+static unsigned catch_insert_slot(const void *table, uint64_t cfa, jmp_buf *jb, int here, unsigned *probes) {
     unsigned h = catch_hash(cfa), first_free = CATCH_SLOTS, win = catch_window(), n;
     for (n = 0; n < win; n++) {
         unsigned i = (h + n) & (CATCH_SLOTS - 1);
-        if (g_catch[i].cfa == cfa && (here ? catch_here(g_catch[i].jb) : g_catch[i].jb == jb)) { first_free = i; break; }   /* a frame at the same guest stack address ON THIS STACK replaces a stale one */
-        if (g_catch[i].cfa <= 1 && first_free == CATCH_SLOTS) first_free = i;
-        if (g_catch[i].cfa == 0) break;
+        CatchSlot slot; catch_read_slot(table, i, &slot);
+        if (slot.cfa == cfa && (here ? catch_here(slot.jb) : slot.jb == jb)) { first_free = i; break; }   /* a frame at the same guest stack address ON THIS STACK replaces a stale one */
+        if (slot.cfa <= 1 && first_free == CATCH_SLOTS) first_free = i;
+        if (slot.cfa == 0) break;
     }
+    *probes = n;
+    return first_free;
+}
+/* Legacy normal entry policy retains its historical overwrite-on-exhaustion behavior. */
+static void catch_insert(uint64_t cfa, jmp_buf *jb, int here) {
+    unsigned n, first_free = catch_insert_slot(g_catch, cfa, jb, here, &n), h = catch_hash(cfa);
     if ((LONG)n > g_c_maxprobe) g_c_maxprobe = (LONG)n;
     if (first_free == CATCH_SLOTS) {                                          /* no free slot in the window */
         InterlockedIncrement(&g_c_crowded);
@@ -282,6 +313,28 @@ static void catch_put(uint64_t cfa, jmp_buf *jb) {
 }
 /* r1_ring.c (a ring load, every guest thread held): put a record back as it was */
 void nnunwind_catch_reinsert(uint64_t cfa, uint64_t jb) { catch_insert(cfa, (jmp_buf *)(uintptr_t)jb, 0); }
+/* Caller owns the catch lock. Exhaustion changes neither table nor diagnostics. */
+int nnunwind_catch_reinsert_checked(uint64_t cfa, uint64_t jb) {
+    unsigned probes, slot = catch_insert_slot(g_catch, cfa, (jmp_buf *)(uintptr_t)jb, 0, &probes);
+    if (slot == CATCH_SLOTS) return 0;
+    g_catch[slot].cfa = cfa; g_catch[slot].jb = (jmp_buf *)(uintptr_t)jb;
+    return 1;
+}
+/* Detached merge preparation: caller owns a writable table of the exact
+ * catch-table size. These helpers never acquire locks or touch live diagnostics. */
+int nnunwind_catch_stage_insert(void *table, size_t bytes, uint64_t cfa, uint64_t jb) {
+    if (!table || bytes != sizeof g_catch) return 0;
+    unsigned probes, slot = catch_insert_slot(table, cfa, (jmp_buf *)(uintptr_t)jb, 0, &probes);
+    if (slot == CATCH_SLOTS) return 0;
+    CatchSlot value = {cfa, (jmp_buf *)(uintptr_t)jb};
+    catch_write_slot(table, slot, &value);
+    return 1;
+}
+int nnunwind_catch_stage_free(void *table, size_t bytes, unsigned i) {
+    if (!table || bytes != sizeof g_catch || i >= CATCH_SLOTS) return 0;
+    catch_free_slot_in(table, i);
+    return 1;
+}
 void nnunwind_catch_free(unsigned i) { if (i < CATCH_SLOTS) catch_free_slot(i); }
 void nnunwind_catch_stats(long long *live, long long *dead, long long *crowded, long long *full, long long *maxprobe) {
     long long l = 0, d = 0; for (unsigned i = 0; i < CATCH_SLOTS; i++) { if (g_catch[i].cfa > 1) l++; else if (g_catch[i].cfa == 1) d++; }

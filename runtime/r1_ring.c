@@ -29,6 +29,14 @@
  * against a run without it and every re-run frame against the frame it replays. SSBU_RB_SIM_SKIP=<mask>: run-ahead's
  * kick-skip mask in re-run passes except the last one (experiment). SSBU_RB_PARK_MS (default 30): hold limit. */
 
+#include "restore_probe.h"
+#include "restore_probe_win.h"
+#include "rb_resource_policy.h"
+#include "slot_metadata.h"
+#include "restore_plan.h"
+#include "restore_memory_win.h"
+#include "restore_refusal_audit.h"
+#include "capture_pool.h"
 #define RG_MAXSLOT 16
 extern volatile int g_rgp_seg;                            /* (R2 round 3, profile 3: which part of a pass main is in) */
 #define RG_FLAT 0u
@@ -49,7 +57,8 @@ typedef struct {
 } RgSlot;
 /* (hs13) g_rg_nomem: 1 = the ring's base could not be made for lack of memory (nothing kept: tried again at the next match),
  * 2 = the ring broke on the way (its own allocations or a rebase failed: off for the rest of the process). rb_rollback.c then
- * plays the match without rollback (each frame waits for the other player's pad: delay-based, never a guess). */
+ * requests delay-based mode. 3 = incomplete fiber base, retried next match. The
+ * coordinator's existing timeout/fallback behavior is not qualified by this flag. */
 static int g_rg_nomem;
 static int rbg_on(void);
 static RgSlot *g_rg; static int g_rg_cap, g_rg_head, g_rg_count, g_rg_ready, g_rg_depth = 7;
@@ -63,6 +72,8 @@ static int g_rg_keep, g_rg_kept, g_rg_keep_on = -1; static long long g_rg_kept_n
 static long long g_rg_caps, g_rg_cap_fail, g_rg_loads, g_rg_overflow;
 static double g_rg_last[2];
 static int g_rgs_on; static long long g_rgv_target; static void rgv_before(int si, long long target); static void rgv_after(void);   /* (simulation / verify, below) */
+void debug_writer_probe_begin(long long frame, long long target);
+void debug_writer_probe_end(long long frame);
 /* costs: capture (all, hold, sweep + queue, copy, fibers / threads / cb), load per k */
 #define RG_NST 65536
 static double *g_rgc[5]; static size_t *g_rgc_pg, *g_rgc_xp; static int g_rgc_n;
@@ -76,7 +87,10 @@ static int rg_vcom(uint8_t *base, size_t *com, size_t need, size_t step) {   /* 
     if (!VirtualAlloc(base + *com, to - *com, MEM_COMMIT, PAGE_READWRITE)) return 0;
     *com = to; return 1;
 }
-/* (hs14) THE POOL RUNNING OUT IN A MATCH. Before: a capture that found no pool buffer (or no log room) went on without the
+/* Historical pool policy, retained below for legacy policy/source tests. The
+ * incremental ring caller now uses capture_pool.h/capture_pages.h: assignments
+ * and commitment precede eviction, and all modes refuse incomplete captures.
+ * (hs14) THE POOL RUNNING OUT IN A MATCH. Before: a capture that found no pool buffer (or no log room) went on without the
  * rest of its pages (their marks already cleared by the sweep), then dropped every older state: a later rollback could find
  * no state, or load a newest state with stale pages (= a desync). Now (SSBU_RB_POOLFIX=0: the old way):
  *  - g_rg_need = the oldest frame a rollback may still need (rb_rollback.c: the newest frame with both players' pads known;
@@ -91,18 +105,17 @@ static int rg_vcom(uint8_t *base, size_t *com, size_t need, size_t step) {   /* 
  * mode 1 (default): then only buffers given back to the pool, 2: none at all. */
 static long long g_rg_need = -1; static int g_rg_poolfix = -1, g_rg_short; static long long g_rg_short_n, g_rg_freed_slots, g_rg_skip_full;
 static long long g_rg_tp_f = -2, g_rg_tp_n; static int g_rg_tp_mode, g_rg_tp_active, g_rg_tp_gets; static long long g_rg_tp_refused;
+static int rg_pool_commit(void *context, uint32_t first_page, uint32_t pages) {
+    (void)context;
+    return VirtualAlloc(g_rg_pool + (size_t)first_page * PG, (size_t)pages * PG, MEM_COMMIT, PAGE_READWRITE) != NULL;
+}
 static uint32_t rg_pool_get(void) {
     if (g_rg_tp_active && ++g_rg_tp_gets > 64) {          /* (test) */
         if (g_rg_tp_mode != 2 && g_rg_nfree) return g_rg_free[--g_rg_nfree];
         g_rg_tp_refused++; return 0;
     }
-    if (g_rg_nfree) return g_rg_free[--g_rg_nfree];
-    if (g_rg_bump >= RG_POOL_MAX) return 0;
-    if (g_rg_bump >= g_rg_pcom) {
-        if (!VirtualAlloc(g_rg_pool + (size_t)g_rg_pcom * PG, 256 * PG, MEM_COMMIT, PAGE_READWRITE)) return 0;
-        g_rg_pcom += 256;
-    }
-    return 2 + g_rg_bump++;
+    return rb_pool_take(&g_rg_bump, &g_rg_pcom, g_rg_free, &g_rg_nfree,
+                        RG_POOL_MAX, rg_pool_commit, NULL);
 }
 static void rg_pool_put(uint32_t i) { if (i >= 2) g_rg_free[g_rg_nfree++] = i; }
 static uint8_t *rg_pool_ptr(uint32_t i) { return g_rg_pool + (size_t)(i - 2) * PG; }
@@ -112,16 +125,22 @@ static uint8_t *rg_addr(uint32_t id) {
     return g_rg_xa[id - g_rg_n1 - g_rg_n2];
 }
 /* the bytes of page `id` as recorded at the newest capture (NULL = zero page, (uint8_t *)1 = decommitted) */
-static uint8_t *rg_src(uint32_t id) {
-    uint32_t v = g_rg_idx[id];
+static uint8_t *rg_src_value(uint32_t id, uint32_t v) {
     if (v >= 2) return rg_pool_ptr(v);
     if (v == RG_DECOM) return (uint8_t *)1;
     if (id < g_rg_n1) return g_sh1c[id] ? g_sh1 + (size_t)id * PG : NULL;
     if (id < g_rg_n1 + g_rg_n2) { size_t j = id - g_rg_n1; return g_sh2c[j] ? g_sh2 + j * PG : NULL; }
     return g_rg_xb[id - g_rg_n1 - g_rg_n2];
 }
+static uint8_t *rg_src(uint32_t id) { return rg_src_value(id, g_rg_idx[id]); }
+static int g_rg_capture_prepared;
+static size_t g_rg_capture_entries;
 static int rg_push(RgSlot *s, uint32_t id, uint32_t old) {
-    if (!rg_vcom((uint8_t *)s->ent, &s->entcom, (s->nent + 1) * 8, 1u << 20)) return 0;
+    if (s->nent >= RG_ENT_RES / 8) return 0;
+    if (g_rg_capture_prepared && s->nent >= g_rg_capture_entries) return 0;
+    size_t need = (s->nent + 1) * 8;
+    if (g_rg_capture_prepared ? need > s->entcom :
+        !rg_vcom((uint8_t *)s->ent, &s->entcom, need, 1u << 20)) return 0;
     s->ent[2 * s->nent] = id; s->ent[2 * s->nent + 1] = old; s->nent++;
     return 1;
 }
@@ -156,6 +175,106 @@ static void rg_sweep(void (*fn)(uint32_t id, int w, size_t j)) {
 }
 static RgSlot *g_rg_cur; static int g_rg_fail_now; static int g_rgs_left;
 #include "rb_learned.c"                              /* R4: the learned-set save (the ring on the normal, unmarked game build) */
+/* Incremental capture scratch is prepared before eviction. A second detached
+ * preparation stage owns pool-buffer assignment and commitment. Host writers
+ * are not proven quiescent by this hold. */
+static uint8_t *g_rg_xdiff; static size_t g_rg_xdiff_cap;
+static uint32_t *g_rg_mark_ids; static size_t g_rg_mark_count, g_rg_mark_cap;
+static int g_rg_capture_fail_count = -1, g_rg_capture_fail_after;
+static int g_rg_pool_fail_count, g_rg_pool_fail_after;
+static const char *g_rg_capture_refusal;
+static void rg_capture_config(void) {
+    if (g_rg_capture_fail_count >= 0) return;
+    const char *e = getenv("SSBU_RB_TEST_CAPTURE_PREP_FAIL_COUNT");
+    g_rg_capture_fail_count = e ? atoi(e) : 0;
+    if (g_rg_capture_fail_count < 0) g_rg_capture_fail_count = 0;
+    e = getenv("SSBU_RB_TEST_CAPTURE_PREP_FAIL_AFTER");
+    g_rg_capture_fail_after = e ? atoi(e) : 0;
+    if (g_rg_capture_fail_after < 0) g_rg_capture_fail_after = 0;
+    e = getenv("SSBU_RB_TEST_CAPTURE_POOL_FAIL_COUNT");
+    g_rg_pool_fail_count = e ? atoi(e) : 0;
+    if (g_rg_pool_fail_count < 0) g_rg_pool_fail_count = 0;
+    e = getenv("SSBU_RB_TEST_CAPTURE_POOL_FAIL_AFTER");
+    g_rg_pool_fail_after = e ? atoi(e) : 0;
+    if (g_rg_pool_fail_after < 0) g_rg_pool_fail_after = 0;
+}
+static int rg_capture_mark_add(uint32_t id, size_t limit) {
+    if (g_rg_mark_count >= limit) return 0;
+    if (g_rg_mark_count == g_rg_mark_cap) {
+        size_t need = g_rg_mark_cap ? g_rg_mark_cap * 2 : 65536;
+        if (need < g_rg_mark_cap || need > limit) need = limit;
+        void *storage = g_rg_mark_ids;
+        if (!restore_reserve(&storage, &g_rg_mark_cap, need, sizeof *g_rg_mark_ids, realloc)) return 0;
+        g_rg_mark_ids = storage;
+    }
+    g_rg_mark_ids[g_rg_mark_count++] = id; return 1;
+}
+static void rg_capture_finish(void) {
+    cp_reserved_end(); g_rg_capture_prepared = 0; g_rg_capture_entries = 0; g_rg_mark_count = 0;
+}
+static int rg_capture_prepare(RgSlot *s) {
+    size_t candidates = 0, limit = RG_ENT_RES / 8;
+    g_rg_capture_refusal = "invalid bounds or copy queue state";
+    if (g_rg_capture_prepared || g_cp_reserved || g_ncj || !s || !s->ent ||
+        s->entcom > RG_ENT_RES || g_rg_n1 > UINT32_MAX ||
+        g_rg_n2 > UINT32_MAX - g_rg_n1 ||
+        g_rg_nx > UINT32_MAX - g_rg_n1 - g_rg_n2 || g_rg_nx > limit) return 0;
+    g_rg_mark_count = 0;
+    if (g_ls_active) {
+        /* Reserve the entire bounded learned membership; a host writer can
+         * append after the validation pass even while guest threads are held. */
+        g_rg_capture_refusal = "learned membership bounds";
+        if (!ls_validate_tracking() || g_ls_cap <= 0 ||
+            (size_t)g_ls_cap > limit - g_rg_nx) return 0;
+        candidates = (size_t)g_ls_cap;
+        g_rg_capture_refusal = "learned comparison storage";
+        if (!ls_capture_reserve(candidates)) return 0;
+    } else {
+        g_rg_capture_refusal = "marked inventory storage or bounds";
+        if (!pm1 || !pm2 || (g_rg_n1 && (!*pm1 || !g_ns1)) ||
+            (g_rg_n2 && (!*pm2 || !g_ns2))) return 0;
+        /* Gather without clearing marks or allocating/rebuilding block lists.
+         * Consume this fixed inventory instead of sweeping mutable maps twice. */
+        for (int w = 0; w < 2; w++) {
+            const uint8_t *map = w ? *pm2 : *pm1;
+            size_t count = w ? g_rg_n2 : g_rg_n1;
+            for (size_t j = 0; j < count; j++) {
+                if (map[j] && !rg_capture_mark_add((uint32_t)(w ? g_rg_n1 + j : j), limit - g_rg_nx)) goto failed;
+            }
+        }
+        candidates = g_rg_mark_count;
+    }
+    size_t total = candidates + g_rg_nx;
+    void *storage = g_rg_xdiff;
+    g_rg_capture_refusal = "extras comparison storage";
+    if (!restore_reserve(&storage, &g_rg_xdiff_cap, g_rg_nx, 1, realloc)) goto failed;
+    g_rg_xdiff = storage;
+    g_rg_capture_refusal = "copy queue storage";
+    if (!cp_reserve(total)) goto failed;
+    g_rg_capture_refusal = "undo log commitment";
+    if (!rg_vcom((uint8_t *)s->ent, &s->entcom, total * 8, 1u << 20)) goto failed;
+    if (g_rg_capture_fail_after > 0) g_rg_capture_fail_after--;
+    else if (g_rg_capture_fail_count > 0) {
+        g_rg_capture_fail_count--;
+        g_rg_capture_refusal = "test failure after reservations";
+        LOG("r1: RING TEST: capture preparation refused after reservations\n");
+        goto failed;
+    }
+    g_rg_capture_entries = total; g_rg_capture_prepared = 1; g_rg_capture_refusal = NULL; return 1;
+failed:
+    g_rg_mark_count = 0; return 0;
+}
+static void rg_capture_marked(void (*fn)(uint32_t id, int w, size_t j)) {
+    for (size_t k = 0; k < g_rg_mark_count; k++) {
+        uint32_t id = g_rg_mark_ids[k]; int w = id >= g_rg_n1;
+        size_t j = w ? id - g_rg_n1 : id;
+        uint8_t *map = w ? *pm2 : *pm1;
+        map[j] = 0;
+        if (g_audio_free && is_async(rg_addr(id))) continue;
+        if (w ? g_ns2[j] : g_ns1[j]) continue;
+        fn(id, w, j);
+    }
+}
 /* (R2 round 3) SSBU_RB_SIM_PAGES=1: the captured pages counted per 1 MB block and pass kind (0 real, 1 re-run with the skips, 2 the
  * last re-run pass): which memory a frame writes, and which of it only the presentation writes (absent from the skipped passes). */
 static int g_rgpg_on = -1; static int g_rgpg_kind; static long long g_rgpg_caps[3];
@@ -203,58 +322,63 @@ static uint32_t rg_pool_get_cap(void) {                  /* a buffer for the cap
     if (!nb && g_rg_poolfix && rg_free_unneeded()) nb = rg_pool_get();
     return nb;
 }
+#include "capture_pages.h"
 static void rg_cb_find(void) {
     if (g_rg_cb_ok >= 0) return;
     uint64_t a = map_sym("g_cbs"), n = map_sym("g_ncbs"), all = map_sym("g_all_cb");
     size_t nvn_gl_r1_cb_size(void);                      /* (R3 pub1) the entry size from nvn_gl.c itself: the compiler of the package exe put g_ncbs between the two arrays */
-    g_rg_cb_ok = a && n && all && (all - a == 512ull * RG_CBS_SIZE || nvn_gl_r1_cb_size() == RG_CBS_SIZE);
+    g_rg_cb_ok = a && n && all && (all - a == (uint64_t)CB_CAPTURE_MAX * RG_CBS_SIZE || nvn_gl_r1_cb_size() == RG_CBS_SIZE);
     if (g_rg_cb_ok) { g_rg_cbs = (uint8_t *)(uintptr_t)a; g_rg_ncbs = (int *)(uintptr_t)n; }
-    LOG("r1: RING: command-buffer save area of nvn_gl.c %s (g_cbs %llx, g_ncbs %llx, g_all_cb %llx)\n", g_rg_cb_ok ? "found: saved per slot" : "NOT found (layout differs): the newest capture's is put back at every load",
+    LOG("r1: RING: command-buffer save area of nvn_gl.c %s (g_cbs %llx, g_ncbs %llx, g_all_cb %llx)\n", g_rg_cb_ok ? "found: saved per slot" : "NOT found (layout differs): capture will be refused",
         (unsigned long long)a, (unsigned long long)n, (unsigned long long)all);
 }
-static int rg_cb_capture(RgSlot *s) {
-    s->ncbs = 0; s->cbd_used = 0;
-    if (!g_rg_cb_ok) return 1;
-    int n = *g_rg_ncbs; if (n < 0 || n > 512) return 0;
-    memcpy(s->cbs, g_rg_cbs, (size_t)n * RG_CBS_SIZE);
-    for (int i = 0; i < n; i++) {
-        uint8_t *e = g_rg_cbs + (size_t)i * RG_CBS_SIZE;
-        size_t len = *(size_t *)(e + 16); uint8_t *d = *(uint8_t **)(e + 128);
-        if (!*(void **)e || !len || !d) continue;
-        if (!rg_vcom(s->cbd, &s->cbd_com, s->cbd_used + len, 1u << 20)) return 0;
-        memcpy(s->cbd + s->cbd_used, d, len); s->cbd_used += len;
+/* Cached test refusal applies even to already committed capacity. */
+static long long g_rg_meta_attempt, g_rg_meta_fail_after[2] = { -1, -1 };
+static int g_rg_meta_configured;
+static long long g_rg_meta_fail_count = -1;
+static void rg_meta_config(void) {
+    if (g_rg_meta_configured) return;
+    g_rg_meta_configured = 1;
+    { const char *e = getenv("SSBU_RB_TEST_SLOT_FAIL_COUNT"); char *end;
+      if (e && *e) { long long n = strtoll(e, &end, 10); if (!*end && n >= 0) g_rg_meta_fail_count = n; } }
+    const char *names[2] = { "SSBU_RB_TEST_SLOT_FIBER_FAIL_AFTER", "SSBU_RB_TEST_SLOT_CB_FAIL_AFTER" };
+    for (int i = 0; i < 2; i++) {
+        const char *e = getenv(names[i]); char *end; long long value;
+        if (e && *e) { value = strtoll(e, &end, 10); if (!*end && value >= 0) g_rg_meta_fail_after[i] = value; }
     }
-    s->ncbs = n;
-    return 1;
 }
-static void rg_cb_load(RgSlot *s) {
-    if (g_rg_cb_ok) {
-        size_t off = 0;
-        for (int i = 0; i < s->ncbs; i++) {
-            uint8_t *e = g_rg_cbs + (size_t)i * RG_CBS_SIZE, *se = s->cbs + (size_t)i * RG_CBS_SIZE;
-            uint8_t *d = *(uint8_t **)(e + 128); size_t cap = *(size_t *)(e + 136);
-            memcpy(e, se, 128);                                 /* cb + the record's copy; the save area's own buffer stays */
-            size_t len = *(size_t *)(se + 16);
-            if (*(void **)se && len && *(uint8_t **)(se + 128)) {
-                if (cap < len) { cap = len + 65536; d = realloc(d, cap); }
-                memcpy(d, s->cbd + off, len); off += len;
-            }
-            *(uint8_t **)(e + 128) = d; *(size_t *)(e + 136) = cap;
-        }
-        *g_rg_ncbs = s->ncbs;
-    }
-    nvn_r1_cb_restore();
+static int rg_meta_reserve(void *context, int kind, size_t need) {
+    RgSlot *s = context;
+    size_t *com = kind ? &s->cbd_com : &s->fpool_com;
+    uint8_t *base = kind ? s->cbd : s->fpool;
+    size_t to, limit = kind ? RG_CB_RES : RG_FP_RES;
+    if (g_rg_meta_fail_after[kind] >= 0 && g_rg_meta_attempt > g_rg_meta_fail_after[kind] &&
+        (g_rg_meta_fail_count < 0 || g_rg_meta_attempt - g_rg_meta_fail_after[kind] <= g_rg_meta_fail_count)) return 0;
+    if (!base || *com > limit || !slot_meta_commit_size(need, limit, 1u << 20, &to)) return 0;
+    if (to <= *com) return 1;
+    if (!VirtualAlloc(base + *com, to - *com, MEM_COMMIT, PAGE_READWRITE)) return 0;
+    *com = to; return 1;
 }
-static void rg_meta_capture(RgSlot *s, Ctx *c) {       /* threads still held: their places, the fibers, the command buffers */
+static int rg_meta_prepare(RgSlot *s, SlotMetaPlan *plan) {
+    g_rg_meta_attempt++;
+    return slot_meta_prepare(plan, g_nth, g_ninfo, g_nfib, g_fpool_used, RG_FP_RES,
+        g_rg_cb_ok, g_rg_cb_ok ? *g_rg_ncbs : 0, g_rg_cbs, RG_CB_RES, rg_meta_reserve, s);
+}
+static void rg_cb_capture(RgSlot *s, const SlotMetaPlan *p) {
+    memcpy(s->cbs, g_rg_cbs, (size_t)p->ncbs * RG_CBS_SIZE);
+    for (int i = 0; i < p->ncbs; i++) if (p->cb[i].len)
+        memcpy(s->cbd + p->cb[i].offset, p->cb[i].data, p->cb[i].len);
+    s->ncbs = p->ncbs; s->cbd_used = p->cb_bytes;
+}
+static void rg_meta_capture(RgSlot *s, Ctx *c, const SlotMetaPlan *p) {       /* threads still held: their places, the fibers, the command buffers */
     s->ctx = *c;
-    s->nth = g_nth; s->ninfo = g_ninfo;
-    memcpy(s->th, g_th, (size_t)g_nth * sizeof *g_th);
+    s->nth = p->nth; s->ninfo = p->ninfo;
+    memcpy(s->th, g_th, (size_t)p->nth * sizeof *g_th);
     for (int i = 0; i < s->nth; i++) { s->th[i].held = 0; s->th[i].cok = 0; }
-    s->nfib = g_nfib; memcpy(s->fib, g_fib, (size_t)g_nfib * sizeof *g_fib);
-    s->fpool_used = 0;
-    if (g_fpool_used && rg_vcom(s->fpool, &s->fpool_com, g_fpool_used, 1u << 20)) { memcpy(s->fpool, g_fpool, g_fpool_used); s->fpool_used = g_fpool_used; }
-    else if (g_fpool_used) for (int i = 0; i < s->nfib; i++) s->fib[i].susp = 0;
-    if (!rg_cb_capture(s)) s->ncbs = 0;
+    s->nfib = p->nfib; memcpy(s->fib, g_fib, (size_t)p->nfib * sizeof *g_fib);
+    if (p->fiber_bytes) memcpy(s->fpool, g_fpool, p->fiber_bytes);
+    s->fpool_used = p->fiber_bytes;
+    rg_cb_capture(s, p);
 }
 static void rg_free_all(void) {                         /* (hs13) a ring that could not be made: what it took is given back */
     if (g_rg_idx) VirtualFree(g_rg_idx, 0, MEM_RELEASE);
@@ -293,7 +417,7 @@ static int rg_init(void) {
     for (int i = 0; i < g_rg_cap; i++) {
         RgSlot *s = &g_rg[i]; s->frame = -1;
         s->ent = (uint32_t *)rg_vres(RG_ENT_RES); s->fpool = rg_vres(RG_FP_RES); s->cbd = rg_vres(RG_CB_RES);
-        s->fib = malloc(1024 * sizeof *s->fib); s->cbs = malloc(512 * RG_CBS_SIZE);
+        s->fib = malloc(1024 * sizeof *s->fib); s->cbs = malloc(CB_CAPTURE_MAX * RG_CBS_SIZE);
         if (!s->ent || !s->fpool || !s->cbd || !s->fib || !s->cbs) { LOG("r1: RING: slot allocation FAILED\n"); rg_free_all(); return 0; }
     }
     for (int k = 0; k < 5; k++) if (!g_rgc[k]) g_rgc[k] = calloc(RG_NST, sizeof(double));
@@ -331,7 +455,10 @@ static void rg_meta_prof_report(void) {
     LOG("r1: META PROF captures %lld: fibers %.4f (fiber pool %.0f KB), command buffers %.4f (%.0f KB), threads %.4f, let go %.4f ms; loads %lld: thread registers %.4f, fibers %.4f, catch table %.4f, command buffers %.4f, let go %.4f ms\n",
         g_mp_n[0], g_mp[0] / a, g_mp_b[0] / a / 1024, g_mp[1] / a, g_mp_b[1] / a / 1024, g_mp[2] / a, g_mp[3] / a, g_mp_n[1], g_mp[4] / b, g_mp[5] / b, g_mp[6] / b, g_mp[7] / b, g_mp[8] / b);
 }
+static void rgc_config(void);
 int r1_ring_capture(long long frame, Ctx *c) {
+    rgc_config(); rg_capture_config();
+    fibers_capture_config(); rg_meta_config(); nvn_r1_cb_capture_config();
     R1_CTR("capture (frame)", frame, 0);
     double t0 = now_ms(); int seg_was = g_rgp_seg; g_rgp_seg = 4;
     if (!g_rg_ready) {                                    /* the first time: r1's full save (shadow filled, marks on: one hitch), the ring's base */
@@ -341,72 +468,103 @@ int r1_ring_capture(long long frame, Ctx *c) {
         save(c); release(); g_rs_drop = 0;
         g_ra_wd_pause = 0;
         if (g_save_failed == 2) { g_rg_nomem = 1; LOG("r1: RING: the base state was NOT made (out of memory: free commit %.0f MB, needed %.0f MB + 1024 MB left for the game): no rollback ring\n", g_save_avail_mb, g_save_need_mb); return 0; }
+        if (g_save_failed == 3) { g_rg_nomem = 3; LOG("r1: RING: base refused: incomplete fiber capture; no rollback ring for this match\n"); return 0; }
+        if (g_save_failed == 4) { g_rg_nomem = 2; LOG("r1: RING: base refused: command-buffer staging failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
         if (g_save_failed) return 0;
+        if (!ls_validate_tracking()) {
+            g_rg_nomem = 2;
+            LOG("r1: RING: base refused: incomplete learned tracking; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
+            return 0;
+        }
         g_ra_ready = 1; g_cycle = 1;
         if (g_mark <= 0) { g_ra_off = 1; LOG("r1: RING: no marks (the game DLL with marks is not loaded): OFF\n"); return 0; }
         if (!rg_init()) { g_rg_nomem = 2; if (!rbg_on()) g_ra_off = 1; LOG("r1: RING: its own allocations FAILED (out of memory): no rollback ring for the rest of this session\n"); return 0; }
-        g_rg_ready = 1;
-        RgSlot *s = &g_rg[0]; g_rg_head = 0; g_rg_count = 1;
+        RgSlot *s = &g_rg[0]; SlotMetaPlan plan;
+        if (!rg_meta_prepare(s, &plan)) {
+            g_rg_nomem = 2;
+            LOG("r1: RING: base refused: slot metadata reservation/validation failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
+            return 0;
+        }
+        rg_meta_capture(s, &g_ctx_save, &plan);
         s->frame = frame; s->nent = 0;
-        rg_meta_capture(s, &g_ctx_save);
+        g_rg_head = 0; g_rg_count = 1; g_rg_ready = 1;
         LOG("r1: RING: base state (frame %lld): full save in %.1f ms\n", frame, now_ms() - t0);
         return 1;
     }
     if (g_rg_poolfix < 0) { const char *e = getenv("SSBU_RB_POOLFIX"); g_rg_poolfix = !(e && e[0] == '0'); }
     if (g_rg_tp_f == -2) { const char *e = getenv("SSBU_RB_NET_TEST_POOL"); g_rg_tp_f = -1; g_rg_tp_mode = 1; if (e && *e) { sscanf(e, "%lld,%lld,%d", &g_rg_tp_f, &g_rg_tp_n, &g_rg_tp_mode); LOG("r1: RING TEST: captures of frames %lld .. %lld get at most 64 pool buffers (mode %d)\n", g_rg_tp_f, g_rg_tp_f + g_rg_tp_n - 1, g_rg_tp_mode); } }
     g_rg_tp_active = g_rg_tp_f >= 0 && frame >= g_rg_tp_f && frame < g_rg_tp_f + g_rg_tp_n; g_rg_tp_gets = 0;
-    if (g_rg_poolfix && g_rg_count == g_rg_cap && g_rg_need >= 0 && g_rg_cap >= 2 && rg_slot(1)->frame > g_rg_need) {      /* (hs14) full, and its oldest state is still needed */
+    if (g_rg_count == g_rg_cap && g_rg_need >= 0 && g_rg_cap >= 2 && rg_slot(1)->frame > g_rg_need) {      /* full, and its oldest state is still needed, in every pool mode */
         g_rgp_seg = seg_was; g_rg_skip_full++;
         if (g_rg_skip_full <= 10) LOG("r1: RING: capture at frame %lld skipped: the ring is full and its oldest state (frame %lld) is the newest one at or before frame %lld, which a rollback may still need\n", frame, rg_slot(0)->frame, g_rg_need);
         return 0;
     }
     if (!ra_hold_quiet(g_rg_park_ms)) { g_rgp_seg = seg_was; g_rg_cap_fail++; if (g_rg_cap_fail <= 20 || g_rg_cap_fail % 100 == 0) LOG("r1: RING: capture %lld (frame %lld) skipped: thread %s not at a wait within %.1f ms\n", g_rg_cap_fail, frame, g_ra_busy ? g_ra_busy : "?", g_rg_park_ms); return 0; }
     double t1 = now_ms();
-    if (g_rg_count == g_rg_cap) { rg_slot_drop(rg_slot(0), 1); g_rg_head = (g_rg_head + 1) % g_rg_cap; g_rg_count--; }
-    RgSlot *s = rg_slot(g_rg_count);
-    s->frame = frame; s->nent = 0; s->pages = 0; s->xpages = 0;
-    g_rg_cur = s; g_rg_fail_now = 0;
-    static uint8_t *xdiff; static size_t xdn; if (xdn < g_rg_nx + 1) { free(xdiff); xdn = g_rg_nx + 1; xdiff = calloc(xdn, 1); }   /* (hs12: the extras can change at a rebase) */
-    for (size_t e = 0; e < g_rg_nx; e++) cp_add(g_rg_xa[e], rg_src((uint32_t)(g_rg_n1 + g_rg_n2 + e)));      /* (round 3) extras compared by main + the copy threads */
-    g_cp_cmp = xdiff; cp_run(); g_cp_cmp = NULL;
-    if (g_rgpg_on < 0) g_rgpg_on = getenv("SSBU_RB_SIM_PAGES") != NULL;
-    g_rgpg_kind = g_ra_phase != 2 ? 0 : g_rgs_left > 1 ? 1 : 2; g_rgpg_caps[g_rgpg_kind]++;
-    if (g_ls_active) ls_capture(rg_cap_page); else rg_sweep(rg_cap_page);      /* R4: the learned set (rb_learned.c) instead of the marks */
-    for (size_t e = 0; e < g_rg_nx && !g_rg_fail_now; e++) {             /* extras: the pages that differ from their newest value */
-        uint32_t id = (uint32_t)(g_rg_n1 + g_rg_n2 + e);
-        if (!xdiff[e]) continue;
-        uint32_t nb = rg_pool_get_cap();
-        if (!nb || !rg_push(s, id, g_rg_idx[id])) { if (nb) rg_pool_put(nb); g_rg_fail_now = 1; break; }
-        cp_add(rg_pool_ptr(nb), g_rg_xa[e]); g_rg_idx[id] = nb; s->xpages++;
-    }
-    double t2 = now_ms();
-    cp_run();
-    if (g_rg_fail_now && g_rg_poolfix) {                    /* (hs14) given up: this capture's pages back to their previous values, marked again */
-        size_t undone = s->nent;
-        for (size_t n = s->nent; n-- > 0;) { uint32_t id = s->ent[2 * n], old = s->ent[2 * n + 1]; rg_pool_put(g_rg_idx[id]); g_rg_idx[id] = old; rg_remark(id); }
-        s->nent = 0; s->frame = -1; s->pages = s->xpages = 0;
-        if (g_rg_keep) g_rg_kept = 1; else unpark();
-        g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
-        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0) LOG("r1: RING: capture at frame %lld GIVEN UP: out of pool memory (pool %u buffers made, %u free; %lld old states freed so far; test refusals %lld): %zu pages put back, nothing lost; states kept %d (frames %lld .. %lld), needed from frame %lld\n",
-            frame, g_rg_bump, g_rg_nfree, g_rg_freed_slots, g_rg_tp_refused, undone, g_rg_count, r1_ring_oldest(), r1_ring_newest(), g_rg_need);
+    /* Refuse incomplete native coverage before evicting a slot or changing page
+     * history. Keep the existing hold across this check and page capture. */
+    if (!ls_validate_tracking()) {
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: incomplete learned tracking; history unchanged states=%d oldest=%lld newest=%lld\n", frame, g_rg_count, r1_ring_oldest(), r1_ring_newest());
         return 0;
     }
+    if (!fibers_save()) {
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: incomplete fiber capture; history unchanged states=%d oldest=%lld newest=%lld\n", frame, g_rg_count, r1_ring_oldest(), r1_ring_newest());
+        return 0;
+    }
+    double fiber_capture_ms = now_ms() - t1;
+    double cb_start = now_ms();
+    if (nvn_r1_cb_save() == SIZE_MAX) {
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: command-buffer staging failed; history unchanged states=%d oldest=%lld newest=%lld\n", frame, g_rg_count, r1_ring_oldest(), r1_ring_newest());
+        return 0;
+    }
+    double cb_capture_ms = now_ms() - cb_start;
+    RgSlot *s = rg_slot(g_rg_count == g_rg_cap ? 0 : g_rg_count);
+    SlotMetaPlan plan;
+    if (!rg_meta_prepare(s, &plan)) {
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: slot metadata reservation/validation failed; history unchanged states=%d oldest=%lld newest=%lld\n", frame, g_rg_count, r1_ring_oldest(), r1_ring_newest());
+        return 0;
+    }
+    if (!rg_capture_prepare(s)) {
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: capture preparation (%s); history unchanged states=%d head=%d capacity=%d oldest=%lld newest=%lld\n",
+                frame, g_rg_capture_refusal, g_rg_count, g_rg_head, g_rg_cap, r1_ring_oldest(), r1_ring_newest());
+        return 0;
+    }
+    cp_reserved_begin();
+    if (!rg_capture_page_plan()) {
+        rg_capture_finish();
+        unpark(); g_rg_short = 1; g_rg_short_n++; g_rgp_seg = seg_was;
+        if (g_rg_short_n <= 20 || g_rg_short_n % 100 == 0)
+            LOG("r1: RING: capture at frame %lld refused: capture pool plan (%s); history unchanged states=%d head=%d capacity=%d oldest=%lld newest=%lld ops=%zu copies=%zu\n",
+                frame, g_rg_capture_refusal, g_rg_count, g_rg_head, g_rg_cap, r1_ring_oldest(), r1_ring_newest(), g_rg_ops_count, g_rg_copy_count);
+        return 0;
+    }
+    if (g_rgpg_on < 0) g_rgpg_on = getenv("SSBU_RB_SIM_PAGES") != NULL;
+    g_rgpg_kind = g_ra_phase != 2 ? 0 : g_rgs_left > 1 ? 1 : 2; g_rgpg_caps[g_rgpg_kind]++;
+    rg_capture_execute(s, frame);
+    double t2 = now_ms();
+    cp_run();
     g_rg_short = 0;
     double t3 = now_ms();
     ls_capture_end();                                     /* R4 (SSBU_LS_DECAY) */
-    fibers_save(); double t3a = now_ms();
-    nvn_r1_cb_save(); double t3b = now_ms();
-    rg_meta_capture(s, c);
+    double t3b = now_ms(); /* fibers and command buffers preflighted before mutation */
+    rg_meta_capture(s, c, &plan);
     double t4 = now_ms();
+    rg_capture_finish();
     if (g_rg_keep) g_rg_kept = 1;                          /* a load follows at once (r1_ring_load / r1_ring_let_go lets them go) */
     else unpark();                                         /* every thread, the audio ones too (a real pass follows) */
     double t5 = now_ms();
-    g_mp[0] += t3a - t3; g_mp[1] += t3b - t3a; g_mp[2] += t4 - t3b; g_mp[3] += t5 - t4; g_mp_n[0]++; g_mp_b[0] += (double)g_fpool_used; g_mp_b[1] += (double)s->cbd_used;
+    g_mp[0] += fiber_capture_ms; g_mp[1] += cb_capture_ms; g_mp[2] += t4 - t3b; g_mp[3] += t5 - t4; g_mp_n[0]++; g_mp_b[0] += (double)g_fpool_used; g_mp_b[1] += (double)s->cbd_used;
     g_rg_count++; g_rg_caps++;
-    if (g_rg_fail_now) {                                   /* out of pool / log room: the newest values are right, the older states are not reachable */
-        LOG("r1: RING: capture at frame %lld ran out of room (pool %u buffers): older states dropped\n", frame, g_rg_bump);
-        while (g_rg_count > 1) { rg_slot_drop(rg_slot(0), 1); g_rg_head = (g_rg_head + 1) % g_rg_cap; g_rg_count--; }
-    }
     g_rg_last[0] = t5 - t0; g_rgp_seg = seg_was;
     if (g_rgc_n < RG_NST) { int i = g_rgc_n++; g_rgc[0][i] = t5 - t0; g_rgc[1][i] = t1 - t0; g_rgc[2][i] = t2 - t1; g_rgc[3][i] = t3 - t2; g_rgc[4][i] = (t4 - t3) + (t5 - t4); g_rgc_pg[i] = s->pages; g_rgc_xp[i] = s->xpages; }
     return 1;
@@ -422,12 +580,21 @@ int r1_ring_capture(long long frame, Ctx *c) {
  * frame (threads, fibers, command buffers as a capture). 1 = done; 0 = not now (a thread not at a wait: next pass). */
 static void rg_noop(uint32_t id, int w, size_t j) { (void)id; (void)w; (void)j; }
 int r1_ring_rebase(long long frame, Ctx *c) {
+    fibers_capture_config(); rg_meta_config(); nvn_r1_cb_capture_config();
     if (g_rg_nomem == 2) return 0;                        /* (hs13) the ring broke earlier: no rollback */
     if (!g_rg_ready) return r1_ring_capture(frame, c);
     double t0 = now_ms();
     r1_ring_let_go();
     r1_ring_release();
     if (!ra_hold_quiet(200)) { LOG("r1: RING rebase (frame %lld): no quiet moment within 200 ms: next pass\n", frame); return 0; }
+    if (!fibers_save()) { g_rg_nomem = 3; unpark(); LOG("r1: RING rebase refused: incomplete fiber capture; no published base\n"); return 0; }
+    if (nvn_r1_cb_save() == SIZE_MAX) { g_rg_nomem = 2; unpark(); LOG("r1: RING rebase refused: command-buffer staging failed; no published base\n"); return 0; }
+    RgSlot *s = &g_rg[0]; SlotMetaPlan plan;
+    if (!rg_meta_prepare(s, &plan)) {
+        g_rg_nomem = 2; unpark();
+        LOG("r1: RING rebase refused: slot metadata reservation/validation failed; no published base\n");
+        return 0;
+    }
     double t1 = now_ms();
     hs_exclude_all();
     int nmod = 0;
@@ -493,12 +660,15 @@ int r1_ring_rebase(long long frame, Ctx *c) {
         g_rg_nx = npg;
     }
     double t2 = now_ms();
-    RgSlot *s = &g_rg[0]; g_rg_head = 0; g_rg_count = 1;
+    rg_meta_capture(s, c, &plan);
     s->frame = frame; s->nent = 0; s->pages = 0; s->xpages = 0;
-    fibers_save();
-    nvn_r1_cb_save();
-    rg_meta_capture(s, c);
     ls_rebase();                                          /* R4: the windows read-only again, the learned set emptied */
+    if (!ls_validate_tracking()) {
+        g_rg_nomem = 2; unpark();
+        LOG("r1: RING rebase refused: incomplete learned tracking; no published base\n");
+        return 0;
+    }
+    g_rg_head = 0; g_rg_count = 1;
     unpark();
     g_rg_caps++;
     LOG("r1: RING rebase: base state (frame %lld) made again in %.1f ms (hold %.1f, copy %.1f): %zu window pages copied into the shadow (%.1f MB), %zu pool buffers freed, %zu shadow pages of pages not committed now dropped; extras %d ranges %.1f MB (%zu pages); %d modules got the mark maps\n",
@@ -516,22 +686,132 @@ int r1_ring_rebase(long long frame, Ctx *c) {
  * jmp_buf lies on a host stack that was copied back; the present entries of every other stack are put back.
  * SSBU_R1_CATCHFIX=0: the old way (test). */
 typedef struct { uint64_t cfa; uint64_t jb; } RgCatch;
-static int g_rgc_fix = -1; static long long g_rgc_kept, g_rgc_dropped, g_rgc_loads_changed;
-static RgCatch g_rgc_now[8192];
-static void rgc_before(void) {                          /* threads held, before the load copies: the table as it is now */
-    if (g_rgc_fix < 0) { const char *e = getenv("SSBU_R1_CATCHFIX"); g_rgc_fix = !(e && e[0] == '0'); }
-    if (!g_rgc_fix || !g_catch_addr) return;
-    memcpy(g_rgc_now, (void *)(uintptr_t)g_catch_addr, sizeof g_rgc_now);
+static int g_rgc_fix = -1, g_rgc_deadfix, g_rgc_trace; static long long g_rgc_kept, g_rgc_dropped, g_rgc_loads_changed;
+static RgCatch g_rgc_now[8192],g_rgc_restored[8192],g_rgc_merged[8192];
+static uint64_t g_rgc_rest_lo[1024],g_rgc_rest_hi[1024]; static int g_rgc_nrest;
+static unsigned char g_rgc_rest_kept[8192],g_rgc_now_kind[8192];
+static long long g_rgc_plan_kept,g_rgc_plan_dropped,g_rgc_plan_dead;
+static void rgc_config(void) {                         /* initialize before any restore holds */
+    if (g_rgc_fix < 0) { const char *e = getenv("SSBU_R1_CATCHFIX"); g_rgc_fix = !(e && e[0] == '0');
+        e=getenv("SSBU_R1_CATCHDEAD"); g_rgc_deadfix=!(e && e[0]=='0'); g_rgc_trace=getenv("SSBU_UNWIND_TRACE")!=NULL; }
 }
-void nnunwind_catch_reinsert(uint64_t cfa, uint64_t jb); void nnunwind_catch_free(unsigned i);   /* nnunwind.c (hs15: its hash and probing) */
+int nnunwind_catch_stage_insert(void *table,size_t bytes,uint64_t cfa,uint64_t jb);
+int nnunwind_catch_stage_free(void *table,size_t bytes,unsigned i);
+int nnunwind_catch_try_lock(void); void nnunwind_catch_unlock(void);
+static void rg_restore_fatal(const char *reason);
 /* (hs15) after a load: the host fiber stacks still in use (some guest fiber's host fiber, a thread's current fiber, a stack a
  * thread's stack pointer is on); a catch record on any other host fiber stack ever made is dead (the coroutine there was made
  * again on a new host fiber, or the fiber exists only in states thrown away): dropped instead of kept for ever. These dead
  * records piled up at the same CFA (h15e0: 25 of one frame) and, with the old hash, overwrote live ones (pp3h). */
 static uint64_t g_rgc_live[2048]; static int g_rgc_nlive; static long long g_rgc_dead;
+static int g_rgc_catch_locked,g_rgc_bf_locked,g_rgc_prepared,g_rgc_inventory_ok;
+static const Fib *g_rgc_saved; static int g_rgc_saved_count;
+static void rgc_release(void) {
+    if(g_rgc_bf_locked) { ReleaseSRWLockShared(&g_bf_lock); g_rgc_bf_locked=0; }
+    if(g_rgc_catch_locked) { nnunwind_catch_unlock(); g_rgc_catch_locked=0; }
+    g_rgc_prepared=0; g_rgc_saved=NULL; g_rgc_saved_count=0;
+}
 static void rgc_live_cb(uint64_t key, Ctx *c, uint64_t stack, uint64_t size, void *fiber) {
-    (void)key; (void)c; (void)stack; (void)size;
-    if (fiber && g_rgc_nlive < 2048) g_rgc_live[g_rgc_nlive++] = *(uint64_t *)((uint8_t *)fiber + 0x20);
+    (void)c; (void)stack; (void)size;
+    if(!g_rgc_inventory_ok || !fiber) return;
+    if(g_rgc_nlive>=2048) { g_rgc_inventory_ok=0; return; }
+    uint64_t lo=0,hi=0; int restored=0;
+    for(int i=0;i<g_rgc_saved_count;i++) if(g_rgc_saved[i].key==key) {
+        const Fib *f=&g_rgc_saved[i]; fiber=f->fiber;
+        if(g_fib_restore_actions[i]==FIB_RESTORE_SUSPENDED) {
+            memcpy(&lo,f->blk+0x20,8); memcpy(&hi,f->blk+0x10,8); restored=1;
+        }
+        break;
+    }
+    if(!restored && (!fiber_capture_read(NULL,(uint8_t *)fiber+0x20,&lo,8) ||
+                    !fiber_capture_read(NULL,(uint8_t *)fiber+0x10,&hi,8))) { g_rgc_inventory_ok=0; return; }
+    if(lo>=hi) { g_rgc_inventory_ok=0; return; }
+    g_rgc_live[g_rgc_nlive++]=lo;
+}
+/* Construct exactly the image produced by the page-copy loop, including partial
+ * intersections: the catch table is not required to be page aligned or captured whole. */
+static int rgc_overlay(const RestorePlan *plan) {
+    uintptr_t begin=(uintptr_t)g_catch_addr;
+    if(!plan || plan->count>plan->capacity || (plan->count&&!plan->pages) ||
+       begin>UINTPTR_MAX-sizeof g_rgc_restored) return 0;
+    uintptr_t end=begin+sizeof g_rgc_restored;
+    memcpy(g_rgc_restored,g_rgc_now,sizeof g_rgc_restored);
+    for(size_t n=0;n<plan->count;n++) {
+        const RestorePage *page=&plan->pages[n];
+        if(page->id>=plan->total) return 0;
+        const uint8_t *src=page->source;
+        if(src==(const uint8_t *)1) continue;
+        if(page->id<g_rg_n1 && g_dc[page->id] && !src) continue;
+        uintptr_t dest=(uintptr_t)page->dest;
+        if(!dest || dest>UINTPTR_MAX-PG) return 0;
+        uintptr_t page_end=dest+PG;
+        if(dest>=end || page_end<=begin) continue;
+        uintptr_t lo=dest>begin?dest:begin,hi=page_end<end?page_end:end;
+        size_t offset=(size_t)(lo-dest),length=(size_t)(hi-lo);
+        uint8_t *out=(uint8_t *)g_rgc_restored+(lo-begin);
+        if(!src) memset(out,0,length);
+        else {
+            uintptr_t address=(uintptr_t)src;
+            if(address>UINTPTR_MAX-offset || address+offset>UINTPTR_MAX-length ||
+               !fiber_capture_read(NULL,(const void *)(address+offset),out,length)) return 0;
+        }
+    }
+    return 1;
+}
+static int rgc_rest_stack(uint64_t address) {
+    for(int i=0;i<g_rgc_nrest;i++) if(address>=g_rgc_rest_lo[i] && address<g_rgc_rest_hi[i]) return 1;
+    return 0;
+}
+static int rgc_dead(uint64_t jb);
+static int rgc_prepare(const Fib *saved,int count,const RestorePlan *plan) {
+    if(g_rgc_catch_locked || g_rgc_bf_locked || g_rgc_prepared) rg_restore_fatal("catch preparation already active");
+    if(!g_rgc_fix) return 1;
+    size_t bytes=0; void *table=nnunwind_catch_table(&bytes);
+    if(!g_catch_addr || table!=(void *)(uintptr_t)g_catch_addr || bytes!=sizeof g_rgc_now ||
+       count<0 || count>1024 || count!=g_fib_restore_count || (count&&!saved)) return 0;
+    if(!nnunwind_catch_try_lock()) return 0;
+    g_rgc_catch_locked=1;
+    if(!fibers_writable(table,bytes) || !fiber_capture_read(NULL,table,g_rgc_now,bytes)) goto failed;
+    if(g_rgc_deadfix) {
+        if(!TryAcquireSRWLockShared(&g_bf_lock)) goto failed;
+        g_rgc_bf_locked=1;
+        if(g_nbf>g_cbf || g_nbf>SIZE_MAX/sizeof(uint64_t) || (g_nbf&&(!g_bf_lo||!g_bf_hi))) goto failed;
+        for(size_t i=0;i<g_nbf;i++) {
+            uint64_t lo,hi;
+            if(!fiber_capture_read(NULL,g_bf_lo+i,&lo,8) || !fiber_capture_read(NULL,g_bf_hi+i,&hi,8) || lo>=hi) goto failed;
+        }
+        g_rgc_saved=saved; g_rgc_saved_count=count; g_rgc_nlive=0; g_rgc_inventory_ok=1;
+        os_r1_fibers_direct(rgc_live_cb);
+        if(!g_rgc_inventory_ok) goto failed;
+    }
+    g_rgc_nrest=0;
+    for(int i=0;i<count;i++) if(g_fib_restore_actions[i]==FIB_RESTORE_SUSPENDED) {
+        uint64_t lo,hi; memcpy(&lo,saved[i].blk+0x20,8); memcpy(&hi,saved[i].blk+0x10,8);
+        if(lo>=hi) goto failed;
+        g_rgc_rest_lo[g_rgc_nrest]=lo; g_rgc_rest_hi[g_rgc_nrest++]=hi;
+    }
+    if(!rgc_overlay(plan)) goto failed;
+    memcpy(g_rgc_merged,g_rgc_restored,sizeof g_rgc_merged);
+    g_rgc_plan_kept=g_rgc_plan_dropped=g_rgc_plan_dead=0;
+    for(int i=0;i<8192;i++) {
+        g_rgc_rest_kept[i]=(unsigned char)rgc_rest_stack(g_rgc_restored[i].jb);
+        if(g_rgc_merged[i].cfa>1 && !g_rgc_rest_kept[i]) {
+            if(!nnunwind_catch_stage_free(g_rgc_merged,sizeof g_rgc_merged,(unsigned)i)) goto failed;
+            g_rgc_plan_dropped++;
+        }
+    }
+    for(int i=0;i<8192;i++) {
+        RgCatch *entry=&g_rgc_now[i]; g_rgc_now_kind[i]=0;
+        if(entry->cfa<=1) continue;
+        g_rgc_now_kind[i]=rgc_rest_stack(entry->jb)?1:g_rgc_deadfix&&rgc_dead(entry->jb)?2:0;
+        if(!entry->jb || g_rgc_now_kind[i]==1) continue;
+        if(g_rgc_now_kind[i]==2) { g_rgc_plan_dead++; continue; }
+        if(!nnunwind_catch_stage_insert(g_rgc_merged,sizeof g_rgc_merged,entry->cfa,entry->jb)) goto failed;
+        g_rgc_plan_kept++;
+    }
+    g_rgc_prepared=1; return 1;
+failed:
+    rgc_release(); return 0;
 }
 static int rgc_dead(uint64_t jb) {                     /* jb on a host fiber stack that nothing uses now */
     size_t i; for (i = 0; i < g_nbf; i++) if (jb >= g_bf_lo[i] && jb < g_bf_hi[i]) break;
@@ -541,109 +821,460 @@ static int rgc_dead(uint64_t jb) {                     /* jb on a host fiber sta
     for (int k = 0; k < g_nlive; k++) if (g_live_rsp[k] >= lo && g_live_rsp[k] < hi) return 0;     /* (live_rsps of fibers_restore_all: a thread is on it) */
     return 1;
 }
-static void rgc_after(void) {                           /* after the copies and fibers_restore_all (g_rest_lo / g_rest_hi: the stacks copied back) */
+static void rgc_after(void) {                           /* only publish the fully prepared image */
     if (!g_rgc_fix || !g_catch_addr) return;
-    RgCatch *t = (RgCatch *)(uintptr_t)g_catch_addr; long long dropped = 0, kept = 0;
-    static int deadfix = -1; if (deadfix < 0) { const char *e = getenv("SSBU_R1_CATCHDEAD"); deadfix = !(e && e[0] == '0'); }
-    if (deadfix) { g_rgc_nlive = 0; os_r1_fibers(rgc_live_cb); AcquireSRWLockShared(&g_bf_lock); }
-    static int tr = -1; if (tr < 0) tr = getenv("SSBU_UNWIND_TRACE") != NULL;
-    if (tr) { void nnunwind_trace_note(const char *what, uint64_t cfa, uint64_t jb);
-              for (int i = 0; i < 8192; i++) if (t[i].cfa > 1) nnunwind_trace_note(rest_stack(t[i].jb) ? "load: restored record kept (its stack copied back)" : "load: restored record dropped", t[i].cfa, t[i].jb);
-              for (int k = 0; k < 8192; k++) if (g_rgc_now[k].cfa > 1) nnunwind_trace_note(rest_stack(g_rgc_now[k].jb) ? "load: present record not kept (its stack copied back)" : deadfix && rgc_dead(g_rgc_now[k].jb) ? "load: present record dead" : "load: present record kept", g_rgc_now[k].cfa, g_rgc_now[k].jb); }
-    for (int i = 0; i < 8192; i++) if (t[i].cfa > 1 && !rest_stack(t[i].jb)) { nnunwind_catch_free((unsigned)i); dropped++; }
-    for (int k = 0; k < 8192; k++) {                    /* nnunwind.c catch_put, without its lock (every guest thread is held) */
-        if (g_rgc_now[k].cfa <= 1 || !g_rgc_now[k].jb || rest_stack(g_rgc_now[k].jb)) continue;
-        if (deadfix && rgc_dead(g_rgc_now[k].jb)) { g_rgc_dead++; continue; }
-        nnunwind_catch_reinsert(g_rgc_now[k].cfa, g_rgc_now[k].jb); kept++;     /* (the records are per host stack: nnunwind.c catch_here) */
+    if(!g_rgc_prepared || !g_rgc_catch_locked || (g_rgc_deadfix&&!g_rgc_bf_locked)) rg_restore_fatal("catch commit without preparation");
+    memcpy((void *)(uintptr_t)g_catch_addr,g_rgc_merged,sizeof g_rgc_merged);
+    g_rgc_dropped+=g_rgc_plan_dropped; g_rgc_kept+=g_rgc_plan_kept; g_rgc_dead+=g_rgc_plan_dead;
+    if(g_rgc_plan_dropped || g_rgc_plan_kept) g_rgc_loads_changed++;
+    if(g_rgc_trace) {
+        void nnunwind_trace_note(const char *what,uint64_t cfa,uint64_t jb);
+        for(int i=0;i<8192;i++) if(g_rgc_restored[i].cfa>1)
+            nnunwind_trace_note(g_rgc_rest_kept[i]?"load: restored record kept (its stack copied back)":"load: restored record dropped",g_rgc_restored[i].cfa,g_rgc_restored[i].jb);
+        for(int i=0;i<8192;i++) if(g_rgc_now[i].cfa>1)
+            nnunwind_trace_note(g_rgc_now_kind[i]==1?"load: present record not kept (its stack copied back)":g_rgc_now_kind[i]==2?"load: present record dead":"load: present record kept",g_rgc_now[i].cfa,g_rgc_now[i].jb);
     }
-    if (deadfix) ReleaseSRWLockShared(&g_bf_lock);
-    g_rgc_dropped += dropped; g_rgc_kept += kept; if (dropped || kept) g_rgc_loads_changed++;
 }
 static long long g_rg_refused;                        /* (R3 pub1) loads refused: a thread still running after the hold */
 static long long g_rg_ldpg;                           /* (R3 net3) pages to load, all loads (the written ones: g_cp_wrote) */
+static int rg_restore_probe_on(void) {
+    static int enabled = -1;
+    if (enabled < 0) { const char *e = getenv("SSBU_RB_RESTORE_VERIFY"); enabled = e && !strcmp(e, "1"); }
+    return enabled;
+}
+static long long rg_restore_probe_watchdog(void) {
+    return InterlockedCompareExchange64((volatile LONG64 *)&g_ra_wd_fired, 0, 0);
+}
+static void rg_restore_probe(long long frame, unsigned long long sequence, const char *phase,
+        long long watchdog_load, int continuations, double *spent_ms, size_t *spent_pages) {
+    RestoreProbeCount counts[3] = {{0}};
+    uint8_t live[RESTORE_PROBE_PAGE], source[RESTORE_PROBE_PAGE];
+    char first[3][128] = {{0}}; int shown[3] = {0}, used[3] = {0};
+    long long watchdog_before = rg_restore_probe_watchdog();
+    double start = now_ms(); size_t visited = 0;
+    /* Probe calls can themselves perturb TLS/timing. Even equal observations
+     * are not coherent-state proof; watchdog observations are one-sided only. */
+    for (size_t n = 0; n < g_rg_ntl; n++) {
+        if (!restore_probe_budget(*spent_pages + visited, *spent_ms + now_ms() - start)) break;
+        uint32_t id = g_rg_tl[n];
+        int category = id < g_rg_n1 ? 0 : id < g_rg_n1 + g_rg_n2 ? 1 : 2;
+        enum RestoreProbeResult result = restore_probe_page(rg_addr(id), rg_src(id),
+            restore_probe_windows_read, NULL, live, source);
+        restore_probe_count(&counts[category], result);
+        visited++;
+        if ((result == RP_DIFFER || result == RP_UNREADABLE) && shown[category] < 3) {
+            used[category] += snprintf(first[category] + used[category], sizeof first[category] - used[category],
+                "%s%u:%c", shown[category] ? "," : "", id, result == RP_DIFFER ? 'd' : 'u');
+            shown[category]++;
+        }
+    }
+    LOG("r1: RESTORE_VERIFY v=2 seq=%llu frame=%lld phase=%s touched=%zu w1=%zu,%zu,%zu,%zu w2=%zu,%zu,%zu,%zu extras=%zu,%zu,%zu,%zu first_w1=%s first_w2=%s first_extras=%s omitted=%zu wd_load=%lld wd_before=%lld wd_after=%lld thread_mismatch=%d fiber_diff=%d ms=%.3f reader=seh_direct observer=guard_consuming scope=touched holds=unproven authoritative=0\n",
+        sequence, frame, phase, g_rg_ntl,
+        counts[0].compared, counts[0].differ, counts[0].unreadable, counts[0].decommitted,
+        counts[1].compared, counts[1].differ, counts[1].unreadable, counts[1].decommitted,
+        counts[2].compared, counts[2].differ, counts[2].unreadable, counts[2].decommitted,
+        first[0][0] ? first[0] : "-", first[1][0] ? first[1] : "-", first[2][0] ? first[2] : "-",
+        g_rg_ntl - visited, watchdog_load, watchdog_before, rg_restore_probe_watchdog(),
+        continuations ? g_th_mismatch : -1, continuations ? g_fib_diff : -1, now_ms() - start);
+    *spent_ms += now_ms() - start;
+    *spent_pages += visited;
+}
+void nvn_r1_cb_restore_config(void);
+void nvn_r1_cb_audit_log_sink(void (*)(const char *));
+static void rg_cb_audit_log(const char *line) { LOG("%s",line); }
+void *nvn_r1_cb_prepare(const void *, int, const uint8_t *, size_t, long long, int);
+void nvn_r1_cb_abort(void *); void nvn_r1_cb_commit(void *);
+static int rgv_prepare(void);
+static uint64_t g_restore_attempt, g_restore_after, g_restore_fail_count = UINT64_MAX;
+static int g_restore_configured, g_restore_inject, g_restore_loadcmp, g_restore_writer_probe;
+static int g_refusal_audit_on, g_refusal_audit_used;
+static void rg_restore_config(void) {
+    if (g_restore_configured) return;
+    g_restore_configured = 1; nvn_r1_cb_restore_config(); rgc_config();
+    const char *e = getenv("SSBU_RB_TEST_RESTORE_FAIL_AFTER");
+    if (e && *e && *e != '-') { char *end; uint64_t n = strtoull(e, &end, 10); if (!*end) { g_restore_after=n; g_restore_inject=1; } }
+    e=getenv("SSBU_RB_TEST_RESTORE_FAIL_COUNT");
+    if (e && *e && *e != '-') { char *end; uint64_t n=strtoull(e,&end,10); if(!*end) g_restore_fail_count=n; }
+    e=getenv("SSBU_RB_LOADCMP"); g_restore_loadcmp=e && e[0]=='1';
+    e=getenv("SSBU_RB_WRITER_PROBE"); g_restore_writer_probe=e && e[0]=='1';
+    e=getenv("SSBU_RB_REFUSAL_AUDIT"); g_refusal_audit_on=e && e[0]=='1';
+    if(g_refusal_audit_on) nvn_r1_cb_audit_log_sink(rg_cb_audit_log);
+}
+static void rg_restore_fatal(const char *reason) {
+    LOG("r1: RESTORE FATAL: %s; process stops without resuming guest threads\n", reason);
+    abort();
+}
+static void *rg_plan_alloc(void *ctx, size_t size) { (void)ctx; return malloc(size); }
+static void rg_plan_free(void *ctx, void *p) { (void)ctx; free(p); }
+static int rg_refusal_read(void *ctx, const void *address, void *out, size_t size, int kind) {
+    return refusal_audit_read_windows(ctx,address,out,size,kind);
+}
+/* Exact immutable ring/slot copies. Dirty and learned maps and live command
+ * objects are deliberately outside this observer's scope. Reservation capacity
+ * for copy jobs/verifiers may grow during preparation and is not compared. */
+static void rg_refusal_metadata(RefusalAudit *audit,Ctx *main) {
+#define RG_AUDIT_VALUE(value) refusal_audit_add(audit,REFUSAL_METADATA,&(value),sizeof(value))
+    RG_AUDIT_VALUE(g_rg); RG_AUDIT_VALUE(g_rg_cap); RG_AUDIT_VALUE(g_rg_head);
+    RG_AUDIT_VALUE(g_rg_count); RG_AUDIT_VALUE(g_rg_ready);
+    RG_AUDIT_VALUE(g_rg_idx); RG_AUDIT_VALUE(g_rg_bump); RG_AUDIT_VALUE(g_rg_pcom);
+    RG_AUDIT_VALUE(g_rg_nfree); RG_AUDIT_VALUE(g_rg_ntl);
+    RG_AUDIT_VALUE(g_nfib); RG_AUDIT_VALUE(g_fpool_used);
+#undef RG_AUDIT_VALUE
+    refusal_audit_add(audit,REFUSAL_METADATA,main,sizeof *main);
+    if(g_rg_n1>SIZE_MAX-g_rg_n2 || g_rg_n1+g_rg_n2>SIZE_MAX-g_rg_nx) { audit->complete=0; return; }
+    size_t total=g_rg_n1+g_rg_n2+g_rg_nx;
+    if(total>SIZE_MAX/sizeof *g_rg_idx || g_rg_cap<0 || g_rg_cap>RG_MAXSLOT ||
+       g_rg_count<0 || g_rg_count>g_rg_cap || g_rg_head<0 || g_rg_head>=g_rg_cap ||
+       g_rg_nfree>RG_POOL_MAX || g_rg_ntl>g_rg_tlcap || g_rg_ntl>SIZE_MAX/sizeof *g_rg_tl ||
+       g_nfib<0 || g_nfib>1024 || g_fpool_used>g_fpool_cap) {
+        audit->complete=0; return;
+    }
+    refusal_audit_add(audit,REFUSAL_METADATA,g_rg_idx,total*sizeof *g_rg_idx);
+    refusal_audit_add(audit,REFUSAL_METADATA,g_rg_touch,total);
+    refusal_audit_add(audit,REFUSAL_METADATA,g_rg_tl,g_rg_ntl*sizeof *g_rg_tl);
+    refusal_audit_add(audit,REFUSAL_METADATA,g_rg_free,(size_t)g_rg_nfree*sizeof *g_rg_free);
+    refusal_audit_add(audit,REFUSAL_METADATA,g_fib,(size_t)g_nfib*sizeof *g_fib);
+    refusal_audit_add(audit,REFUSAL_METADATA,g_fpool,g_fpool_used);
+    for(int i=0;i<g_rg_count;i++) {
+        RgSlot *slot=rg_slot(i);
+        refusal_audit_add(audit,REFUSAL_METADATA,slot,sizeof *slot);
+        if(slot->nent>slot->entcom/8 || slot->nent>SIZE_MAX/8 ||
+           slot->nfib<0 || slot->nfib>1024 || slot->fpool_used>slot->fpool_com || slot->fpool_used>RG_FP_RES ||
+           slot->ncbs<0 || slot->ncbs>SLOT_META_CB_MAX || slot->cbd_used>slot->cbd_com || slot->cbd_used>RG_CB_RES) {
+            audit->complete=0; continue;
+        }
+        refusal_audit_add(audit,REFUSAL_METADATA,slot->ent,slot->nent*8);
+        refusal_audit_add(audit,REFUSAL_METADATA,slot->fib,(size_t)slot->nfib*sizeof *slot->fib);
+        refusal_audit_add(audit,REFUSAL_METADATA,slot->fpool,slot->fpool_used);
+        refusal_audit_add(audit,REFUSAL_METADATA,slot->cbs,(size_t)slot->ncbs*RG_CBS_SIZE);
+        refusal_audit_add(audit,REFUSAL_METADATA,slot->cbd,slot->cbd_used);
+    }
+}
+static void rg_refusal_pages(RefusalAudit *audit,const RestorePlan *plan) {
+    audit->plan_captured=1;
+    for(size_t n=0;n<plan->count;n++) {
+        const uint8_t *address=plan->pages[n].dest;
+        refusal_audit_add(audit,REFUSAL_PAGE,address,PG);
+        uintptr_t start=(uintptr_t)address;
+        if(!start || start>UINTPTR_MAX-PG) { audit->complete=0; continue; }
+        uintptr_t first=start&~(uintptr_t)(PG-1), last=(start+PG-1)&~(uintptr_t)(PG-1);
+        refusal_audit_add(audit,REFUSAL_OS,(const void *)first,2*sizeof(uint32_t));
+        if(last!=first) refusal_audit_add(audit,REFUSAL_OS,(const void *)last,2*sizeof(uint32_t));
+    }
+}
+static void rg_refusal_report(RefusalAudit *audit,long long frame,int refused) {
+    if(refused) refusal_audit_compare(audit);
+    for(int kind=0;kind<3;kind++) if(audit->first_changed[kind] || audit->first_unread_before[kind] || audit->first_unread_after[kind])
+        LOG("r1: RESTORE_REFUSAL_DETAIL frame=%lld kind=%s changed_span=%p unread_before_span=%p unread_after_span=%p\n",
+            frame,kind==REFUSAL_METADATA?"metadata":kind==REFUSAL_PAGE?"page":"os",
+            audit->first_changed[kind],audit->first_unread_before[kind],audit->first_unread_after[kind]);
+    LOG("r1: RESTORE_REFUSAL_AUDIT v=2 frame=%lld outcome=%s metadata_spans=%zu metadata_changed=%zu pages=%zu page_changed=%zu unread_before=%zu unread_after=%zu absent_before=%zu absent_after=%zu os_pages=%zu os_changed=%zu os_unread=%zu complete=%d holds=unproven authoritative=0\n",
+        frame,refused?"refused":"commit_not_checked",audit->counts[REFUSAL_METADATA],audit->changed[REFUSAL_METADATA],
+        audit->counts[REFUSAL_PAGE],audit->changed[REFUSAL_PAGE],audit->unread_before,audit->unread_after,audit->absent_before,audit->absent_after,
+        audit->counts[REFUSAL_OS],audit->changed[REFUSAL_OS],audit->os_unread,refused&&refusal_audit_complete(audit));
+    refusal_audit_dispose(audit);
+}
+/* Bookkeeping observation only: no native CPU contexts, host stacks or claim
+ * that all writers are stopped. The OS visitor never locks suspended callers. */
+int os_r1_native_audit(int (*span)(void *,const void *,size_t),void *,size_t *,size_t *);
+typedef struct { RefusalAudit bytes; size_t threads,fibers,contexts; } RgNativeAudit;
+static int rg_native_span(void *ctx,const void *address,size_t size) {
+    return refusal_audit_add(&((RgNativeAudit *)ctx)->bytes,REFUSAL_METADATA,address,size)==1;
+}
+static void rg_native_capture(RgNativeAudit *audit) {
+    refusal_audit_init(&audit->bytes,32u<<20,rg_refusal_read,rg_plan_alloc,rg_plan_free,NULL);
+    if(!os_r1_native_audit(rg_native_span,audit,&audit->threads,&audit->fibers)) audit->bytes.complete=0;
+    for(int i=0;i<g_nth;i++) if(g_th[i].held) {
+        ++audit->contexts;
+        if(!rg_native_span(audit,g_th[i].c,sizeof *g_th[i].c)) audit->bytes.complete=0;
+    }
+    if(!audit->contexts || !audit->fibers || audit->contexts>audit->threads) audit->bytes.complete=0;
+}
+static void rg_native_report(RgNativeAudit *audit,long long frame,int refused) {
+    RefusalAudit *bytes=&audit->bytes;
+    if(refused) refusal_audit_compare(bytes);
+    if(bytes->first_changed[REFUSAL_METADATA] || bytes->first_unread_before[REFUSAL_METADATA] || bytes->first_unread_after[REFUSAL_METADATA])
+        LOG("r1: NATIVE_REFUSAL_DETAIL frame=%lld changed_span=%p unread_before_span=%p unread_after_span=%p\n",
+            frame,bytes->first_changed[REFUSAL_METADATA],bytes->first_unread_before[REFUSAL_METADATA],bytes->first_unread_after[REFUSAL_METADATA]);
+    LOG("r1: NATIVE_REFUSAL_AUDIT v=1 frame=%lld outcome=%s threads=%zu fibers=%zu contexts=%zu spans=%zu changed=%zu unread_before=%zu unread_after=%zu complete=%d holds=unproven authoritative=0\n",
+        frame,refused?"refused":"commit_not_checked",audit->threads,audit->fibers,audit->contexts,
+        bytes->counts[REFUSAL_METADATA],bytes->changed[REFUSAL_METADATA],bytes->unread_before,bytes->unread_after,
+        refused&&bytes->complete&&bytes->checked);
+    refusal_audit_dispose(bytes);
+}
+typedef struct {
+    RefusalAudit bytes; const Fib *saved; int count;
+    size_t targets,observed,stacks,stack_bytes,fls;
+    RefusalAuditSpan *cursor;
+} RgPayloadAudit;
+static int rg_payload_span(void *ctx,const void *address,size_t size) {
+    return refusal_audit_add(&((RgPayloadAudit *)ctx)->bytes,REFUSAL_METADATA,address,size)==1;
+}
+static int rg_payload_recheck(void *ctx,const void *address,size_t size) {
+    RgPayloadAudit *audit=ctx; RefusalAuditSpan *span=audit->cursor;
+    if(!span || span->address!=address || span->size!=size) return 0;
+    audit->cursor=span->next; return 1;
+}
+static void rg_payload_capture(RgPayloadAudit *audit,const Fib *saved,int count) {
+    audit->saved=saved; audit->count=count;
+    refusal_audit_init(&audit->bytes,64u<<20,rg_refusal_read,rg_plan_alloc,rg_plan_free,NULL);
+    if(!fibers_audit_payload(saved,count,rg_payload_span,audit,&audit->targets,&audit->observed,
+            &audit->stacks,&audit->stack_bytes,&audit->fls)) audit->bytes.complete=0;
+    /* Preserve callback order for an allocation-free address/extent recheck. */
+    RefusalAuditSpan *span=audit->bytes.first,*reversed=NULL;
+    while(span) { RefusalAuditSpan *next=span->next; span->next=reversed; reversed=span; span=next; }
+    audit->bytes.first=reversed;
+    if(!audit->targets || audit->observed!=audit->targets) audit->bytes.complete=0;
+}
+static void rg_payload_report(RgPayloadAudit *audit,long long frame,int refused) {
+    RefusalAudit *bytes=&audit->bytes; int revalidated=0;
+    if(refused && bytes->complete) {
+        size_t targets=0,observed=0,stacks=0,stack_bytes=0,fls=0;
+        audit->cursor=bytes->first;
+        revalidated=fibers_audit_payload(audit->saved,audit->count,rg_payload_recheck,audit,
+            &targets,&observed,&stacks,&stack_bytes,&fls) && !audit->cursor &&
+            targets==audit->targets && observed==audit->observed && stacks==audit->stacks &&
+            stack_bytes==audit->stack_bytes && fls==audit->fls;
+        if(revalidated) refusal_audit_compare(bytes);
+        else bytes->complete=0; /* Do not read ranges whose eligibility changed. */
+    }
+    if(bytes->first_changed[REFUSAL_METADATA] || bytes->first_unread_before[REFUSAL_METADATA] || bytes->first_unread_after[REFUSAL_METADATA])
+        LOG("r1: FIBER_PAYLOAD_REFUSAL_DETAIL frame=%lld changed_span=%p unread_before_span=%p unread_after_span=%p\n",
+            frame,bytes->first_changed[REFUSAL_METADATA],bytes->first_unread_before[REFUSAL_METADATA],bytes->first_unread_after[REFUSAL_METADATA]);
+    LOG("r1: FIBER_PAYLOAD_REFUSAL_AUDIT v=1 frame=%lld outcome=%s targets=%zu observed=%zu excluded=%zu stacks=%zu stack_bytes=%zu fls=%zu revalidated=%d spans=%zu changed=%zu unread_before=%zu unread_after=%zu complete=%d holds=unproven authoritative=0\n",
+        frame,refused?"refused":"commit_not_checked",audit->targets,audit->observed,(size_t)audit->count-audit->targets,
+        audit->stacks,audit->stack_bytes,audit->fls,revalidated,bytes->counts[REFUSAL_METADATA],bytes->changed[REFUSAL_METADATA],
+        bytes->unread_before,bytes->unread_after,refused&&revalidated&&bytes->complete&&bytes->checked);
+    refusal_audit_dispose(bytes);
+}
+static RestorePlan *g_restore_collect; static size_t g_restore_candidates; static int g_restore_bad;
+static void rg_plan_page(uint32_t id, int w, size_t j) {
+    (void)w; (void)j;
+    if (id >= g_rg_n1+g_rg_n2+g_rg_nx || g_restore_candidates==SIZE_MAX) { g_restore_bad=1; return; }
+    g_restore_candidates++;
+    if (g_restore_collect && !restore_plan_put(g_restore_collect,id,g_rg_idx[id],0)) g_restore_bad=1;
+}
+/* Full raw-map scan avoids consuming marks or rebuilding allocation-backed
+ * block lists. Learned membership remains subject to the existing hold scope. */
+static int rg_plan_dirty(RestorePlan *p) {
+    g_restore_collect=p; g_restore_candidates=0; g_restore_bad=0;
+    if (!ls_validate_tracking()) return 0;
+    if (g_ls_active) {
+        LONG count=g_ls_n;
+        if(count<0 || count>g_ls_cap || g_ls_over || g_ls_protfail) return 0;
+        for(LONG k=0;k<count;k++) {
+            uint32_t v=g_ls_list[k]; if(!v || (size_t)v-1>=g_rg_n1+g_rg_n2) { g_restore_bad=1; break; }
+            uint32_t id=v-1; int w=id>=g_rg_n1; size_t j=w?id-g_rg_n1:id;
+            if((w?g_ns2[j]:g_ns1[j]) || (g_audio_free && is_async(rg_addr(id)))) continue;
+            rg_plan_page(id,w,j);
+        }
+    } else for(int w=0;w<2;w++) {
+        const uint8_t *map=w?*pm2:*pm1; size_t count=w?g_rg_n2:g_rg_n1;
+        if(!map && count) return 0;
+        for(size_t j=0;j<count;j++) if(map[j]) {
+            uint32_t id=(uint32_t)(w?g_rg_n1+j:j);
+            if((w?g_ns2[j]:g_ns1[j]) || (g_audio_free && is_async(rg_addr(id)))) continue;
+            rg_plan_page(id,w,j);
+        }
+    }
+    return !g_restore_bad;
+}
+static int rg_plan_build(RestorePlan *p,int si) {
+    if(!rg_plan_dirty(NULL)) return 0;
+    size_t capacity=g_restore_candidates, returns=0;
+    if(g_rg_nx>SIZE_MAX-capacity) return 0; capacity+=g_rg_nx;
+    for(int i=g_rg_count-1;i>si;i--) {
+        RgSlot *s=rg_slot(i);
+        if(s->nent>s->entcom/8 || s->nent>SIZE_MAX-capacity || s->nent>SIZE_MAX-returns) return 0;
+        capacity+=s->nent; returns+=s->nent;
+    }
+    if(capacity>g_rg_tlcap || g_rg_nfree>RG_POOL_MAX || returns>RG_POOL_MAX-g_rg_nfree ||
+       !restore_plan_init(p,capacity,g_rg_n1+g_rg_n2+g_rg_nx,rg_plan_alloc,rg_plan_free,NULL)) return 0;
+    if(!rg_plan_dirty(p)) return 0;
+    for(size_t e=0;e<g_rg_nx;e++) { uint32_t id=(uint32_t)(g_rg_n1+g_rg_n2+e); if(!restore_plan_put(p,id,g_rg_idx[id],0)) return 0; }
+    for(int i=g_rg_count-1;i>si;i--) {
+        RgSlot *s=rg_slot(i);
+        for(size_t n=0;n<s->nent;n++) {
+            uint32_t id=s->ent[2*n], old=s->ent[2*n+1];
+            if(id>=p->total || old>=g_rg_bump+2 || g_rg_idx[id]>=g_rg_bump+2 || !restore_plan_put(p,id,old,1)) return 0;
+        }
+    }
+    for(size_t n=0;n<p->count;n++) {
+        RestorePage *page=&p->pages[n];
+        if(page->value>=g_rg_bump+2) return 0;
+        page->dest=rg_addr(page->id); page->source=rg_src_value(page->id,page->value);
+    }
+    return 1;
+}
+typedef struct { RestorePlan *plan; RestoreMemoryJournal *journals; } RgRestoreMemory;
+static int rg_plan_memory_undo(void *ctx,RestorePage *page) {
+    RgRestoreMemory *memory=ctx;
+    return !memory->journals || restore_memory_undo(&memory->journals[page-memory->plan->pages]);
+}
+static int rg_plan_memory_prepare(void *ctx,RestorePage *page) {
+    RgRestoreMemory *memory=ctx; RestoreMemoryJournal *journal=&memory->journals[page-memory->plan->pages];
+    int may_commit=page->id<g_rg_n1 && g_dc[page->id];
+    int skip=page->source==(const uint8_t *)1 || (!page->source && may_commit);
+    if(!restore_memory_prepare(page,journal,may_commit,skip)) {
+        static int reports;
+        if(reports++<20) LOG("r1: RESTORE PAGE REFUSED id=%u reason=%s destination=%p source=%p failing=%p\n",page->id,journal->reason,page->dest,page->source,journal->failing_address);
+        return 0;
+    }
+    return 1;
+}
+static void rg_plan_memory_finish(RgRestoreMemory *memory) {
+    for(size_t n=memory->plan->count;n;n--)
+        if(!restore_memory_finish(&memory->journals[n-1])) rg_restore_fatal("cannot restore prepared page protection");
+}
 int r1_ring_load(long long frame, Ctx *c) {
+    rg_restore_config();
     int si = -1;
     for (int i = 0; i < g_rg_count; i++) if (rg_slot(i)->frame == frame) si = i;
     if (si < 0) return 0;
+    static unsigned long long probe_sequence;
+    int probe = rg_restore_probe_on();
+    long long watchdog_load = probe ? rg_restore_probe_watchdog() : 0;
+    unsigned long long sequence = 0;
+    double probe_ms = 0; size_t probe_pages = 0;
     double t0 = now_ms(); g_rgp_seg = 5;
     RgSlot *g = rg_slot(si);
+    RestorePlan prepared={0}; void *cb_prepared=NULL;
+    RefusalAudit refusal_audit={0}; int auditing=0;
+    RgNativeAudit native_audit={0};
+    RgPayloadAudit payload_audit={0};
+    RgRestoreMemory memory={&prepared,NULL};
+    const char *refusal="invalid snapshot or current thread inventory";
+    Th previous[256]; int previous_nth=g_nth, previous_ninfo=g_ninfo;
+    HANDLE born_held[256]; size_t born_count=0;
+    if(g_nth<0 || g_nth>256) rg_restore_fatal("invalid current thread inventory");
+    memcpy(previous,g_th,(size_t)previous_nth*sizeof *previous);
+    if(g->nth<0 || g->nth>256 || g->ninfo<0 || g->nfib<0 || g->nfib>1024 ||
+       g->fpool_used>g_fpool_cap) goto refused;
+    if(g_restore_writer_probe) { refusal="writer probe requires unprepared diagnostic path"; goto refused; }
     int k = g_rg_count - 1 - si;
     static Th cur[256]; int ncur = g_rg_kept ? g_nth : 0;  /* threads still held from the capture just made (g_rg_keep) */
     if (ncur) memcpy(cur, g_th, (size_t)ncur * sizeof *cur);
     g_rg_kept = 0;
     g_ninfo = g->ninfo;
-    stop_born_threads();
-    if (g_nborn) LOG("r1: RING: %d guest threads created after frame %lld, held for good:%s\n", g_nborn, frame, g_born);
+    { Ctx *tc; const char *nm; HANDLE h;
+      for(int i=g_ninfo;guest_thread_info(i,&tc,&nm,&h);i++) {
+          if(!h || GetThreadId(h)==GetCurrentThreadId()) continue;
+          if(born_count==256 || SuspendThread(h)==(DWORD)-1) { refusal="new thread hold failed or exceeded capacity"; goto refused; }
+          born_held[born_count++]=h;
+      }
+      g_nborn=(int)born_count;
+    }
     g_nth = g->nth; memcpy(g_th, g->th, (size_t)g->nth * sizeof *g_th);
     if (ncur) g_rg_kept_n++;
     for (int j = 0; j < ncur; j++) {                      /* held at the same wait as in capture g: stays held; otherwise let go (the loop below waits for it) */
         if (!cur[j].held) continue;
         int keep = 0;
         for (int i = 0; i < g_nth; i++) if (g_th[i].h == cur[j].h) { if (g_th[i].parked && cur[j].from == g_th[i].from && cur[j].imp == g_th[i].imp) { g_th[i].held = 1; g_th[i].rsp = cur[j].rsp; g_th[i].rip = cur[j].rip; g_th[i].cok = cur[j].cok; keep = 1; } break; }
-        if (keep) g_rg_kept_same++; else ResumeThread(cur[j].h);
+        if (keep) g_rg_kept_same++; else r1_resume_owned(cur[j].h);
     }
     for (double tq = now_ms();;) {                        /* each thread at the wait it was held at in that capture, no job running */
         ra_hold_restore();
+        if (g_th_hold_failed) { refusal="native thread hold failed"; goto refused; }
         if (ra_fibers_quiet() || now_ms() - tq > 200) { if (g_ra_busy_fibers) LOG("r1: RING load: %d fibers still busy after 200 ms\n", g_ra_busy_fibers); break; }
-        for (int i = 0; i < g_nth; i++) if (g_th[i].held) { ResumeThread(g_th[i].h); g_th[i].held = 0; }
+        for (int i = 0; i < g_nth; i++) if (g_th[i].held) { r1_resume_owned(g_th[i].h); g_th[i].held = 0; }
         SwitchToThread();
     }
     /* (R3 pub1: fx2j / fx3h, c0000005 in the sound thread's memcpy right after "nus3::audio update not back at its wait after 500 ms
      * ... now guest code") a thread that is still RUNNING guest code (not blocked at a wait) after the hold's 500 ms was suspended in
      * the middle of its code, and the load then changed the memory under its registers. Now such a load is REFUSED: every thread
      * goes on, nothing was changed yet, the wrong guess stays pending (rb_rollback.c) and the next tick loads again (one frame
-     * further back). SSBU_R1_RUNFIX=0: the old way (loaded anyway). SSBU_RB_NET_TEST_REFUSE=<n> (TEST ONLY): every n-th load is
+     * further back). Prepared restores always require quiet continuations. SSBU_RB_NET_TEST_REFUSE=<n> (TEST ONLY): every n-th load is
      * refused as if a thread were running (the timeline must not change). */
-    {   static int runfix = -1, tn = -1; static long long tc;
-        if (runfix < 0) { const char *e = getenv("SSBU_R1_RUNFIX"); runfix = !(e && e[0] == '0'); e = getenv("SSBU_RB_NET_TEST_REFUSE"); tn = e ? atoi(e) : 0; }
+    {   static int tn = -1; static long long tc;
+        if (tn < 0) { const char *e = getenv("SSBU_RB_NET_TEST_REFUSE"); tn = e ? atoi(e) : 0; }
         int forced = tn > 0 && ++tc % tn == 0;
-        if ((runfix && g_th_running) || forced) {
-            unpark();
-            Ctx *tc2; const char *nm2; HANDLE h2;                  /* the threads made after that frame (stop_born_threads) go on too */
-            for (int i = g_ninfo; guest_thread_info(i, &tc2, &nm2, &h2); i++) if (h2 && GetThreadId(h2) != GetCurrentThreadId()) ResumeThread(h2);
-            g_rg_refused++;
-            if (g_rg_refused <= 20 || g_rg_refused % 100 == 0) LOG("r1: RING load of frame %lld (k %d) REFUSED (%lld so far): %s; every thread goes on, the rollback is tried again next tick\n",
-                frame, k, g_rg_refused, forced ? "test switch SSBU_RB_NET_TEST_REFUSE" : "a thread still running guest code after 500 ms");
-            g_rgp_seg = 1;
-            return -1;
-        }
+        if (g_th_running || g_ra_busy_fibers || forced) { refusal=forced?"test thread refusal":"native continuation still running"; goto refused; }
     }
+    refusal="page plan bounds or reservation failed";
+    if(g_refusal_audit_on && !g_refusal_audit_used) {
+        g_refusal_audit_used=1; auditing=1;
+        refusal_audit_init(&refusal_audit,256u<<20,rg_refusal_read,rg_plan_alloc,rg_plan_free,NULL);
+        rg_refusal_metadata(&refusal_audit,c);
+        rg_native_capture(&native_audit);
+        rg_payload_capture(&payload_audit,g->fib,g->nfib);
+    }
+    if(!rg_plan_build(&prepared,si)) {
+        static int reports;
+        if(reports++<20) LOG("r1: RESTORE PLAN REFUSED frame=%lld learned=%d learned_count=%ld learned_cap=%ld learned_overflow=%ld protection_failures=%lld candidates=%zu plan_count=%zu plan_capacity=%zu touch_capacity=%zu pool_bump=%u pool_free=%u\n",
+            frame,g_ls_active,(long)g_ls_n,(long)g_ls_cap,(long)g_ls_over,(long long)g_ls_protfail,
+            g_restore_candidates,prepared.count,prepared.capacity,g_rg_tlcap,g_rg_bump,g_rg_nfree);
+        goto refused;
+    }
+    if(auditing) rg_refusal_pages(&refusal_audit,&prepared);
+    refusal="page journal reservation failed";
+    if(prepared.count>SIZE_MAX/sizeof *memory.journals) goto refused;
+    memory.journals=calloc(prepared.count?prepared.count:1,sizeof *memory.journals);
+    if(!memory.journals) goto refused;
+    refusal="copy-job reservation failed or queue not empty";
+    if(g_ncj || !cp_reserve(prepared.count)) goto refused;
+    refusal="command-buffer restore reservation or membership failed";
+    cb_prepared=nvn_r1_cb_prepare(g->cbs,g->ncbs,g->cbd,g->cbd_used,frame,auditing);
+    if(!cb_prepared) goto refused;
+    refusal="page memory preparation failed";
+    { int result=restore_plan_prepare(&prepared,rg_plan_memory_prepare,rg_plan_memory_undo,&memory);
+      if(result<0) rg_restore_fatal("page preparation cleanup failed");
+      if(!result) goto refused; }
+    if(!fibers_prepare(g->fib,g->nfib,g->fpool,g->fpool_used)) { refusal=fibers_prepare_reason(); goto refused; }
+    refusal="catch repair preparation failed";
+    if(!rgc_prepare(g->fib,g->nfib,&prepared)) goto refused;
+    if(g_restore_attempt!=UINT64_MAX) ++g_restore_attempt;
+    if(g_restore_inject && g_restore_attempt>g_restore_after && g_restore_attempt-g_restore_after<=g_restore_fail_count) {
+        refusal="test refusal after all reservations"; goto refused;
+    }
+    refusal="verifier reservation failed";
+    if(g_rgs_on>0 && !rgv_prepare()) goto refused;
+    if(auditing) { rg_payload_report(&payload_audit,frame,0); rg_native_report(&native_audit,frame,0); rg_refusal_report(&refusal_audit,frame,0); auditing=0; }
     double t1 = now_ms();
     R1_CTR("load (state of frame)", frame, 0);
-    rgc_before();
     g_rg_ntl = 0;
     if (g_rgs_on > 0) rgv_before(si, r1_ring_newest());
+    cp_reserved_begin();
     for (int i = g_rg_count - 1; i > si; i--) {           /* undo logs newest first: pointers only */
         RgSlot *s = rg_slot(i);
         for (size_t n = 0; n < s->nent; n++) {
             uint32_t id = s->ent[2 * n], old = s->ent[2 * n + 1];
-            rg_pool_put(g_rg_idx[id]); g_rg_idx[id] = old; rg_touch(id);
+            rg_pool_put(g_rg_idx[id]); g_rg_idx[id] = old;
         }
         rg_slot_drop(s, 0);
     }
     g_rg_count = si + 1;
-    if (g_ls_active) ls_each(rg_load_page); else rg_sweep(rg_load_page);      /* written since the newest capture (R4: the learned set) */
-    for (size_t e = 0; e < g_rg_nx; e++) rg_touch((uint32_t)(g_rg_n1 + g_rg_n2 + e));
+    if(!g_ls_active) for(size_t n=0;n<prepared.count;n++) {
+        uint32_t id=prepared.pages[n].id;
+        if(id<g_rg_n1) (*pm1)[id]=0; else if(id<g_rg_n1+g_rg_n2) (*pm2)[id-g_rg_n1]=0;
+    }
+    g_rg_ntl=prepared.count;
+    for(size_t n=0;n<prepared.count;n++) g_rg_tl[n]=prepared.pages[n].id;
     size_t pages = g_rg_ntl; g_rg_ldpg += (long long)pages;
     for (size_t n = 0; n < g_rg_ntl; n++) {               /* each page once, from its value at `frame` */
-        uint32_t id = g_rg_tl[n]; g_rg_touch[id] = 0;
-        uint8_t *a = rg_addr(id), *src = rg_src(id);
+        RestorePage *page=&prepared.pages[n]; uint32_t id=page->id; g_rg_touch[id]=0;
+        uint8_t *a=page->dest; const uint8_t *src=page->source;
         if (src == (uint8_t *)1) continue;                 /* decommitted then: left as it is */
-        if (id < g_rg_n1 && g_dc[id]) { if (!src) continue; VirtualAlloc(a, PG, MEM_COMMIT, PAGE_READWRITE); g_dc[id] = 0; }
+        if (id < g_rg_n1 && g_dc[id]) { if (!src) continue; g_dc[id] = 0; }
         if (!src) memset(a, 0, PG); else cp_add(a, src);
     }
     {   /* (R3 net3) SSBU_RB_LOADCMP=1 (option, default off: measured no faster, na0 / na1): a page is written only if it differs from the value loaded */
-        static int lc = -1; if (lc < 0) { const char *e = getenv("SSBU_RB_LOADCMP"); lc = e && e[0] == '1'; }
-        g_cp_cond = lc; cp_run(); g_cp_cond = 0; }
+        g_cp_cond = g_restore_loadcmp; cp_run(); g_cp_cond = 0; }
+    if (probe) { sequence = ++probe_sequence; rg_restore_probe(frame, sequence, "copy", watchdog_load, 0, &probe_ms, &probe_pages); }
     double t2 = now_ms();
     g_nfib = g->nfib; memcpy(g_fib, g->fib, (size_t)g->nfib * sizeof *g_fib);
     if (g->fpool_used) memcpy(g_fpool, g->fpool, g->fpool_used);
     g_fpool_used = g->fpool_used;
     restore_thread_regs(); double t2a = now_ms();
-    fibers_restore_all(); double t2b = now_ms();
+    fibers_restore_prepared(); double t2b = now_ms();
     rgc_after(); double t2c = now_ms();
-    rg_cb_load(g);
+    nvn_r1_cb_commit(cb_prepared); cb_prepared=NULL;
+    cp_reserved_end(); rg_plan_memory_finish(&memory); free(memory.journals); memory.journals=NULL;
+    g_restore_collect=NULL;
+    restore_plan_dispose(&prepared,rg_plan_free,NULL);
+    if (probe) rg_restore_probe(frame, sequence, "continuations", watchdog_load, 1, &probe_ms, &probe_pages);
+    debug_writer_probe_begin(frame, g_rgv_target);
     double t3 = now_ms();
+    rgc_release();
     unpark();
     g_mp[4] += t2a - t2; g_mp[5] += t2b - t2a; g_mp[6] += t2c - t2b; g_mp[7] += t3 - t2c; g_mp[8] += now_ms() - t3; g_mp_n[1]++;
     *c = g->ctx;
@@ -652,6 +1283,22 @@ int r1_ring_load(long long frame, Ctx *c) {
     g_rg_last[1] = now_ms() - t0; g_rgp_seg = 1;
     if (k < RG_MAXSLOT && g_rgl_n[k] < RG_NL) { int i = g_rgl_n[k]++; g_rgl[k][i][0] = now_ms() - t0; g_rgl[k][i][1] = t1 - t0; g_rgl[k][i][2] = t2 - t1; g_rgl_pg[k][i] = pages; (void)t3; }
     return 1;
+refused:
+    fibers_abort_prepare();
+    if(!restore_plan_unprepare(&prepared,rg_plan_memory_undo,&memory)) rg_restore_fatal("refusal cleanup failed");
+    if(cb_prepared) nvn_r1_cb_abort(cb_prepared);
+    if(auditing) { rg_payload_report(&payload_audit,frame,1); rg_native_report(&native_audit,frame,1); rg_refusal_report(&refusal_audit,frame,1); auditing=0; }
+    free(memory.journals); g_restore_collect=NULL;
+    restore_plan_dispose(&prepared,rg_plan_free,NULL);
+    rgc_release();
+    unpark();
+    for(size_t i=0;i<born_count;i++) r1_resume_owned(born_held[i]);
+    memcpy(g_th,previous,(size_t)previous_nth*sizeof *g_th); g_nth=previous_nth; g_ninfo=previous_ninfo;
+    for(int i=0;i<g_nth;i++) g_th[i].held=0;
+    g_rg_kept=0; g_nborn=0; g_rgp_seg=1; ++g_rg_refused;
+    if(g_rg_refused<=20 || g_rg_refused%100==0)
+        LOG("r1: RESTORE REFUSED frame=%lld reason=%s history states=%d oldest=%lld newest=%lld\n",frame,refusal,g_rg_count,r1_ring_oldest(),r1_ring_newest());
+    return -1;
 }
 
 /* ---------------------------------------------------------------- the rollback simulation (SSBU_RB_SIM) */
@@ -685,7 +1332,7 @@ static void rgs_step(Ctx *c) {
     }
     if (g_rgs_polls_cur > 1) g_rgs_multi++;
     g_rgs_polls_cur = 0;
-    if (g_ra_off || !ra_fight_on()) { ls_fight_off(); if (g_ra_phase) g_ra_after_quiet = 1; g_ra_phase = 0; g_rgs_left = 0; g_rgs_pass_t0 = 0; if (rbg_on()) rbg_fight_off(); return; }   /* (R3: the report once at the end of each match; hs12: the session reset for the next match) */
+    if (g_ra_off || !ra_fight_on()) { debug_writer_probe_end(-1); ls_fight_off(); if (g_ra_phase) g_ra_after_quiet = 1; g_ra_phase = 0; g_rgs_left = 0; g_rgs_pass_t0 = 0; if (rbg_on()) rbg_fight_off(); return; }   /* (R3: the report once at the end of each match; hs12: the session reset for the next match) */
     if (rbg_on()) { rbg_step(c); g_rgs_pass_t0 = now_ms(); g_rgs_cyc0 = rgs_cyc_now(); g_ra_t_mark = g_rgs_pass_t0; return; }      /* R3: online rollback */
     long long i = g_rgs_next;                             /* the pass that ended here */
     if (g_rg_keep_on < 0) { const char *e = getenv("SSBU_RB_KEEP"); g_rg_keep_on = !e || atoi(e) != 0; }
@@ -693,6 +1340,7 @@ static void rgs_step(Ctx *c) {
         int ph = g_ra_phase == 2 && g_rgs_left - 1 <= 0 ? 0 : g_ra_phase;
         g_rg_keep = g_rg_keep_on && g_rg_ready && ph == 0 && g_rg_caps + 1 >= g_rgs_warm && g_rgs_real_since + (ph == 0) >= g_rgs_n;
     }
+    if (g_rgv_target >= 0 && i == g_rgv_target) debug_writer_probe_end(i);
     int ok = r1_ring_capture(i, c);
     g_rg_keep = 0;
     if (g_rgv_target >= 0 && i == g_rgv_target) { if (ok) rgv_after(); else g_rgv_target = -1; }
@@ -829,7 +1477,7 @@ static DWORD WINAPI rgss_thread(void *p) {
                 if (!x.Rip) break;
             }
         }
-        ResumeThread(g_rgss_main);
+        r1_resume_owned(g_rgss_main);
         if (!nf) continue;
         g_rgss_tot[kd][seg]++;
         RgsS *e = rgss_slot(fr[0]); if (e) e->self[kd][seg]++;
@@ -920,12 +1568,26 @@ static uint64_t rgv_hash(const uint8_t *p) {
     return h;
 }
 static void rgvd_keep(size_t n, const uint8_t *src); static void rgvd_show(size_t n, uint32_t id, const uint8_t *now);
-static uint8_t *rg_src_v(uint32_t id, uint32_t v) { uint32_t s = g_rg_idx[id]; g_rg_idx[id] = v; uint8_t *r = rg_src(id); g_rg_idx[id] = s; return r; }
+static uint8_t *rg_src_v(uint32_t id, uint32_t v) { return rg_src_value(id,v); }
+#define RGVD_MAX 8192
+static uint8_t *g_rgvd; static long long g_rgvd_lines;
+static size_t g_rgv_in_capacity;
+static int rgv_prepare(void) {
+    if(g_rgv_on<0) { const char *e=getenv("SSBU_RB_SIM_VERIFY"); g_rgv_on=e?(atoi(e)>1?2:1):0; }
+    if(!g_rgv_on) return 1;
+    size_t total=g_rg_n1+g_rg_n2+g_rg_nx;
+    if(g_rgv_in_capacity<total) {
+        uint8_t *next=calloc(total,1); if(!next) return 0;
+        if(g_rgv_in_capacity) memcpy(next,g_rgv_in,g_rgv_in_capacity);
+        free(g_rgv_in); g_rgv_in=next; g_rgv_in_capacity=total;
+    }
+    if(!g_rgv_id) g_rgv_id=malloc((size_t)RGV_MAX*4);
+    if(!g_rgv_h) g_rgv_h=malloc((size_t)RGV_MAX*8);
+    if(g_rgv_on>1 && !g_rgvd) g_rgvd=VirtualAlloc(NULL,(size_t)RGVD_MAX*PG,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+    return g_rgv_in && g_rgv_id && g_rgv_h && (g_rgv_on<2 || g_rgvd);
+}
 static void rgv_before(int si, long long target) {        /* in r1_ring_load, before the undo logs are applied */
-    if (g_rgv_on < 0) g_rgv_on = getenv("SSBU_RB_SIM_VERIFY") ? (atoi(getenv("SSBU_RB_SIM_VERIFY")) > 1 ? 2 : 1) : 0;
     if (!g_rgv_on) return;
-    size_t tot = g_rg_n1 + g_rg_n2 + g_rg_nx;
-    if (!g_rgv_in) { g_rgv_in = calloc(tot, 1); g_rgv_id = malloc((size_t)RGV_MAX * 4); g_rgv_h = malloc((size_t)RGV_MAX * 8); }
     g_rgv_n = 0;
     for (int i = g_rg_count - 1; i > si; i--) {
         RgSlot *s = rg_slot(i);
@@ -938,11 +1600,8 @@ static void rgv_before(int si, long long target) {        /* in r1_ring_load, be
 }
 /* (R2 round 3) SSBU_RB_SIM_VERIFY=2: for the first 12 rollbacks the original bytes of the compared pages are kept and every
  * differing page is printed: its address (where()), the number of differing 8-byte words, the first 4 (offset, original, re-run). */
-#define RGVD_MAX 8192
-static uint8_t *g_rgvd; static long long g_rgvd_lines;
 static void rgvd_keep(size_t n, const uint8_t *src) {
     if (g_rgv_on < 2 || g_rgv_runs >= 12 || n >= RGVD_MAX) return;
-    if (!g_rgvd) g_rgvd = VirtualAlloc(NULL, (size_t)RGVD_MAX * PG, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!g_rgvd) return;
     if (!src) memset(g_rgvd + n * PG, 0, PG); else if (src == (uint8_t *)1) memset(g_rgvd + n * PG, 0xdd, PG); else memcpy(g_rgvd + n * PG, src, PG);
 }
