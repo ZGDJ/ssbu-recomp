@@ -1209,7 +1209,9 @@ int r1_ring_load(long long frame, Ctx *c) {
     HANDLE born_held[256]; size_t born_count=0;
     if(g_nth<0 || g_nth>256) rg_restore_fatal("invalid current thread inventory");
     memcpy(previous,g_th,(size_t)previous_nth*sizeof *previous);
-    if(g->nth<0 || g->nth>256 || g->ninfo<0 || g->nfib<0 || g->nfib>1024 ||
+    int inventory_count = os_r1_thread_inventory_count();
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) goto refused;
+    if(g->nth<0 || g->nth>256 || g->ninfo<0 || g->ninfo>256 || g->nfib<0 || g->nfib>1024 ||
        g->fpool_used>g_fpool_cap) goto refused;
     if(g_restore_writer_probe) { refusal="writer probe requires unprepared diagnostic path"; goto refused; }
     int k = g_rg_count - 1 - si;
@@ -1225,6 +1227,7 @@ int r1_ring_load(long long frame, Ctx *c) {
       }
       g_nborn=(int)born_count;
     }
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) { refusal="incomplete born-thread inventory"; goto refused; }
     g_nth = g->nth; memcpy(g_th, g->th, (size_t)g->nth * sizeof *g_th);
     if (ncur) g_rg_kept_n++;
     for (int j = 0; j < ncur; j++) {                      /* held at the same wait as in capture g: stays held; otherwise let go (the loop below waits for it) */
@@ -1289,6 +1292,7 @@ int r1_ring_load(long long frame, Ctx *c) {
     }
     refusal="verifier reservation failed";
     if(g_rgs_on>0 && !rgv_prepare()) goto refused;
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) { refusal="thread inventory changed during restore preparation"; goto refused; }
     if(auditing) { rg_payload_report(&payload_audit,frame,0); rg_native_report(&native_audit,frame,0); rg_refusal_report(&refusal_audit,frame,0); auditing=0; }
     double t1 = now_ms();
     R1_CTR("load (state of frame)", frame, 0);

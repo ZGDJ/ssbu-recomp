@@ -5,6 +5,7 @@
  * kept in a side table, so the guest layout never has to be known. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <malloc.h>
 #include <windows.h>
@@ -269,8 +270,11 @@ int guest_thread_info(int i, Ctx **c, const char **name, HANDLE *h) {
     *c = g_threads[i].c; *name = g_threads[i].o->name ? (const char *)(uintptr_t)g_threads[i].o->name : NULL; *h = g_threads[i].o->finished ? NULL : g_threads[i].o->thread;
     return 1;
 }
-/* Diagnostic eligibility gate: guest_thread_info stops on holes and therefore
+/* Completeness gate: guest_thread_info stops on holes and therefore
  * cannot by itself establish that its enumeration covered the raw inventory. */
+/* Registration count is monotonic; callers pair this with validity checks to
+ * reject an inventory that grows during capture/preparation. */
+int os_r1_thread_inventory_count(void) { return (int)g_threads_n; }
 int os_r1_thread_inventory_valid(void) {
     LONG count=g_threads_n;
     if(count<0 || count>256) return 0;
@@ -349,7 +353,7 @@ void os_r1_objs(void (*cb)(uint64_t key, int signaled, int count, uint64_t len, 
 /* R1: every fiber that has run: its guest context and stack */
 /* (R2 round 3) the objects that have a host fiber are cached in table order: the full walk of the 65,536 buckets cost
  * ~0.15 ms per call, 3 calls per ring capture. The cache is rebuilt when a fiber is made or handed back (g_fib_gen). */
-static volatile LONG g_fib_gen = 1; static LONG g_fib_cgen; static Obj **g_fib_c; static int g_fib_cn, g_fib_ccap;
+static volatile LONG g_fib_gen = 1; static LONG g_fib_cgen; static Obj **g_fib_c; static int g_fib_cn, g_fib_ccap, g_fib_cvalid;
 /* Bounded, allocation-free diagnostic visitor. Published Obj records are never
  * removed, but their mutable fields are not quiescent: this is not an atomic
  * snapshot. The caller copies exact field spans and owns readability/failure
@@ -406,15 +410,31 @@ void os_r1_fibers_direct(void (*cb)(uint64_t, Ctx *, uint64_t, uint64_t, void *)
             if (o->fiber) cb(o->key, o->fctx, o->stack, o->stack_size, o->fiber);
 }
 void os_r1_fibers(void (*cb)(uint64_t key, Ctx *c, uint64_t stack, uint64_t stack_size, void *fiber)) {
-    if (g_fib_cgen != g_fib_gen) {
-        LONG gen = g_fib_gen; g_fib_cn = 0;
+    if (!g_fib_cvalid || g_fib_cgen != g_fib_gen) {
+        LONG gen = g_fib_gen; g_fib_cn = 0; g_fib_cvalid = 0;
         for (int h = 0; h < BUCKETS; h++)
             for (Obj *o = g_table[h]; o; o = o->next)
-                if (o->fiber) { if (g_fib_cn >= g_fib_ccap) { g_fib_ccap = g_fib_ccap ? g_fib_ccap * 2 : 256; g_fib_c = realloc(g_fib_c, (size_t)g_fib_ccap * sizeof *g_fib_c); } g_fib_c[g_fib_cn++] = o; }
-        g_fib_cgen = gen;
+                if (o->fiber) {
+                    if (g_fib_cn >= g_fib_ccap) {
+                        if (g_fib_ccap > INT_MAX / 2) goto direct;
+                        int capacity = g_fib_ccap ? g_fib_ccap * 2 : 256;
+                        if ((size_t)capacity > SIZE_MAX / sizeof *g_fib_c) goto direct;
+                        Obj **cache = realloc(g_fib_c, (size_t)capacity * sizeof *cache);
+                        if (!cache) goto direct;
+                        g_fib_c = cache; g_fib_ccap = capacity;
+                    }
+                    g_fib_c[g_fib_cn++] = o;
+                }
+        g_fib_cgen = gen; g_fib_cvalid = 1;
     }
     for (int i = 0; i < g_fib_cn; i++) { Obj *o = g_fib_c[i]; if (o->fiber) cb(o->key, o->fctx, o->stack, o->stack_size, o->fiber); }
+    return;
+direct:
+    /* No callbacks ran during rebuilding. Preserve owned capacity and retry
+     * next time; the direct visitor allocates nothing and has the same order. */
+    os_r1_fibers_direct(cb);
 }
+
 void os_thread_report(FILE *out) {
     if (!g_oslog_n) return;
     fprintf(out, "nn::os threads of this run (priority 0 highest .. 31 lowest; cores 0..2 exist on the console):\n%.*s", (int)g_oslog_n, g_oslog);

@@ -79,3 +79,9 @@ jobs:
         run: python -m unittest discover -s tests -p test_mark_setup_source.py -v
       - name: Block sweep fallback regressions
         run: python -m unittest discover -s tests -p test_block_sweep_source.py -v
+      - name: Native inventory and fiber cache regressions
+        run: python -m unittest discover -s tests -p test_native_inventory_source.py -v
+      - name: Live continuation inventory regressions
+        run: python -m unittest discover -s tests -p test_live_inventory_source.py -v
+      - name: Restore inventory refusal ownership regressions
+        run: python -m unittest discover -s tests -p test_restore_inventory_source.py -v

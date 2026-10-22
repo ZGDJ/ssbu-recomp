@@ -422,6 +422,7 @@ static int g_cur_overflow;
 void os_r1_fibers_direct(void (*cb)(uint64_t, Ctx *, uint64_t, uint64_t, void *));
 DWORD os_r1_fiber_tid(uint64_t key); void *os_r1_fiber_fls(uint64_t key);
 int os_r1_thread_inventory_valid(void);
+int os_r1_thread_inventory_count(void);
 int os_r1_fiber_audit_identity(uint64_t key, void **fiber, Ctx **c, void **fls, void **fls_fiber, DWORD *tid);
 void os_r1_fiber_put_fls(uint64_t key, void *fiber, void *fls); extern long long g_r1_fls_stale;      /* os_threads.c (R2: the block note restored with the fiber) */
 extern DWORD g_r1_fls_idx;
@@ -493,7 +494,9 @@ static int g_live_cache = -1; static long long g_live_cached, g_live_asked;
 static int g_live_complete;
 static void live_rsps(void) {
     if (g_live_cache < 0) { const char *e = getenv("SSBU_R1_LIVECACHE"); g_live_cache = !(e && e[0] == '0'); }      /* (hs16) =0: every thread asked again (the old way) */
-    g_nlive = 0; g_live_complete = 1;
+    int inventory_count = os_r1_thread_inventory_count();
+    g_nlive = 0; g_live_complete = os_r1_thread_inventory_valid();
+    if (!g_live_complete) return;
     { volatile uint64_t here = (uint64_t)(uintptr_t)&here; g_live_rsp[g_nlive] = here; g_live_rip[g_nlive] = 0; g_live_nm[g_nlive] = "this thread"; g_live_h[g_nlive] = NULL; g_live_fib[g_nlive] = (uint64_t)(uintptr_t)GetCurrentFiber(); g_nlive++; }
     Ctx *tc; const char *nm; HANDLE h;
     for (int i = 0; guest_thread_info(i, &tc, &nm, &h); i++) {
@@ -506,6 +509,7 @@ static void live_rsps(void) {
         if (got) { uint8_t *t = live_teb_addr(h); uint64_t fiber = 0; int teb_ok = t && fiber_capture_read(NULL, t + 0x20, &fiber, sizeof fiber); g_live_rsp[g_nlive] = x.Rsp; g_live_rip[g_nlive] = x.Rip; g_live_nm[g_nlive] = nm ? nm : "?"; g_live_h[g_nlive] = h; g_live_fib[g_nlive] = fiber; g_nlive++; if (!teb_ok) g_live_complete = 0; }
         else g_live_complete = 0;
     }
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) g_live_complete = 0;
 }
 static void live_teb(HANDLE h, uint64_t *fd, uint64_t *sb, uint64_t *sl) {     /* (diagnosis) that thread's TEB: FiberData, StackBase, StackLimit */
     *fd = *sb = *sl = 0;
@@ -815,9 +819,12 @@ static int fibers_save(void) {
     g_fib_capture_cap = sizeof g_fib / sizeof g_fib[0]; g_fib_capture_pool_cap = g_fpool_cap;
     if (captures++ >= g_fib_test_after) { g_fib_capture_cap = g_fib_test_cap; g_fib_capture_pool_cap = g_fib_test_pool_cap; }
     if (g_fib_live_on < 0) { const char *e = getenv("SSBU_R1_LIVESTK"); g_fib_live_on = !(e && e[0] == '0'); }
-    if (g_fib_live_on) live_rsps();
     g_nfib = 0; g_fib_mode = 0; g_ncur = 0; g_fpool_used = 0; g_fib_bytes = 0; g_fib_bad = 0; g_fib_running = 0;
-    g_fib_capture_ok = 1; os_r1_fibers(fib_cb);
+    int inventory_count = os_r1_thread_inventory_count();
+    g_fib_capture_ok = os_r1_thread_inventory_valid();
+    if (g_fib_capture_ok && g_fib_live_on) { live_rsps(); g_fib_capture_ok = g_live_complete; }
+    if (g_fib_capture_ok) os_r1_fibers(fib_cb);
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) g_fib_capture_ok = 0;
     if (!g_fib_capture_ok) LOG("r1: FIBER CAPTURE REFUSED: incomplete continuation coverage (%d failures, %d entries, capacity %zu, pool %zu/%zu bytes)\n", g_fib_bad, g_nfib, g_fib_capture_cap, g_fpool_used, g_fib_capture_pool_cap);
     return g_fib_capture_ok;
 }
@@ -1833,7 +1840,12 @@ static void r1_hold_prof_report(void) {
 }
 static int ra_hold_save(void) {
     DWORD me = GetCurrentThreadId(); Ctx *tc; const char *nm; HANDLE h;
+    int inventory_count = os_r1_thread_inventory_count();
     g_th_hold_failed = 0;
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) {
+        g_th_hold_failed = 1; g_ra_busy = "incomplete thread inventory";
+        unpark(); return 0;
+    }
     if (g_hp_on < 0) g_hp_on = getenv("SSBU_RB_HOLD_PROF") && atoi(getenv("SSBU_RB_HOLD_PROF")) > 0;
     if (g_hp_on) g_hp_holds++;
     g_nth = 0;
@@ -1845,6 +1857,9 @@ static int ra_hold_save(void) {
     static int all_first = -1; if (all_first < 0) { const char *e = getenv("SSBU_RB_HOLD_ALL"); all_first = rgs_wanted() && e && atoi(e) != 0; }      /* opt-in: saved ~0.07 ms only; rb2f1 crashed with it (cause not shown) */
     static uint8_t pre[256];                                /* (R2 round 3, ring only) every thread suspended first, then checked: the kernel delivers the suspends together */
     memset(pre,0,sizeof pre);
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) {
+        g_th_hold_failed = 1; g_ra_busy = "incomplete thread inventory"; goto hold_failed;
+    }
     if (all_first) for (int i = 0; i < g_nth; i++) if(!ra_free(g_th[i].name)) {
         if(!r1_suspend_owned(g_th[i].h)) { g_th_hold_failed=1; g_ra_busy="native thread hold failed"; goto hold_failed; }
         pre[i]=1;
@@ -1876,6 +1891,9 @@ static int ra_hold_save(void) {
         }
         if (g_hp_on) hp_add(t->name, now_ms() - t0, spins);
         t->from = t->c->import_from; t->imp = t->c->in_import; t->regs = *t->c;
+    }
+    if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) {
+        g_th_hold_failed = 1; g_ra_busy = "incomplete thread inventory"; goto hold_failed;
     }
     return 1;
 hold_failed:

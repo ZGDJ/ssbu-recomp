@@ -20,6 +20,9 @@ static double g_ra_fiber_wait_ms,g_hp_fib_ms;
 #define THREADS 3
 static Ctx contexts[THREADS]={{"Wait",100,1},{"Wait",101,2},{"Wait",102,3}};
 static int all_first,suspend_calls,suspend_failure,resume_forced,resume_calls,counts[THREADS],blocked_calls,blocked_failure;
+static int inventory_calls,inventory_failure,count_calls,grow_count_at;
+static int os_r1_thread_inventory_count(void) {return THREADS+(++count_calls>=grow_count_at && grow_count_at>0);}
+static int os_r1_thread_inventory_valid(void) {return ++inventory_calls!=inventory_failure;}
 static DWORD resume_result; static jmp_buf fatal_jump; static int fatal_expected;
 static DWORD fake_suspend(HANDLE h) {
     int i=(int)(uintptr_t)h-1; assert(i>=0&&i<THREADS);
@@ -54,10 +57,29 @@ static double now_ms(void) { static double t; return ++t; }
 static void hp_add(const char *name,double ms,int spins) { (void)name;(void)ms;(void)spins; }
 static int ra_fibers_quiet(void) { return 1; }
 /* HOLD_SOURCE */
-static void reset_faults(void) { suspend_calls=suspend_failure=resume_forced=resume_calls=blocked_calls=blocked_failure=0; }
+static void reset_faults(void) { suspend_calls=suspend_failure=resume_forced=resume_calls=blocked_calls=blocked_failure=inventory_calls=inventory_failure=count_calls=grow_count_at=0; }
 static void assert_released(void) { for(int i=0;i<THREADS;i++) assert(!counts[i]&&!g_th[i].held); }
 int main(int argc,char **argv) {
     all_first=argc>1&&atoi(argv[1]);
+    for(int boundary=1;boundary<=3;boundary++) {
+        reset_faults();inventory_failure=boundary;
+        assert(!ra_hold_save()&&g_th_hold_failed);assert_released();
+        assert(inventory_calls==boundary);
+        assert(suspend_calls==(boundary==3?THREADS:0));
+        assert(resume_calls==(boundary==3?THREADS:0));
+        reset_faults();assert(ra_hold_save());assert(inventory_calls==3);unpark();assert_released();
+    }
+    for(int boundary=2;boundary<=4;boundary++) {
+        reset_faults();grow_count_at=boundary;
+        assert(!ra_hold_save()&&g_th_hold_failed);assert_released();
+        assert(suspend_calls==(boundary==4?THREADS:0));
+        assert(resume_calls==(boundary==4?THREADS:0));
+    }
+    /* Entry refusal must not erase previously owned suspension records. */
+    reset_faults();assert(ra_hold_save());reset_faults();inventory_failure=1;
+    assert(!ra_hold_save()&&g_th_hold_failed&&!suspend_calls&&resume_calls==THREADS);assert_released();
+    reset_faults();assert(ra_hold_save());reset_faults();grow_count_at=2;
+    assert(!ra_hold_save()&&g_th_hold_failed&&!suspend_calls&&resume_calls==THREADS);assert_released();
     for(int failure=1;failure<=THREADS;failure++) {
         reset_faults(); suspend_failure=failure;
         assert(!ra_hold_save() && g_th_hold_failed && resume_calls==failure-1); assert_released();

@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-setup-sweep.md
+- Evidence: evidence/2026-10-22-native-inventory.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root setup cleanup/sweep fallback, 2026-10-22T04:10:00Z
-- Next: Setup cleanup/sweep fallback passes exact source tests, independent review and six frozen control types (500 real frames plus replay, both audits complete). Preserve post-commit A forward-reference divergence (RNG frame 2, motion later) despite a passing identical retry; M3.2 tracks unresolved determinism. Next production native thread completeness/cache fallback, historical fiber inventory and host-stack exclusion loss. Extras/rebase, watchdog M7.10, copy-worker, capture-pool and range packets have scoped passing evidence. Full writer quiescence, authoritative equality and online qualification remain open.
+- Owner: root native inventory/cache, 2026-10-22T04:24:00Z
+- Next: Native inventory completeness/cache fallback passes O1/O3 exact-source tests, independent review and six frozen control types with strict replay and both four-observer audits. Next historical fiber inventory and host-stack exclusion loss, then remaining OS enumeration/optional diagnostics and base cleanup boundaries. Preserve setup/sweep post-commit A forward-reference divergence for M3.2. Full writer quiescence, authoritative equality and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness
