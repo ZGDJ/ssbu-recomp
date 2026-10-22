@@ -463,7 +463,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: none
 - Acceptance: Preflight all required threads/fibers before memory/history mutation. Busy/live/missing continuation injections refuse before mutation with state/history unchanged; unexpected post-mutation failure irrecoverably terminates the session and never resumes or reports success. Independent review required.
 - Owner: unassigned
-- Next: Own r1_state.c/r1_ring.c; cover refusal retry and eventual bounded failure with M7.3.
+- Next: Own r1_state.c/r1_ring.c; investigate initial-base save releasing threads before learned validation/publication (arena-pad A count 176 to 177), then continuation preflight and refusal retry/eventual bounded failure with M7.3. Preserve guards and failed evidence.
 - Blocker: none
 
 ### M7.2 - Confirmation-safe terminal lifecycle
@@ -537,10 +537,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-learned-startup.md
+- Evidence: evidence/2026-10-22-arena-pad.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root learned/presentation startup, 2026-10-22T05:28:00Z
-- Next: Learned startup/presentation resources and bounded refusal diagnostics pass exact O1/O3 failures, independent review and six frozen controls with strict replay and four-observer restore audits. Next guest arena/pad-history boundaries, then watchdog/sampler/exception-handler startup resources. Preserve prior incomplete-learned-tracking no-replay failures and M3.2 forward-reference divergence; passing controls do not explain them. Partial restore remains M7.1; loader/writer quiescence, authoritative equality and online qualification remain open.
+- Owner: unassigned (checkpoint handoff requested, 2026-10-22)
+- Next: Arena/pad boundaries pass exact O1/O3 tests, independent review and all six frozen control types. Preserve post-commit A no-replay refusal: learned count changed 176 to 177 during validation after save had released guest threads; B passed on the same binary. Continue watchdog/sampler startup from inactive drafts in tests/drafts/thread_startup, then checked exception-handler/protection and mark_check commitment boundaries. Do not weaken tracking validation. M7.1 owns initial-base transaction/hold ordering and partial restore; full quiescence and online qualification remain open.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

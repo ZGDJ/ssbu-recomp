@@ -92,7 +92,7 @@ typedef struct { uint8_t *a; uint8_t d[PG]; } EPage;
 static EPage *g_e; static size_t g_ne, g_ecap;
 /* player 1's pad values, recorded in the first pass and given again in the re-run */
 typedef struct { uint64_t b; int lx, ly, rx, ry; } PadRec;
-static PadRec g_pad[8192]; static int g_npad, g_ipad;
+static PadRec g_pad[8192]; static int g_npad, g_ipad, g_pad_failed;
 /* timing */
 static double g_t_pass1, g_t_rerun, g_t_first_frame;
 static long long g_pass_frames;
@@ -2593,6 +2593,31 @@ static void trace_only_frame_end(Ctx *c, void *user) {
     g_orig_frame_end(c);
     if (lr == GA(0x7103747b7cull)) fight_trace_boundary('?', 0);
 }
+static int pad_history_ready(void) {
+    return !g_pad_failed && g_npad >= 0 && g_npad <= (int)(sizeof g_pad / sizeof g_pad[0]);
+}
+static void pad_history_apply(uint64_t *b, int *lx, int *ly, int *rx, int *ry) {
+    if (g_phase == 1) {
+        if (g_pad_failed) return;
+        if (!pad_history_ready() || g_npad == (int)(sizeof g_pad / sizeof g_pad[0])) {
+            g_pad_failed = 1; fight_trace_fail("diagnostic_pad_history_capacity");
+            LOG("r1: diagnostic input capture refused: pad history capacity or count\n"); return;
+        }
+        PadRec r = {*b, *lx, *ly, *rx, *ry}; g_pad[g_npad++] = r;
+    } else if (g_phase == 2) {
+        if (!pad_history_ready() || g_ipad < 0 || g_ipad >= g_npad) {
+            fight_trace_fail("diagnostic_pad_history_replay");
+            LOG("r1: PAD HISTORY FATAL: replay has no complete recorded input\n"); abort();
+        }
+        PadRec r = g_pad[g_ipad++]; *b = r.b; *lx = r.lx; *ly = r.ly; *rx = r.rx; *ry = r.ry;
+    }
+}
+static void pad_history_complete(void) {
+    if (!pad_history_ready() || g_ipad != g_npad) {
+        fight_trace_fail("diagnostic_pad_history_completion");
+        LOG("r1: PAD HISTORY FATAL: replay input count mismatch\n"); abort();
+    }
+}
 static void r1_frame_end(Ctx *c, void *user) {
     (void)user;
     uint64_t lr = c->x[30];
@@ -2629,8 +2654,13 @@ static void r1_frame_end(Ctx *c, void *user) {
             if (!g_save_failed) fast_save(c);
         } else save(c);
         if (g_save_failed) { g_phase = 3; LOG("r1: diagnostic capture refused: no replay scheduled (failure %d)\n", g_save_failed); return; }
-        g_phase = 1; g_fe_busy = 1; g_npad = 0; g_save_ff = g_ff; g_target = g_ff + g_k; g_t_mark = now_ms();
+        g_phase = 1; g_fe_busy = 1; g_npad = 0; g_pad_failed = 0; g_save_ff = g_ff; g_target = g_ff + g_k; g_t_mark = now_ms();
     } else if (g_phase == 1 && g_ff >= g_target) {
+        if (!pad_history_ready()) {
+            fight_trace_fail("diagnostic_pad_history_incomplete");
+            release(); g_phase = 3; g_fe_busy = 1;
+            LOG("r1: diagnostic replay refused: incomplete pad history; no restore\n"); return;
+        }
         if (g_postponed) LOG("r1: restore postponed %d frame end(s): a fiber was in the middle of a job\n", g_postponed);
         g_postponed = 0; g_k_run = (int)(g_ff - g_save_ff);
         g_t_pass1 = now_ms() - g_t_mark;
@@ -2640,6 +2670,7 @@ static void r1_frame_end(Ctx *c, void *user) {
         if (g_ar) LOG("r1: guest C heap: %llu allocations, %llu frees so far (counters inside the heap: rolled back too)\n", (unsigned long long)((uint64_t *)g_ar)[50], (unsigned long long)((uint64_t *)g_ar)[51]);
         LOG("r1: first pass %d frames in %.2f ms (%.2f ms per frame, wall, render included); %d pad polls recorded\n", g_k_run, g_t_pass1, g_t_pass1 / g_k_run, g_npad);
     } else if (g_phase == 2 && g_ff == g_target) {
+        pad_history_complete();
         g_t_rerun = now_ms() - g_t_mark;
         LOG("r1: re-run %d frames in %.2f ms (%.2f ms per frame); %d of %d recorded pad polls given\n", g_k_run, g_t_rerun, g_t_rerun / g_k_run, g_ipad, g_npad);
         if (g_mark <= 0 && (!(g_fast > 0 && g_cycle >= g_learn) || g_fcheck)) verify();
@@ -2656,7 +2687,7 @@ int r1_poll(int ticks) {
     { extern volatile int g_rgp_seg; g_rgp_seg = 2; }
     if (g_ra > 0 && rgs_wanted()) return rgs_poll();     /* R2 simulation: a re-run pass's poll does not advance it either */
     if (g_ra > 0) return g_ra_phase == 1;                 /* run-ahead: the speculative pass's poll does not advance the input sequence */
-    return g_phase == 2 && g_ipad < g_npad;
+    return g_phase == 2; /* Never advance live input during a recorded replay. */
 }
 /* nnhid.c, player 1's values just before they are written: recorded in the first pass, replaced in the re-run */
 /* nnhid.c, port 2's values just before they are written (R3 online rollback only) */
@@ -2669,8 +2700,7 @@ void r1_pad(uint64_t *b, int *lx, int *ly, int *rx, int *ry) {
         else { PadRec r = {*b, *lx, *ly, *rx, *ry}; g_ra_pad = r; }
         return;
     }
-    if (g_phase == 1 && g_npad < 8192) { PadRec r = {*b, *lx, *ly, *rx, *ry}; g_pad[g_npad++] = r; }
-    else if (g_phase == 2 && g_ipad < g_npad) { PadRec r = g_pad[g_ipad++]; *b = r.b; *lx = r.lx; *ly = r.ly; *rx = r.rx; *ry = r.ry; }
+    pad_history_apply(b, lx, ly, rx, ry);
 }
 void r1_init(void) {
     if (!r1_on()) {
@@ -2704,28 +2734,55 @@ typedef struct { uint64_t bump, committed; uint64_t head[48]; uint64_t allocs, f
 static SRWLOCK g_ar_lock = SRWLOCK_INIT;
 #define ARH ((ArHdr *)g_ar)
 static int in_arena(const void *p) { return g_ar && (const uint8_t *)p >= g_ar && (const uint8_t *)p < g_ar + AR_SIZE; }
+static int ar_prepare(void) {
+    if (g_ar) return 1;
+    uint8_t *base = VirtualAlloc(NULL, AR_SIZE, MEM_RESERVE, PAGE_NOACCESS);
+    if (!base) return 0;
+    if (!VirtualAlloc(base, 1u << 20, MEM_COMMIT, PAGE_READWRITE)) {
+        if (!VirtualFree(base, 0, MEM_RELEASE)) { LOG("r1: ARENA FATAL: failed startup reservation release\n"); abort(); }
+        return 0;
+    }
+    ArHdr *h = (ArHdr *)base;
+    h->bump = 4096; h->committed = 1u << 20;
+    g_ar = base; return 1;
+}
 static void *ar_alloc(size_t n, size_t align) {
+    if (!g_ar) return NULL;
     if (align < 16) align = 16;
-    size_t need = n + 16 + (align > 16 ? align : 0);
-    int cl = 0; while ((32ull << cl) < need) cl++;
+    if ((align & (align - 1)) || align > AR_SIZE || n > AR_SIZE - 16) return NULL;
+    size_t need = n + 16;
+    if (align > 16) { if (align > AR_SIZE - need) return NULL; need += align; }
+    int cl = 0; uint64_t sz = 32;
+    while (sz < need) { if (sz >= AR_SIZE) return NULL; sz <<= 1; cl++; }
     AcquireSRWLockExclusive(&g_ar_lock);
     uint8_t *b;
-    if (ARH->head[cl]) { b = g_ar + ARH->head[cl]; ARH->head[cl] = *(uint64_t *)b; }
-    else {
-        uint64_t sz = 32ull << cl, off = (ARH->bump + 31) & ~31ull;
-        if (off + sz > AR_SIZE) { ReleaseSRWLockExclusive(&g_ar_lock); return NULL; }
-        if (off + sz > ARH->committed) {
-            uint64_t to = (off + sz + (1u << 20) - 1) & ~(uint64_t)((1u << 20) - 1);
-            if (!VirtualAlloc(g_ar + ARH->committed, to - ARH->committed, MEM_COMMIT, PAGE_READWRITE)) { ReleaseSRWLockExclusive(&g_ar_lock); return NULL; }
+    if (ARH->bump < 4096 || ARH->bump > AR_SIZE || ARH->committed < 4096 ||
+        ARH->committed > AR_SIZE || (ARH->committed & 4095) || ARH->bump > ARH->committed) goto refused;
+    uint64_t off = ARH->head[cl];
+    if (off) {
+        if (off < 4096 || (off & 31) || off > ARH->bump || sz > ARH->bump - off) goto refused;
+        b = g_ar + off;
+        uint64_t next = *(uint64_t *)b;
+        if (next && (next == off || next < 4096 || (next & 31) || next > ARH->bump || sz > ARH->bump - next)) goto refused;
+        ARH->head[cl] = next;
+    } else {
+        off = (ARH->bump + 31) & ~31ull;
+        if (off > AR_SIZE || sz > AR_SIZE - off) goto refused;
+        uint64_t end = off + sz;
+        if (end > ARH->committed) {
+            uint64_t to = (end + (1u << 20) - 1) & ~(uint64_t)((1u << 20) - 1);
+            if (!VirtualAlloc(g_ar + ARH->committed, to - ARH->committed, MEM_COMMIT, PAGE_READWRITE)) goto refused;
             ARH->committed = to;
         }
-        ARH->bump = off + sz; b = g_ar + off;
+        ARH->bump = end; b = g_ar + off;
     }
     ARH->allocs++;
     ReleaseSRWLockExclusive(&g_ar_lock);
     uint8_t *p = (uint8_t *)(((uintptr_t)b + 16 + align - 1) & ~(uintptr_t)(align - 1));
     ((uint64_t *)p)[-2] = (uint64_t)(uintptr_t)b; ((uint64_t *)p)[-1] = (uint64_t)cl;
     return p;
+refused:
+    ReleaseSRWLockExclusive(&g_ar_lock); return NULL;
 }
 static size_t ar_usable(void *p) { uint8_t *b = (uint8_t *)(uintptr_t)((uint64_t *)p)[-2]; return (32ull << ((uint64_t *)p)[-1]) - (size_t)((uint8_t *)p - b); }
 static void ar_free(void *p) {
@@ -2741,7 +2798,11 @@ static void ar_free(void *p) {
 #define RA2 (c->x[2])
 static void r_malloc(Ctx *c) { c->x[0] = (uint64_t)(uintptr_t)ar_alloc(RA0 ? RA0 : 1, 16); }
 static void r_free(Ctx *c) { ar_free((void *)(uintptr_t)RA0); }
-static void r_calloc(Ctx *c) { size_t n = (size_t)(RA0 * RA1); void *p = ar_alloc(n ? n : 1, 16); if (p) memset(p, 0, n); c->x[0] = (uint64_t)(uintptr_t)p; }
+static void r_calloc(Ctx *c) {
+    if (RA1 && RA0 > SIZE_MAX / RA1) { c->x[0] = 0; return; }
+    size_t n = (size_t)(RA0 * RA1); void *p = ar_alloc(n ? n : 1, 16);
+    if (p) memset(p, 0, n); c->x[0] = (uint64_t)(uintptr_t)p;
+}
 static void r_realloc(Ctx *c) {
     void *o = (void *)(uintptr_t)RA0; size_t n = RA1 ? (size_t)RA1 : 1;
     if (!o) { c->x[0] = (uint64_t)(uintptr_t)ar_alloc(n, 16); return; }
@@ -2807,9 +2868,7 @@ void r1_register_heap(void) {
         register_imports(md, 3);
     }
     if (!r1_on() || getenv("SSBU_R1_CRT_HEAP")) return;
-    g_ar = VirtualAlloc(NULL, AR_SIZE, MEM_RESERVE, PAGE_NOACCESS);
-    if (!g_ar || !VirtualAlloc(g_ar, 1u << 20, MEM_COMMIT, PAGE_READWRITE)) { g_ar = NULL; LOG("r1: guest heap reservation FAILED\n"); return; }
-    ARH->bump = 4096; ARH->committed = 1u << 20;
+    if (!ar_prepare()) { fight_trace_fail("guest_arena_startup"); LOG("r1: ARENA FATAL: requested guest heap unavailable\n"); abort(); }
     static const ImportDef defs[] = {
         {"malloc", r_malloc}, {"free", r_free}, {"calloc", r_calloc}, {"realloc", r_realloc},
         {"aligned_alloc", r_aligned_alloc}, {"memalign", r_aligned_alloc}, {"posix_memalign", r_posix_memalign},

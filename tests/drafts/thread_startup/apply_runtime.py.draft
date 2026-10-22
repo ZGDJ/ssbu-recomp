@@ -1,0 +1,51 @@
+from pathlib import Path
+p=Path('runtime/r1_state.c');s=p.read_text();s=s.replace('static HANDLE g_ra_wd_ev;','static HANDLE g_ra_wd_ev, g_ra_wd_thread;',1)
+a=s.index('static DWORD WINAPI ra_watchdog(void *p) {');b=s.index('static void ra_workers_hold',a);part=s[a:b].replace('    (void)p;','    HANDLE event = (HANDLE)p;',1).replace('WaitForSingleObject(g_ra_wd_ev,','WaitForSingleObject(event,');s=s[:a]+part+'''static int ra_watchdog_prepare(void) {
+    if (g_ra_wd_ev || g_ra_wd_thread) {
+        if (!g_ra_wd_ev || !g_ra_wd_thread) r1_hold_fatal("partial watchdog startup ownership");
+        return 1;
+    }
+    HANDLE event = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (!event) return 0;
+    HANDLE thread = CreateThread(NULL, 0, ra_watchdog, event, 0, NULL);
+    if (!thread) {
+        if (!CloseHandle(event)) r1_hold_fatal("watchdog startup event cleanup");
+        return 0;
+    }
+    /* The worker owns its immutable event argument; both handles live until process exit. */
+    g_ra_wd_ev = event; g_ra_wd_thread = thread;
+    return 1;
+}
+static void ra_watchdog_signal(void) {
+    if (!g_ra_wd_ev || !SetEvent(g_ra_wd_ev)) r1_hold_fatal("watchdog event signal");
+}
+'''+s[b:]
+s=s.replace('    SetEvent(g_ra_wd_ev);','    ra_watchdog_signal();',1).replace('ra_workers_release(); SetEvent(g_ra_wd_ev);','ra_workers_release(); ra_watchdog_signal();',1)
+needle='static void ra_init(void) {\n    g_ra = 1;';assert needle in s;s=s.replace(needle,'static void ra_init(void) {\n    if (!ra_watchdog_prepare()) r1_hold_fatal("watchdog startup");\n    g_ra = 1;',1)
+old='    g_ra_wd_ev = CreateEventA(NULL, FALSE, FALSE, NULL); CloseHandle(CreateThread(NULL, 0, ra_watchdog, NULL, 0, NULL));\n';assert old in s;s=s.replace(old,'',1);p.write_text(s)
+p=Path('runtime/r1_ring.c');s=p.read_text();s=s.replace('static HANDLE g_rgss_main; static volatile int g_rgss_run;','static HANDLE g_rgss_main, g_rgss_threadhandle; static volatile int g_rgss_run; static int g_rgss_failed;',1)
+a=s.index('static DWORD WINAPI rgss_thread(void *p) {');b=s.index('static void rgs_samp_start',a);part=s[a:b].replace('(void)p; uint64_t fr[64]; int nf;','HANDLE main = (HANDLE)p; uint64_t fr[64]; int nf;',1).replace('g_rgss_main','main');s=s[:a]+part+'''static void rgss_close(HANDLE handle) {
+    if (handle && !CloseHandle(handle)) { LOG("r1: SAMPLER FATAL: startup handle cleanup failed\\n"); abort(); }
+}
+static int rgss_prepare(void) {
+    if (g_rgss_main || g_rgss_threadhandle) {
+        if (!g_rgss_main || !g_rgss_threadhandle) { LOG("r1: SAMPLER FATAL: partial startup ownership\\n"); abort(); }
+        return 1;
+    }
+    HANDLE main = NULL;
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main, 0, FALSE, DUPLICATE_SAME_ACCESS)) return 0;
+    HANDLE thread = CreateThread(NULL, 0, rgss_thread, main, 0, NULL);
+    if (!thread) { rgss_close(main); return 0; }
+    /* The sampler owns its immutable duplicate; both handles live until process exit. */
+    g_rgss_main = main; g_rgss_threadhandle = thread; return 1;
+}
+'''+s[b:]
+a=s.index('static void rgs_samp_start(void) {');b=s.index('static int g_rgss_k',a);s=s[:a]+'''static void rgs_samp_start(void) {
+    if (g_rgss_run || g_rgss_failed || g_rgs_prof != 3) return;
+    if (!rgss_prepare()) {
+        g_rgss_failed = 1; LOG("r1: RB PROF 3 unavailable: sampler startup failed\\n"); return;
+    }
+    g_rgss_run = 1;
+    LOG("r1: RB PROF 3: sampling the main thread every 0.1 ms during the fight\\n");
+}
+'''+s[b:];p.write_text(s)

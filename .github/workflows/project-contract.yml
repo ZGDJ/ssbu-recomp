@@ -57,6 +57,10 @@ jobs:
         run: python -m unittest discover -s tests -p test_catch_source.py -v
       - name: Catch restore preparation regressions
         run: python -m unittest discover -s tests -p test_catch_preflight_source.py -v
+      - name: Guest arena resource and arithmetic regressions
+        run: python -m unittest discover -s tests -p test_arena_source.py -v
+      - name: Diagnostic pad history completeness regressions
+        run: python -m unittest discover -s tests -p test_pad_history_source.py -v
       - name: Learned startup ownership regressions
         run: python -m unittest discover -s tests -p test_learned_startup_source.py -v
       - name: Presentation resource publication regressions

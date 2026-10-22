@@ -9,3 +9,6 @@
 - [Planning migration](2026-10-21-migration.md): transferred contract, reopened work and checks.
 
 Historical WindowSmash evidence remains in its [pinned repository](https://github.com/ZGDJ/WindowSmash/tree/cb110e7e0638acd126fdbe16da5e4011f8e966cf/evidence). It is not OpenSmash implementation evidence. Keep private traces/checkpoints under ignored `artifacts/local/`; sanitize reports and retain failing seeds.
+
+- [Learned startup and presentation resources](2026-10-22-learned-startup.md): staged ownership, source failures and six frozen controls.
+- [Guest arena and diagnostic pad bounds](2026-10-22-arena-pad.md): tested bounds, six passing control types, preserved initial-base refusal and ordering investigation.

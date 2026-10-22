@@ -1,0 +1,9 @@
+# Unimplemented thread-startup packet
+
+These sanitized drafts are preserved for continuation, not active tests or verified runtime changes. The arena/pad checkpoint does not include this implementation. No draft suite has been compiled or executed. The runtime proposal received bounded read-only review; integration and final independent review remain required.
+
+Read `docs/ROLLBACK_HANDOFF.md` and claim M7.8 before proceeding. Review `apply_runtime.py.draft` against the current source; it is a string-edit proposal, not an instruction to execute blindly. It proposes staged watchdog event/thread ownership, immutable worker arguments, checked signaling, and staged optional sampler startup. Both handles are intentionally retained for process lifetime. Startup serialization is assumed, not proven.
+
+After integrating runtime changes, promote each test/fixture into `tests/` with its `.draft` suffix removed. Python ROOT resolution and fixture locations assume that destination. Add the suites to CI only after they pass at O1/O3. Existing `tests/watchdog_source_fixture.c` also needs its `ra_watchdog(NULL)` call changed to a nonnull event token, with `script_wait` asserting that exact handle. Run the existing timing/ownership suite too. The sampler uses scripted handles; the watchdog startup fixture also exercises a real event/thread handoff. Neither proves full writer quiescence.
+
+Other resource follow-ups: passive `r1_veh` registration may report unavailable, but requested mutating `prot_veh` needs checked installation before protection. Check `prot_all`/`prot_open` enumeration, range arithmetic and protection results; a failed protection change must never resume execution or claim success. Review handler activation timing, raw RSP reads and locks separately. `mark_check` currently ignores `sh_commit` before shadow copying. Keep M7.1 partial-restore semantics separate from this resource packet.
