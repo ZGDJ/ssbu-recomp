@@ -580,6 +580,12 @@ int r1_ring_capture(long long frame, Ctx *c) {
  * (their count may change), host stacks made since are left out, modules loaded since get the mark maps. Then slot 0 = this
  * frame (threads, fibers, command buffers as a capture). 1 = done; 0 = not now (a thread not at a wait: next pass). */
 static void rg_noop(uint32_t id, int w, size_t j) { (void)id; (void)w; (void)j; }
+static void rg_rebase_vfree(void *p, size_t n, DWORD kind) {
+    if (p && !VirtualFree(p, n, kind)) {
+        LOG("r1: RING rebase FATAL: VirtualFree failed; no successful rebase claimed\n");
+        abort();
+    }
+}
 int r1_ring_rebase(long long frame, Ctx *c) {
     fibers_capture_config(); rg_meta_config(); nvn_r1_cb_capture_config();
     if (g_rg_nomem == 2) return 0;                        /* (hs13) the ring broke earlier: no rollback */
@@ -615,9 +621,19 @@ int r1_ring_rebase(long long frame, Ctx *c) {
         LOG("r1: RING rebase refused: incomplete range inventory; no published base\n");
         return 0;
     }
-    size_t nwin = g_rg_n1 + g_rg_n2, copied = 0, dropped = 0, freed = 0;
-    uint8_t *in = calloc(nwin, 1);
+    size_t nwin = 0, npg = 0, copied = 0, dropped = 0, freed = 0;
+    uint8_t *in = NULL, *ntouch = NULL;
+    uint32_t *nidx = NULL;
+    uint8_t **nxa = NULL, **nxb = NULL;
     static Extra nx[8192]; int nnx = 0;
+    memset(nx, 0, sizeof nx);
+    if (g_rg_n1 > UINT32_MAX || g_rg_n2 > UINT32_MAX - g_rg_n1 ||
+        g_nx < 0 || g_nx > 8192) goto prepare_failed;
+    nwin = g_rg_n1 + g_rg_n2;
+    if (!nwin || g_rg_nx > UINT32_MAX - nwin) goto prepare_failed;
+    in = calloc(nwin, 1);
+    if (!in) goto prepare_failed;
+    /* Inventory first: no copy, decommit or pool ownership change yet. */
     for (int i = 0; i < g_nr; i++) {
         Rng *r = &g_r[i];
         for (size_t p = 0; p < r->n / PG; p++) {
@@ -625,45 +641,77 @@ int r1_ring_rebase(long long frame, Ctx *c) {
             uint8_t *sh = in_shadow(a, &cm, &pi);
             if (sh) {
                 int w2 = cm == g_sh2c;
-                if (w2 ? g_ns2[pi] : g_ns1[pi]) continue;                    /* not simulation (a host stack) */
+                if (pi >= (w2 ? g_rg_n2 : g_rg_n1)) goto prepare_failed;
+                if (w2 ? g_ns2[pi] : g_ns1[pi]) continue;
                 in[w2 ? g_rg_n1 + pi : pi] = 1;
-                if (!sh_commit(sh, cm, pi)) { free(in); g_rg_nomem = 2; unpark(); LOG("r1: RING rebase: commit of the shadow FAILED (out of memory): no rollback ring for the rest of this session\n"); return 0; }
-                memcpy(sh, a, PG); copied++;
-                if (!w2) g_dc[pi] = 0;
-            } else if (nnx < 8192) {
-                if (nnx && nx[nnx - 1].a + nx[nnx - 1].n == a) nx[nnx - 1].n += PG;
-                else { nx[nnx].a = a; nx[nnx].n = PG; nx[nnx].b = NULL; nnx++; }
+            } else {
+                if (!extra_append(nx, &nnx, a)) goto prepare_failed;
             }
         }
     }
+    for (int i = 0; i < nnx; i++) {
+        size_t pages = nx[i].n / PG;
+        if (pages > UINT32_MAX - nwin - npg) goto prepare_failed;
+        npg += pages;
+    }
+    size_t tot = nwin + npg;
+    if (tot > SIZE_MAX / sizeof *nidx || npg >= SIZE_MAX / sizeof *nxa ||
+        g_rg_nfree > RG_POOL_MAX || g_rg_bump > RG_POOL_MAX) goto prepare_failed;
+    size_t returns = 0;
+    for (size_t id = 0; id < nwin + g_rg_nx; id++) {
+        uint32_t old = g_rg_idx[id];
+        if (old < 2) continue;
+        if (old - 2 >= g_rg_bump || ++returns > RG_POOL_MAX - g_rg_nfree) goto prepare_failed;
+    }
+    nidx = VirtualAlloc(NULL, tot * sizeof *nidx, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    ntouch = VirtualAlloc(NULL, tot, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    nxa = malloc((npg + 1) * sizeof *nxa); nxb = malloc((npg + 1) * sizeof *nxb);
+    if (!nidx || !ntouch || !nxa || !nxb) goto prepare_failed;
+    size_t e = 0, xbytes = 0;
+    for (int i = 0; i < nnx; i++) {
+        nx[i].b = malloc(nx[i].n);
+        if (!nx[i].b) goto prepare_failed;
+        xbytes += nx[i].n;
+        for (size_t o = 0; o < nx[i].n; o += PG) {
+            nxa[e] = nx[i].a + o; nxb[e] = nx[i].b + o; e++;
+        }
+    }
+    /* Successful commitments may remain on refusal; selected bytes stay intact. */
+    for (size_t id = 0; id < nwin; id++) if (in[id]) {
+        int w2 = id >= g_rg_n1; size_t pi = w2 ? id - g_rg_n1 : id;
+        if (!sh_commit((w2 ? g_sh2 : g_sh1) + pi * PG, w2 ? g_sh2c : g_sh1c, pi)) goto prepare_failed;
+    }
+    /* All replacement storage exists. From here cleanup failure is fatal. */
+    for (int i = 0; i < g_nr; i++) {
+        Rng *r = &g_r[i];
+        for (size_t p = 0; p < r->n / PG; p++) {
+            uint8_t *a = r->a + p * PG, *cm; size_t pi;
+            uint8_t *sh = in_shadow(a, &cm, &pi);
+            if (!sh) continue;
+            int w2 = cm == g_sh2c;
+            if (w2 ? g_ns2[pi] : g_ns1[pi]) continue;
+            memcpy(sh, a, PG); copied++;
+            if (!w2) g_dc[pi] = 0;
+        }
+    }
+    for (int i = 0; i < nnx; i++) memcpy(nx[i].b, nx[i].a, nx[i].n);
     for (size_t id = 0; id < nwin; id++) {
-        if (g_rg_idx[id] != RG_FLAT) { if (g_rg_idx[id] >= 2) freed++; rg_pool_put(g_rg_idx[id]); g_rg_idx[id] = RG_FLAT; }
+        if (g_rg_idx[id] >= 2) freed++;
+        rg_pool_put(g_rg_idx[id]);
         if (in[id]) continue;
         int w2 = id >= g_rg_n1; size_t pi = w2 ? id - g_rg_n1 : id; uint8_t *cm = w2 ? g_sh2c : g_sh1c;
-        if (cm[pi]) { VirtualFree((w2 ? g_sh2 : g_sh1) + pi * PG, PG, MEM_DECOMMIT); cm[pi] = 0; dropped++; }
+        if (cm[pi]) { rg_rebase_vfree((w2 ? g_sh2 : g_sh1) + pi * PG, PG, MEM_DECOMMIT); cm[pi] = 0; dropped++; }
     }
-    free(in);
-    {   /* the extras again */
-        size_t npg = 0; for (int i = 0; i < nnx; i++) npg += nx[i].n / PG;
-        size_t tot = nwin + npg;
-        for (size_t e = 0; e < g_rg_nx; e++) rg_pool_put(g_rg_idx[nwin + e]);
-        uint32_t *nidx = VirtualAlloc(NULL, tot * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        uint8_t *ntouch = VirtualAlloc(NULL, tot, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        uint8_t **nxa = malloc((npg + 1) * sizeof *nxa), **nxb = malloc((npg + 1) * sizeof *nxb);
-        if (!nidx || !ntouch || !nxa || !nxb) { LOG("r1: RING rebase: allocation FAILED (out of memory): no rollback ring for the rest of this session\n"); g_rg_nomem = 2; unpark(); return 0; }
-        memcpy(nidx, g_rg_idx, nwin * 4);
-        VirtualFree(g_rg_idx, 0, MEM_RELEASE); VirtualFree(g_rg_touch, 0, MEM_RELEASE); free(g_rg_xa); free(g_rg_xb);
-        for (int i = 0; i < g_nx; i++) free(g_x[i].b);
-        g_rg_idx = nidx; g_rg_touch = ntouch; g_rg_xa = nxa; g_rg_xb = nxb;
-        g_nx = nnx; g_xbytes = 0; size_t e = 0;
-        for (int i = 0; i < nnx; i++) {
-            g_x[i] = nx[i]; g_x[i].b = malloc(g_x[i].n);
-            if (!g_x[i].b) { g_nx = i; g_rg_nx = e; g_rg_nomem = 2; unpark(); LOG("r1: RING rebase: allocation of an extra FAILED (out of memory): no rollback ring for the rest of this session\n"); return 0; }
-            memcpy(g_x[i].b, g_x[i].a, g_x[i].n); g_xbytes += g_x[i].n;
-            for (size_t o = 0; o < g_x[i].n; o += PG) { g_rg_xa[e] = g_x[i].a + o; g_rg_xb[e] = g_x[i].b + o; e++; }
-        }
-        g_rg_nx = npg;
-    }
+    for (size_t id = 0; id < g_rg_nx; id++) rg_pool_put(g_rg_idx[nwin + id]);
+    rg_rebase_vfree(g_rg_idx, 0, MEM_RELEASE); rg_rebase_vfree(g_rg_touch, 0, MEM_RELEASE);
+    free(g_rg_xa); free(g_rg_xb);
+    for (int i = 0; i < g_nx; i++) free(g_x[i].b);
+    g_rg_idx = nidx; g_rg_touch = ntouch; g_rg_xa = nxa; g_rg_xb = nxb;
+    nidx = NULL; ntouch = NULL; nxa = nxb = NULL;
+    memset(g_x, 0, sizeof g_x);
+    for (int i = 0; i < nnx; i++) { g_x[i] = nx[i]; nx[i].b = NULL; }
+    g_nx = nnx; g_xbytes = xbytes; g_rg_nx = npg;
+    free(in); in = NULL;
     double t2 = now_ms();
     rg_meta_capture(s, c, &plan);
     s->frame = frame; s->nent = 0; s->pages = 0; s->xpages = 0;
@@ -679,7 +727,15 @@ int r1_ring_rebase(long long frame, Ctx *c) {
     LOG("r1: RING rebase: base state (frame %lld) made again in %.1f ms (hold %.1f, copy %.1f): %zu window pages copied into the shadow (%.1f MB), %zu pool buffers freed, %zu shadow pages of pages not committed now dropped; extras %d ranges %.1f MB (%zu pages); %d modules got the mark maps\n",
         frame, now_ms() - t0, t1 - t0, t2 - t1, copied, copied * (double)PG / 1048576.0, freed, dropped, g_nx, g_xbytes / 1048576.0, g_rg_nx, nmod);
     return 1;
+prepare_failed:
+    for (int i = 0; i < nnx; i++) { free(nx[i].b); nx[i].b = NULL; }
+    rg_rebase_vfree(nidx, 0, MEM_RELEASE); rg_rebase_vfree(ntouch, 0, MEM_RELEASE);
+    free(nxa); free(nxb); free(in);
+    g_rg_nomem = 2; unpark();
+    LOG("r1: RING rebase refused: inventory or resource preparation failed; no published base\n");
+    return 0;
 }
+
 /* (R3 hs13: tl4 / nmr / le3a / lg2a / lh4, c00000ff in ntdll's unwinder at a lua2cpp L2CExceptionShutdown throw, about 1 loop
  * run in 5 at the same frame) nnunwind.c's catch table g_catch maps a guest frame (CFA) to a host jmp_buf ON A HOST STACK.
  * The table is state (an extra, rolled back with the rest), but only SOME host stacks go back with it: those of the fibers

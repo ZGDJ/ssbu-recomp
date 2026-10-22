@@ -1167,6 +1167,23 @@ static uint8_t *g_ns1, *g_ns2; static int is_nosim(uint8_t *a);
 #define WN2 0x200000000ull
 typedef struct { uint8_t *a; size_t n; uint8_t *b; } Extra;
 static Extra g_x[8192]; static int g_nx; static size_t g_xbytes;
+/* Append one complete page, extending the final run before testing capacity. */
+static int extra_append(Extra *list, int *count, uint8_t *a) {
+    if (*count < 0 || *count > 8192 || (uintptr_t)a > UINTPTR_MAX - PG) return 0;
+    if (*count) {
+        Extra *last = &list[*count - 1];
+        if (last->n > UINTPTR_MAX - (uintptr_t)last->a) return 0;
+        if ((uintptr_t)last->a + last->n == (uintptr_t)a) {
+            if (last->n > SIZE_MAX - PG) return 0;
+            last->n += PG;
+            return 1;
+        }
+    }
+    if (*count == 8192) return 0;
+    list[*count].a = a; list[*count].n = PG; list[*count].b = NULL;
+    ++*count;
+    return 1;
+}
 static double g_ms_s[4096], g_ms_r[4096], g_ms_scan[4096]; static size_t g_pg_s[4096], g_pg_r[4096]; static int g_nms, g_nmr;
 static long long g_miss_total, g_miss_remarked, g_miss_remarked_last; static int g_miss_cycles;
 static int win_index(uint8_t *a, uint8_t **map, size_t *pi);
@@ -1303,9 +1320,9 @@ static int mark_setup(void) {
         for (size_t p = 0; p < r->n / PG; p++) {
             uint8_t *cm; size_t pi;
             if (in_shadow(r->a + p * PG, &cm, &pi)) continue;
-            if (g_nx < 8192) {
-                if (g_nx && g_x[g_nx - 1].a + g_x[g_nx - 1].n == r->a + p * PG) g_x[g_nx - 1].n += PG;
-                else { g_x[g_nx].a = r->a + p * PG; g_x[g_nx].n = PG; g_x[g_nx].b = NULL; g_nx++; }
+            if (!extra_append(g_x, &g_nx, r->a + p * PG)) {
+                LOG("r1: MARK setup refused: incomplete extras inventory; marks OFF\n");
+                mark_undo(); return 0;
             }
         }
     }
