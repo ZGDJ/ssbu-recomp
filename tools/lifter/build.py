@@ -7,6 +7,9 @@
     python build.py nro <module> [...]          lift + compile + link one DLL per run-time module (see build_nro.py)
 """
 import concurrent.futures
+import hashlib
+import json
+import shutil
 import os
 import subprocess
 import sys
@@ -59,6 +62,51 @@ GEN_HEADERS = ['runtime.h', 'neon.h', 'fpexact.h']
 SLOW_FILES = {'c_019e.c', 'c_00a3.c', 'c_013a.c', 'c_0099.c', 'c_0367.c', 'c_03f7.c', 'c_00b3.c', 'c_03d9.c', 'c_012f.c', 'c_00cf.c', 'c_040e.c', 'c_0180.c', 'c_04a5.c'}
 
 
+def read_hashes(objdir):
+    try:
+        with open(os.path.join(objdir, '_srchash.json')) as f:
+            value = json.load(f)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_hashes(objdir, hashes):
+    # Invalidate pending entries before invoking compilers: even an interrupted compiler may leave an object.
+    path = os.path.join(objdir, '_srchash.json')
+    with open(path + '.tmp', 'w') as f:
+        json.dump(hashes, f, sort_keys=True)
+    os.replace(path + '.tmp', path)
+
+
+def content_key(paths, config=()):
+    h = hashlib.sha256(repr(config).encode())
+    for path in sorted(set(os.path.abspath(p) for p in paths)):
+        h.update(path.encode())
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def compile_context(compiler, config, gen):
+    # These are the local include roots of the supported generated-code commands. Hash once per batch,
+    # including generated headers and platform/nocrt headers; mtimes never authorize reuse.
+    paths = [shutil.which(compiler) or compiler]
+    for root in (HERE, gen, os.path.join(HERE, 'plat'), NOCRT_DIR):
+        if os.path.isdir(root):
+            paths += [os.path.join(root, n) for n in os.listdir(root) if n.endswith(('.h', '.inc'))]
+    paths += [__file__]
+    return content_key(paths, config)
+
+
+def plain_config():
+    return CLANG, (CFLAGS, NOCRT_FLAGS, OPT, sorted(SLOW_FILES))
+
+
+compile_config = plain_config       # build_opt supplies its actual compiler and fallback policy
+
+
 def compile_one(name):
     src = os.path.join(GEN, name)
     obj = os.path.join(OBJ, name[:-2] + '.obj')
@@ -76,42 +124,14 @@ order_key = None          # build_opt.py: compile order (slowest first by measur
 def cmd_compile(jobs, force):
     os.makedirs(OBJ, exist_ok=True)
     sources = sorted(n for n in os.listdir(GEN) if n.endswith('.c'))
-    # only the headers the generated code includes; hostrt.h belongs to the host sources, which cmd_link rebuilds when they are stale
-    newest_header = max(os.path.getmtime(os.path.join(HERE, h)) for h in GEN_HEADERS)
-    # content check on top of the dates: an object whose source, headers and flags hash to what it was compiled from is kept
-    # even when the files are newer (an update that rewrote them with the same bytes, a lifter run that regenerated equal
-    # files): before, any newer date recompiled, and touching runtime.h recompiled the whole game
-    import hashlib, json
-    hpath = os.path.join(OBJ, '_srchash.json')
-    try:
-        known = json.load(open(hpath))
-    except (OSError, ValueError):
-        known = {}
-    hh = hashlib.sha1(repr([os.environ.get(k, '') for k in ('RECOMP_CFLAGS', 'RECOMP_INLINE', 'RECOMP_OPT', 'RECOMP_TARGET', 'RECOMP_NOCRT')]).encode())
-    for h in GEN_HEADERS:
-        with open(os.path.join(HERE, h), 'rb') as f:
-            hh.update(f.read())
-    hkey = hh.hexdigest()
-    def src_hash(n):
-        with open(os.path.join(GEN, n), 'rb') as f:
-            return hashlib.sha1(f.read() + hkey.encode()).hexdigest()
-    todo, cur, kept = [], {}, 0
-    for n in sources:
-        obj = os.path.join(OBJ, n[:-2] + '.obj')
-        if force or not os.path.exists(obj):
-            todo.append(n)
-            continue
-        if os.path.getmtime(obj) >= max(os.path.getmtime(os.path.join(GEN, n)), newest_header):
-            cur[n] = known[n] if n in known else src_hash(n)     # (first run with the check: the record is made now)
-            continue
-        cur[n] = src_hash(n)
-        if known.get(n) == cur[n]:
-            os.utime(obj, None)                  # equal content: the object stands; dated now so the date check agrees next time
-            kept += 1
-        else:
-            todo.append(n)
-    if kept:
-        print('objects kept because their source, headers and flags are unchanged (only the dates were newer): %d' % kept, flush=True)
+    known = read_hashes(OBJ)
+    compiler, config = compile_config()
+    context = compile_context(compiler, config, GEN)
+    keys = {n: content_key([os.path.join(GEN, n)], context) for n in sources}
+    todo = [n for n in sources if force or not os.path.exists(os.path.join(OBJ, n[:-2] + '.obj'))
+            or known.get(n) != keys[n]]
+    cur = {n: keys[n] for n in sources if n not in todo}
+    write_hashes(OBJ, cur)
     wanted = set(n[:-2] + '.obj' for n in sources)
     for n in os.listdir(OBJ):
         if n.endswith('.obj') and n not in wanted:
@@ -144,14 +164,14 @@ def cmd_compile(jobs, force):
                     failed.append(name)
                     print('FAILED again %s\n%s' % (name, err), flush=True)
     print('compiled: %d   failed: %d   elapsed: %.0fs' % (len(todo) - len(failed), len(failed), time.time() - t0), flush=True)
-    for n in todo:                                   # what each object was made from (cmd_compile's content check)
+    for n in todo:
         if n not in failed:
-            cur[n] = src_hash(n)
-    try:
-        with open(hpath, 'w') as f:
-            json.dump(cur, f)
-    except OSError:
-        pass
+            cur[n] = keys[n]
+        else:
+            obj = os.path.join(OBJ, n[:-2] + '.obj')
+            if os.path.exists(obj):
+                os.remove(obj)
+    write_hashes(OBJ, cur)
     return 1 if failed else 0
 
 
@@ -214,11 +234,17 @@ def debug_link_flags(out):
 
 def lld_def_lib(def_path, lib):
     """An import library from a .def file, made by lld-link alone (no MSVC lib.exe, no Windows SDK)."""
-    if os.path.exists(lib) and os.path.getmtime(lib) >= os.path.getmtime(def_path):
+    known = read_hashes(os.path.dirname(lib))
+    key = content_key([def_path, shutil.which(LLD_LINK) or LLD_LINK, __file__])
+    if os.path.exists(lib) and known.get(os.path.basename(lib)) == key:
         return lib
+    known.pop(os.path.basename(lib), None)
+    write_hashes(os.path.dirname(lib), known)
     r = subprocess.run([LLD_LINK, '/machine:x64', '/def:' + def_path, '/out:' + lib], capture_output=True, text=True, errors='replace')
     if r.returncode:
         raise SystemExit('lld-link could not make %s from %s:\n%s' % (lib, def_path, (r.stdout + r.stderr)[-2000:]))
+    known[os.path.basename(lib)] = key
+    write_hashes(os.path.dirname(lib), known)
     return lib
 
 
@@ -226,10 +252,16 @@ def nocrt_fltused(libdir):
     """nocrt\\fltused.c -> an object defining _fltused, which clang references from every object that uses floating point
     (the C runtime defines it; the module DLLs have no C runtime). The game DLL has it in game_data.c."""
     src, obj = os.path.join(NOCRT_DIR, 'fltused.c'), os.path.join(libdir, 'fltused.obj')
-    if not os.path.exists(obj) or os.path.getmtime(obj) < os.path.getmtime(src):
+    known = read_hashes(libdir)
+    key = content_key([src], compile_context(CLANG, NOCRT_FLAGS, libdir))
+    if not os.path.exists(obj) or known.get('fltused.c') != key:
+        known.pop('fltused.c', None)
+        write_hashes(libdir, known)
         r = subprocess.run([CLANG, '-c', '-O1'] + NOCRT_FLAGS + [src, '-o', obj], capture_output=True, text=True, errors='replace')
         if r.returncode:
             raise SystemExit('clang could not compile %s:\n%s' % (src, (r.stdout + r.stderr)[-2000:]))
+        known['fltused.c'] = key
+        write_hashes(libdir, known)
     return obj
 
 
@@ -237,7 +269,7 @@ def link_dll(objs, dll, rsp, implib=True, fltused=False):
     """Objects -> DLL: with clang's default linker (MSVC link.exe and the static C runtime) or, under RECOMP_NOCRT, with
     lld-link alone against the import libraries of nocrt\\ (ucrtbase.dll, ntdll.dll). fltused: add the _fltused object
     (DLLs whose objects do not define it). Returns the CompletedProcess."""
-    libdir = os.path.join(HERE, 'obj_nocrt')
+    libdir = os.path.join(os.path.dirname(rsp), 'nocrt')
     if NOCRT and fltused:
         os.makedirs(libdir, exist_ok=True)
         objs = list(objs) + [nocrt_fltused(libdir)]
@@ -258,9 +290,10 @@ def link_dll(objs, dll, rsp, implib=True, fltused=False):
 def compile_game_data(objdir, shim):
     """The DLL's shim and GAME_DATA_SOURCES (the dump-derived host tables and the lifted SDK code) -> objects."""
     os.makedirs(objdir, exist_ok=True)
-    newest_h = max([os.path.getmtime(os.path.join(HERE, h)) for h in os.listdir(HERE) if h.endswith('.h')] + [os.path.getmtime(os.path.abspath(__file__))])
     flags = ['-c', '-O1', '-w', '-fno-strict-aliasing', '-DSDKLIFT_GEN', '-I', HERE, '-I', GEN] + NOCRT_FLAGS + PLAT_FLAGS + os.environ.get('RECOMP_DATA_CFLAGS', '').split()
-    jobs, objs = [], []
+    known = read_hashes(objdir)
+    context = compile_context(CLANG, flags, GEN)
+    jobs, objs, cur, keys = [], [], {k: v for k, v in known.items() if k == '$link'}, {}
     for src in [shim] + [os.path.join(HERE, n) for n in GAME_DATA_SOURCES]:
         if not os.path.exists(src):
             print('%s is missing: an earlier step of scripts/setup.py writes it (tables, sdk, modules)' % src)
@@ -270,15 +303,40 @@ def compile_game_data(objdir, shim):
         name = '_shim' if os.path.basename(shim) == 'game_shim_eh.c' else '_shim_' + os.path.basename(shim)[:-2]
         obj = os.path.join(objdir, (name if src == shim else os.path.basename(src)[:-2]) + '.obj')
         objs.append(obj)
-        if not os.path.exists(obj) or os.path.getmtime(obj) < max(os.path.getmtime(src), newest_h):
+        # The selected shim textually includes the base implementation (R1 -> EH -> base).
+        # These are source dependencies, not separately linked translation units.
+        included = {'game_shim_eh.c': ['game_shim.c'],
+                    'game_shim_r1.c': ['game_shim_eh.c', 'game_shim.c']}
+        deps = [src] + [os.path.join(HERE, n) for n in included.get(os.path.basename(src), [])]
+        key = content_key(deps, context)
+        keys[obj] = key
+        if not os.path.exists(obj) or known.get(os.path.basename(obj)) != key:
             jobs.append([CLANG] + flags + [src, '-o', obj])
+        else:
+            cur[os.path.basename(obj)] = key
+    write_hashes(objdir, cur)
     failed = 0
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
         for argv, r in zip(jobs, pool.map(lambda a: subprocess.run(a, capture_output=True, text=True, errors='replace'), jobs)):
             if r.returncode:
                 failed += 1
                 print('FAILED %s\n%s' % (os.path.basename(argv[-3]), (r.stdout + r.stderr)[-3000:]))
+                if os.path.exists(argv[-1]):
+                    os.remove(argv[-1])
+            else:
+                cur[os.path.basename(argv[-1])] = keys[argv[-1]]
+    write_hashes(objdir, cur)
     return None if failed else objs
+
+
+def dll_key(objs, dll, fltused=False):
+    compiler = LLD_LINK if NOCRT and not TARGET_POSIX else CLANG
+    paths = list(objs) + [shutil.which(compiler) or compiler, __file__]
+    if NOCRT and not TARGET_POSIX:
+        paths += [os.path.join(NOCRT_DIR, n + '.def') for n in ('ucrtbase_min', 'ntdll_min')]
+        if fltused:
+            paths += [os.path.join(NOCRT_DIR, 'fltused.c'), shutil.which(CLANG) or CLANG]
+    return content_key(paths, (dll, NOCRT, TARGET_LINUX, TARGET_MACOS, PLAT_FLAGS, NOCRT_FLAGS, fltused))
 
 
 def build_game_dll():
@@ -290,13 +348,18 @@ def build_game_dll():
     if data_objs is None:
         return 1
     objs = sorted(os.path.join(OBJ, n) for n in os.listdir(OBJ) if n.endswith('.obj')) + data_objs
-    newest = max(os.path.getmtime(o) for o in objs)
-    if os.path.exists(dll) and os.path.exists(lib) and os.path.getmtime(dll) >= newest:
+    known = read_hashes(data_dir)
+    key = dll_key(objs, dll)
+    if os.path.exists(dll) and os.path.exists(lib) and known.get('$link') == key:
         return 0
+    known.pop('$link', None)
+    write_hashes(data_dir, known)
     t0 = time.time()
     r = link_dll(objs, dll, os.path.join(data_dir, 'link.rsp'))
     print((r.stdout + r.stderr)[-4000:])
     if r.returncode == 0:
+        known['$link'] = key
+        write_hashes(data_dir, known)
         print('linked %s: %.0f MB in %.0fs%s' % (dll, os.path.getsize(dll) / 1048576.0, time.time() - t0, ' (lld-link, no C runtime)' if NOCRT else ''))
     else:
         print('could not link %s (is a game exe still running and holding it open?)' % GAME_DLL)

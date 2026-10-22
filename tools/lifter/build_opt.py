@@ -68,6 +68,37 @@ POSIX_TARGET = os.environ.get('RECOMP_TARGET') in ('linux', 'macos')
 DEF = re.compile(r'^(?:static )?void (\w+)\((Ctx \*c(?:, uint64_t rp)?)\) \{$')
 
 
+_cache_context = ''
+
+
+def prepare_cache():
+    global _cache_context
+    policy = (OPT, EXTRA, INLINE, INLINE_LIMIT, OPTNONE_LINES, TIME_LIMIT, MEM_LIMIT, MEM_BUDGET,
+              POSIX_TARGET, build.NOCRT_FLAGS, build.PLAT_FLAGS)
+    _cache_context = build.compile_context(CLANG, policy, HERE)
+    _cache_context = build.content_key([__file__], _cache_context)
+
+
+def main_config():
+    return CLANG, ('optimized-main', _cache_context)
+
+
+def nro_config(flags):
+    base = [a for a in flags if a not in ('-c', '-O0', '-O1', '-O2')]
+    return CLANG, ('optimized-nro', base, _cache_context)
+
+
+def local_header_key(src):
+    # Compiler/root-header/policy identity is computed once by the entry point, local headers per source.
+    h = hashlib.sha256(_cache_context.encode())
+    root = os.path.dirname(src)
+    for name in sorted(n for n in os.listdir(root) if n.endswith(('.h', '.inc'))):
+        h.update(name.encode())
+        with open(os.path.join(root, name), 'rb') as f:
+            h.update(f.read())
+    return h.hexdigest()
+
+
 def function_sizes(path):
     """[(statements, name, parameters)] for every function defined in a generated C file."""
     out = []
@@ -264,7 +295,7 @@ def hints(objdir):
 
 def hint_key(src):
     with open(src, 'rb') as f:
-        return hashlib.sha1(f.read() + repr((OPT, EXTRA, INLINE)).encode()).hexdigest()
+        return hashlib.sha1(f.read() + repr((OPT, EXTRA, INLINE, local_header_key(src))).encode()).hexdigest()
 
 
 def hint_save(objdir, name, key, secs, inlined):
@@ -288,7 +319,7 @@ def compile_file(src, obj, base_flags, time_limit=None, extra=None):
     total = 0.0
     objdir, name = os.path.dirname(obj), os.path.basename(obj)
     with open(src, 'rb') as f:
-        key = hashlib.sha1(f.read() + repr((OPT, extra, base_flags, OPTNONE_LINES, time_limit) + ((MEM_LIMIT,) if MEM_LIMIT else ())).encode()).hexdigest()
+        key = hashlib.sha1(f.read() + repr((OPT, extra, base_flags, OPTNONE_LINES, time_limit, local_header_key(src)) + ((MEM_LIMIT,) if MEM_LIMIT else ())).encode()).hexdigest()
     known = ladder(objdir).get(name)
     first = known[1] if known and known[0] == key else 0
     want = mem_estimate(src, function_sizes(src)) if MEM_BUDGET else 0      # Linux / macOS: this compile's share of RAM
@@ -421,19 +452,9 @@ def cmd_main(jobs):
     build.compile_one = compile_one_main
     _jobs[0] = jobs
     limit_memory(jobs)
+    prepare_cache()
+    build.compile_config = main_config
     t0 = time.time()
-    # objects compiled with the other RECOMP_INLINE setting are compiled again (the compile skips an object newer than its
-    # source, whatever flags made it): a build from before inlining existed gets the faster code on its next update
-    stamp, want = os.path.join(build.OBJ, '_inline.txt'), '1' if INLINE else '0'
-    try:
-        have = open(stamp).read().strip()
-    except OSError:
-        have = None                          # no stamp: objects from before the stamp existed were compiled without inlining
-    old = [n for n in os.listdir(build.OBJ) if n.endswith('.obj')] if os.path.isdir(build.OBJ) else []
-    if old and have != want and (have is not None or want == '1'):
-        print('the game objects were compiled %s the inlined helpers: all %d are compiled again (once)' % ('with' if have == '1' else 'without', len(old)), flush=True)
-        for n in old:
-            os.remove(os.path.join(build.OBJ, n))
     def order_key(n):                    # slowest first by the time it took before (same source and flags), else by size
         h = hints(build.OBJ).get(n[:-2] + '.obj')
         size = os.path.getsize(os.path.join(build.GEN, n))
@@ -448,8 +469,6 @@ def cmd_main(jobs):
     report(build.OBJ)
     if rc:
         return rc
-    with open(stamp, 'w') as f:
-        f.write(want + chr(10))
     rc = build.build_game_dll()
     print('main: compile + link %.0fs' % (time.time() - t0))
     return rc
@@ -471,6 +490,8 @@ def run_clang_nro(job):
 def cmd_nro(jobs, names):
     build_nro.run_clang = run_clang_nro
     limit_memory(jobs)
+    prepare_cache()
+    build_nro.compile_config = nro_config
     if not names:
         names = [e['name'] for e in build_nro.load_map()]
     rc = build_nro.main(names + ['--jobs=%d' % jobs])
@@ -485,6 +506,22 @@ def cmd_nro(jobs, names):
     return rc
 
 
+def cmd_one(source, time_limit=None):
+    prepare_cache()
+    objdir = os.environ.get('RECOMP_ONE_OUT', build.OBJ)
+    os.makedirs(objdir, exist_ok=True)
+    src = source if os.path.isabs(source) else os.path.join(build.GEN, source)
+    obj = os.path.join(objdir, os.path.basename(src)[:-2] + '.obj')
+    # This diagnostic uses a different command from main. Do not let a prior main success bless its
+    # output, including a partial object left by a failed diagnostic compile.
+    known = build.read_hashes(objdir)
+    known.pop(os.path.basename(src), None)
+    build.write_hashes(objdir, known)
+    code, out, secs, note = compile_file(src, obj, ['-w', '-fno-strict-aliasing', '-I', HERE, '-I', os.path.dirname(src)], time_limit)
+    print('%s: exit %s  %.1fs  %s  %s' % (os.path.basename(src), code, secs, note or 'fully optimised', out.strip()[:500]))
+    return code
+
+
 if __name__ == '__main__':
     cmd = sys.argv[1]
     if cmd == 'main':
@@ -494,11 +531,7 @@ if __name__ == '__main__':
         jobs = int(rest.pop(0)) if rest and rest[0].isdigit() else 28
         sys.exit(cmd_nro(jobs, rest))
     if cmd == 'one':
-        os.makedirs(build.OBJ, exist_ok=True)
-        src = sys.argv[2] if os.path.isabs(sys.argv[2]) else os.path.join(build.GEN, sys.argv[2])
-        obj = os.path.join(os.environ.get('RECOMP_ONE_OUT', build.OBJ), os.path.basename(src)[:-2] + '.obj')
-        code, out, secs, note = compile_file(src, obj, ['-w', '-fno-strict-aliasing', '-I', HERE, '-I', os.path.dirname(src)], float(sys.argv[3]) if len(sys.argv) > 3 else None)
-        print('%s: exit %s  %.1fs  %s  %s' % (os.path.basename(src), code, secs, note or 'fully optimised', out.strip()[:500]))
+        sys.exit(cmd_one(sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else None))
     if cmd == 'sizes':
         rows = []
         for n in sorted(os.listdir(sys.argv[2])):

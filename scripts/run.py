@@ -59,13 +59,21 @@ def main():
     ap.add_argument('--seed', help='SSBU_FIXED_SEED value (deterministic random numbers)')
     ap.add_argument('--log', help='write the game output to this file instead of the console')
     ap.add_argument('--env', action='append', default=[], help='NAME=VALUE, may be repeated')
+    ap.add_argument('--identity-runtime', help='frozen runtime package folder for an identified Windows scripted trial')
+    ap.add_argument('--identity-output', help='new prelaunch identity JSON (never overwrites prior evidence)')
     ap.add_argument('--mac', action='store_true', help='the native macOS build (default build folder build-macos, exe ssbu_native, '
                                                       'saves in ~/Library/Application Support/ssbu-recomp/userdata unless --userdata)')
     a = ap.parse_args()
+    if bool(a.identity_runtime) != bool(a.identity_output):
+        ap.error('--identity-runtime and --identity-output must be supplied together')
+    if a.identity_runtime and (a.play or a.linux or a.mac or not a.seq or a.seconds <= 0):
+        ap.error('identity recording requires a bounded Windows scripted trial (--seq and --seconds)')
     if sys.platform.startswith('linux') and not a.linux and not a.build and not os.path.exists(os.path.join(REPO, 'build', 'state.json')):
         a.linux = True
     if sys.platform == 'darwin' and not a.mac and not a.linux and not a.build and os.path.exists(os.path.join(REPO, 'build-macos', 'state.json')):
         a.mac = True
+    if a.identity_runtime and (a.linux or a.mac):
+        ap.error('identity recording currently supports Windows trials only')
     if a.mac:
         a.build = os.path.abspath(a.build or os.path.join(REPO, 'build-macos'))
         if not a.userdata:
@@ -192,6 +200,15 @@ def main():
     os.makedirs(a.userdata, exist_ok=True)
     os.makedirs(os.path.join(a.build, 'cache'), exist_ok=True)      # the runtime creates ..\cache\vk below it but not the folder itself (found 2026-10-13: with SSBU_VK_PREP=0 on a clean build nothing was saved)
     cmd = [exe, os.path.join(a.build, 'binaries', state.get('game_version', '13.0.4'), 'main.elf'), str(a.seconds)]
+    if a.identity_runtime:
+        import battle_identity
+        try:
+            identity = battle_identity.write(a.identity_output, logfile=a.log, build=a.build, runtime=a.identity_runtime,
+                                             exe=exe, sequence=a.seq, env=env, seconds=a.seconds)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print('battle identity refused before launch: %s' % error)
+            return 1
+        print('prelaunch battle identity: ' + identity['identity_sha256'])
     t0 = time.time()
     out = open(a.log, 'wb') if a.log else None
     p = subprocess.run(cmd, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT if out else None)

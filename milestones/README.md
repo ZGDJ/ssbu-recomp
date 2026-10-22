@@ -14,9 +14,23 @@ Run `python tools/check_project_docs.py` for calculated counts, effort totals an
 
 Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 is closed against the recorded hosted planning CI run.
 
-After local setup, validate diagnostic gates with M0.10 alongside **M7.9**; do not run rollback comparisons through reporting-only scripts. Prioritize **M7.9**, then **M7.8 -> M7.1 -> M7.3 -> M7.2**. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
+M0.10 and M7.9 are complete within their recorded scope; reuse them rather than rebuilding test infrastructure. Preserve the necessary safety chain **M7.8 -> M7.1 -> M7.3 -> M7.2**, but do not expand M7.8 with unrelated investigations. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M1.1 and M6.1 are independent source/planning work. Missing private inputs must not block these packets.
 
 M7 completion means source failure regressions and production wiring are verified, not that actual battle replay works. M2/M3/M4 qualify native behavior; M5 qualifies network outcomes. Do not retrofit gameplay evidence into synthetic passes. Sizes are re-estimated scope; M7.9 is shared test infrastructure, not duplicate implementation effort.
+
+Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and [audit](../evidence/2026-10-22-private-network-audit.md). Preserve the M7 engine sequence. M5.4/M5.5 add source-level private pair ownership/routing alongside dependency-ready protocol work; actual network qualification remains after offline gates. M5.7-M5.11 deliver a persistent four-member lobby and mandatory delayed spectating after baseline 1v1 proof, before family release; simultaneous multiplayer remains deferred. No new capability is marked done by this plan.
+
+## Proof-first execution priorities
+
+See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
+
+1. Preserve the current runtime owner/candidate and failed controls. At the next handoff, separate finite M7.8 resource acceptance from M3.5 early forward-divergence research; do not forcibly transfer an active claim. Current RNG observation is relevant to M3.5, not new resource-hardening acceptance. SDK restore controls remain unrun until its failed baseline/reference is understood.
+2. In disjoint scope, prioritize M1.1 and M1.4, then M1.3/M1.2, plus the named early fixture subset of M6.1. Reuse existing manifests/build tooling; close missing acceptance, not build a parallel system. These prerequisites unblock formal M2-M4 proof.
+3. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
+4. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
+5. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
+
+Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Optional SSBU_MEM_KEEP work must first determine whether the supported candidate uses it and whether isolation is safe; no present assertion that disabling it is sufficient. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
 
 ## M0 - Foundation and source reliability
 
@@ -144,26 +158,26 @@ M7 completion means source failure regressions and production wiring are verifie
 ## M1 - Reproducible 13.0.5 baseline
 
 ### M1.1 - Input and build identity tooling
-- Status: todo
+- Status: done
 - Depends: M0.1, M0.3
 - Size: 3
 - Requirement: FSD-001, FSD-011
-- Evidence: none
+- Evidence: evidence/2026-10-22-battle-identity.md
 - Acceptance: Implement or adapt an OpenSmash build/input manifest recording version/runtime/compiler/content/config identities with synthetic tests and no private data.
-- Owner: unassigned
-- Next: Inventory scripts/setup.py and build metadata; old baseline_manifest.py was not migrated.
+- Owner: root/M1.1 identity binding, 2026-10-22T13:33:45.980654+00:00
+- Next: Source tooling and 16 regressions are complete; M1.2 now records a consistent isolated rebuilt candidate and three complete identified matches. Preserve the original glslang/package refusal; continue M1.3.
 - Blocker: none
 
 ### M1.2 - Build and complete 13.0.5 offline matches
-- Status: blocked
+- Status: done
 - Depends: M1.1, M1.4, M1.7
 - Size: 5
 - Requirement: FSD-001
-- Evidence: none
+- Evidence: evidence/2026-10-22-offline-fixture.md
 - Acceptance: Actual 13.0.5 build and three complete fixture matches satisfy FSD-001 with identified artifacts.
-- Owner: unassigned
-- Next: Locate owner-provided 13.0.5 inputs and supported compiler; follow root BUILDING.md without auto-discovering unrelated private files.
-- Blocker: Owner-supplied archive is now available and local setup is M1.5; formal identity/cache prerequisites M1.1/M1.4 and three fixture matches remain unverified.
+- Owner: root/M1.2 complete offline fixture, 2026-10-22T14:26:07.388668+00:00
+- Next: Reuse the identified isolated baseline for M1.3 critical-hook validation and dependency-qualified M2.1 simulation-step proof; do not infer rollback or deterministic replay from offline completion.
+- Blocker: none for M1.2 acceptance. Setup resume and three consecutive identified complete matches (rebuilt-b/c/d) pass independent review and final frozen-input checks. Original build refusal and incomplete rebuilt-a remain preserved.
 
 ### M1.3 - Critical hook validation
 - Status: todo
@@ -177,14 +191,14 @@ M7 completion means source failure regressions and production wiring are verifie
 - Blocker: none
 
 ### M1.4 - Invalidate stale compiled objects
-- Status: todo
+- Status: done
 - Depends: M0.3
 - Size: 3
 - Requirement: FSD-001, FSD-011
-- Evidence: none
+- Evidence: evidence/2026-10-22-build-cache.md
 - Acceptance: Audit OpenSmash compiler cache identity; changed source/header/compiler/config invalidates outputs; unchanged reuse, failure retry and isolation verified by source tests.
-- Owner: unassigned
-- Next: Inspect tools/lifter build paths and tests/build_opt_sched_test.py before proposing cache changes.
+- Owner: root/M1.4 cache validation, 2026-10-22T14:08:18.782738+00:00
+- Next: Scoped cache acceptance is complete. M1.2 now records successful isolated setup and three complete matches after a preserved Windows cache-publication refusal and unchanged-code resume. Continue M1.3; no broad cache framework is needed.
 - Blocker: none
 
 ### M1.5 - Local OpenSmash setup from supplied inputs
@@ -293,13 +307,13 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ### M3.2 - Prove forward replay
 - Status: todo
-- Depends: M3.1, M3.4
+- Depends: M3.1, M3.4, M3.5
 - Size: 8
 - Requirement: FSD-004
 - Evidence: evidence/2026-10-22-setup-sweep.md
 - Acceptance: Two runs of the same 10,000-tick input tape match every frame locally and cross-process; divergence artifacts preserved.
 - Owner: unassigned
-- Next: Investigate preserved setup-sweep post-commit A divergence: RNG first differs at real frame 2, motion later, before first full save at fight frame 217. Internal replay matches but mandatory forward-reference comparison fails. Causality unresolved; split clock/RNG/scheduling/FP investigation without weakening reference checks.
+- Next: Investigate preserved setup-sweep post-commit A divergence: RNG first differs at real frame 2, motion later, before first full save at fight frame 217. Internal replay matches but mandatory forward-reference comparison fails. Causality unresolved; split clock/RNG/scheduling/FP investigation without weakening reference checks. SDK memory post-commit A and reuse B independently failed at RNG real frame 2 and motion real frame 300; preserve its evidence/2026-10-22-sdk-memory.md record without treating a retry as diagnosis.
 - Blocker: none
 
 ### M3.3 - Qualify inherited checkpoint representation
@@ -322,6 +336,17 @@ M7 completion means source failure regressions and production wiring are verifie
 - Acceptance: Named battle mechanics compared with pinned upstream 13.0.5 behavior; instrumentation differences/limitations documented and no unexplained semantic changes.
 - Owner: unassigned
 - Next: Define representative damage/timing/movement/collision reference cases alongside the replay harness.
+- Blocker: none
+
+### M3.5 - Resolve observed early forward divergence
+- Status: todo
+- Depends: M1.7, M7.9
+- Size: 5
+- Requirement: FSD-004, FSD-013
+- Evidence: evidence/2026-10-22-rng-checkpoints.md
+- Acceptance: Attribute the preserved early RNG/reference discrepancy to a verified runtime writer/seed, scheduling or fixture cause; distinguish observed execution from candidate source/object identity. Validate a bounded correction or justified fixture treatment against preserved failures and original behavior without arbitrary reseeding, hash weakening or discarded references. Repeated uninstrumented same-tape runs agree for the chosen diagnostic interval; record coverage limits and unresolved cases. This does not close M3.2's 10,000-tick/state-coverage gate.
+- Owner: unassigned
+- Next: Own early RNG attribution previously recorded under M7.8; preserve the synchronous-checkpoint candidate. Use the smallest observation distinguishing direct-reset candidates f7101342830/f7101344cf0 and seed ownership. Stop each probe at its declared evidence question; if it adds no information, revise the hypothesis rather than stacking hooks. Resume required SDK controls only after reference failures are explained/addressed.
 - Blocker: none
 
 ## M4 - Offline rollback proof
@@ -385,13 +410,13 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ### M5.1 - Qualify custom session architecture
 - Status: todo
-- Depends: M4.3, M7.4, M7.5, M7.6, M7.7
+- Depends: M4.3, M7.4, M7.5, M7.6, M7.7, M5.5
 - Size: 3
 - Requirement: FSD-008
 - Evidence: none
 - Acceptance: Review ADR-0007 provisional backend against offline evidence; specify verified identity/readiness, epoch, confirmation, prediction/pacing and failure policy; retain custom backend or justify replacement.
 - Owner: unassigned
-- Next: Use existing rb_net/rb_rollback integration; GGPO adoption requires an explicit new decision.
+- Next: Qualify ADR-0008 private pair contract on existing rb_net/rb_rollback; public search is not required. GGPO adoption requires an explicit new decision.
 - Blocker: none
 
 ### M5.2 - Two-peer rollback integration
@@ -400,7 +425,7 @@ M7 completion means source failure regressions and production wiring are verifie
 - Size: 8
 - Requirement: FSD-008, FSD-014, FSD-015
 - Evidence: none
-- Acceptance: Actual backend forced replay and two-peer oracle pass; failed synchronization never advances; identity/initial state, old epochs, prediction limits, time-sync, disconnect/rematch and terminal commit pass. Run GGPO synctest additionally only if adopted.
+- Acceptance: Actual backend forced replay and two-peer oracle pass; failed synchronization never advances; identity/initial state, old epochs, prediction limits, time-sync, disconnect/rematch and terminal commit pass. Run GGPO synctest additionally only if adopted. Require paired diagnostic bundles under FSD-009: shared match ID, build/config identity, frame-correlated inputs/rollback events and comparable confirmed-state fingerprints; bounded recording cannot stall gameplay. Manual export/sharing first, no upload service/dashboard scope.
 - Owner: unassigned
 - Next: Split handshake, history, coordinator and disconnect packets.
 - Blocker: none
@@ -413,7 +438,95 @@ M7 completion means source failure regressions and production wiring are verifie
 - Evidence: none
 - Acceptance: FSD-009 matrix on two machines with seeds, confirmed-state agreement and latency/disconnect evidence.
 - Owner: unassigned
-- Next: Define reproducible pairwise impairment fixtures.
+- Next: Define reproducible pairwise impairment fixtures and compare both manually exported diagnostic bundles; test recording pressure and explicit incomplete evidence before qualification.
+- Blocker: none
+
+### M5.4 - Explicit private pair admission and reset
+- Status: todo
+- Depends: M7.9
+- Size: 5
+- Requirement: FSD-008, FSD-016
+- Evidence: none
+- Acceptance: Production pair descriptor binds two identities and slots independently of lobby role. Source-aware receive rejects third-party valid/malformed traffic before handshake, route, liveness or queue mutation. Bind/send/reset seams and concurrent old-pair reset tests pass; coordinate versioned epochs with M7.4. This gate closes admission ownership only; full-width epoch correctness closes in M7.4 and integrated routing in M5.5.
+- Owner: unassigned
+- Next: Replace last-sender/broadcast opponent inference for private battles; clear transport peer state on reset. Serialize rb_net/net_relay edits with M7.4/M7.7.
+- Blocker: none
+
+### M5.5 - Private host/join route and diagnostics
+- Status: todo
+- Depends: M5.4, M7.4
+- Size: 5
+- Requirement: FSD-016
+- Evidence: none
+- Acceptance: Production-connected tests assert actual rollback packet destinations and source binding for embedded host/join; private LAN admission works with public services unavailable. Direct-only failure is explicit. Rollback-specific route/counters/RTT are distinct from ordinary direct transport. Counters change for actual rollback packets. Embedded coordinator loss/rejoin and external discovery timeout/unavailability have bounded outcomes. Preserve unrelated online modes and show a distinct private rollback entry flow.
+- Owner: unassigned
+- Next: Reuse embedded endpoint first; test startup/readiness/close and candidate route validation. Existing generic direct flag is not rollback qualification; optional external relay is not required.
+- Blocker: none
+
+### M5.6 - Qualify private wireless delivery
+- Status: todo
+- Depends: M5.3, M5.5
+- Size: 5
+- Requirement: FSD-007, FSD-009, FSD-016
+- Evidence: none
+- Acceptance: Two separate PCs run actual rollback battles in both host assignments with recorded Wi-Fi topology and verified packet route, no required public lobby. Declare tested LAN and cross-household NAT/manual-forwarding envelope; unreachable cases fail clearly. Measure end-to-end RTT/jitter/loss, delay/stalls/corrections, p95/p99 catch-up and memory. All claimed routes pass state/terminal/disconnect/rematch gates.
+- Owner: unassigned
+- Next: Select family hardware/network fixtures and collect route-specific evidence; do not infer lowest latency from topology alone.
+- Blocker: none
+
+### M5.7 - Persistent four-member lobby implementation
+- Status: todo
+- Depends: M5.6, M7.2, M7.7
+- Size: 5
+- Requirement: FSD-015, FSD-016, FSD-017
+- Evidence: none
+- Acceptance: One code-based lobby supports up to four members and any two selecting fighters. In-game admission resolves excess selections; pair/slot assignment is independent of owner. Pair changes require no leaving/manual rehosting/new code. Implement automatic guest-pair connection establishment, fresh identity and reset after committed end or abort. Test old traffic, unequal histories and role/departure cases. Controller runs locally initially; no separate server required.
+- Owner: unassigned
+- Next: Reuse F1/versus entry and pair contract; controller manages membership/readiness, never frames. Define active controller-loss handling and owner-close policy. Coordinate viewer assignment with M5.9/M5.10.
+- Blocker: none
+
+### M5.8 - Qualify persistent lobby pair changes
+- Status: todo
+- Depends: M5.7
+- Size: 5
+- Requirement: FSD-009, FSD-017
+- Evidence: none
+- Acceptance: Four separate machines exercise all six active pairs through the same lobby/code, with verified direct-policy routes and confirmed outcomes. Delayed prior-pair packets, excess active selections, role changes and spectator/active/owner departure have defined outcomes. No inactive member gates inputs; no manual rehosting is needed. Spectator playback qualification remains M5.11.
+- Owner: unassigned
+- Next: Record identities, route, repetitions and failures; geographic location does not constrain the implementation. Keep live-viewer release gate separate and mandatory.
+- Blocker: none
+
+### M5.9 - Committed spectator stream and bounded publication
+- Status: todo
+- Depends: M5.6, M7.2, M7.7
+- Size: 5
+- Requirement: FSD-015, FSD-018
+- Evidence: none
+- Acceptance: Versioned stream binds match/config/build/initial state and publishes only corrected committed input history. Production tests cover ordering, duplicates, epochs, refusal and terminal commit. Independent review establishes bounded nonblocking publication, separate retention, gameplay priority and shedding under CPU/memory/bandwidth pressure; spectator ACK never controls battle confirmation or checkpoint retention.
+- Owner: unassigned
+- Next: Choose stream owner and measured budgets; preserve one simulation path. Bootstrap from reproducible initial state/input history; do not assume snapshots with native pointers transfer across PCs.
+- Blocker: none
+
+### M5.10 - Delayed spectator playback and recovery
+- Status: todo
+- Depends: M5.9, M5.7
+- Size: 5
+- Requirement: FSD-017, FSD-018
+- Evidence: none
+- Acceptance: Up to two viewers run compatible delayed playback from validated initial state and committed inputs with covered-state diagnostics. Test loss/reorder, malformed stream, history overrun, catch-up limits, wrong epochs/builds and teardown. Viewer failure only delays/stops/rejoins viewing. In-game roles allow selection between matches; mid-match arrivals may explicitly wait for next match. No live battle-input contribution from viewers.
+- Owner: unassigned
+- Next: Implement bounded viewer state machine and in-game status/recovery; define playback delay from buffering needs without adding fighter input delay.
+- Blocker: none
+
+### M5.11 - Qualify spectator isolation and latency
+- Status: todo
+- Depends: M5.10, M5.8
+- Size: 5
+- Requirement: FSD-007, FSD-009, FSD-018
+- Evidence: none
+- Acceptance: Four-PC actual battles compare zero/one/two viewers, including slow, paused, disconnected and bandwidth-limited viewers. Confirm playback identity and committed outcomes; active-pair state/confirmation is unchanged. Measure RTT/delay/stalls, p95/p99 replay cost, memory and bandwidth against no-viewer baseline under declared budgets. Viewer pressure sheds viewer work, never adds input delay or blocks fighters. Repeat role changes with old viewer traffic.
+- Owner: unassigned
+- Next: Capture paired baseline/load evidence; resolve measured contention before family-ready claims. This gate is mandatory for first family release.
 - Blocker: none
 
 ## M6 - Full-roster qualification
@@ -442,11 +555,11 @@ M7 completion means source failure regressions and production wiring are verifie
 
 ### M6.3 - Product qualification and release readiness
 - Status: todo
-- Depends: M5.3, M6.2, M0.5
+- Depends: M5.3, M5.6, M5.11, M6.2, M0.5, M0.9
 - Size: 5
-- Requirement: FSD-007, FSD-009, FSD-010, FSD-011
+- Requirement: FSD-007, FSD-009, FSD-010, FSD-011, FSD-017, FSD-018
 - Evidence: none
-- Acceptance: Supported hardware/network/rules/roster claims match evidence; distribution policy resolved; review complete without automatic publication.
+- Acceptance: Persistent four-member lobby and mandatory delayed spectating pass their gates. Supported hardware/network/rules/roster claims match evidence; distribution policy resolved; review complete without automatic publication.
 - Owner: unassigned
 - Next: Prepare release candidate qualification; publication requires separate authorization.
 - Blocker: none
@@ -496,7 +609,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: none
 - Acceptance: Versioned full-width session/match identity mandatory; validate enqueue and drain. Reject untagged, stale/rematch-colliding, malformed and too-far-future frames without overwriting retained inputs. Reset/receive races and boundary values tested.
 - Owner: unassigned
-- Next: Own rb_wire/rb_input and receive portions of rb_net; serialize schema work with M7.7.
+- Next: Own rb_wire/rb_input and receive portions of rb_net; serialize schema work with M7.7/M5.4. Bind sender identity and full pair/match epochs; test peer changes and old-pair packets as well as rematches.
 - Blocker: none
 
 ### M7.5 - Bound gameplay stalls and disconnects
@@ -537,10 +650,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-arena-pad.md
+- Evidence: evidence/2026-10-22-rng-checkpoints.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: unassigned (checkpoint handoff requested, 2026-10-22)
-- Next: Arena/pad boundaries pass exact O1/O3 tests, independent review and all six frozen control types. Preserve post-commit A no-replay refusal: learned count changed 176 to 177 during validation after save had released guest threads; B passed on the same binary. Continue watchdog/sampler startup from inactive drafts in tests/drafts/thread_startup, then checked exception-handler/protection and mark_check commitment boundaries. Do not weaken tracking validation. M7.1 owns initial-base transaction/hold ordering and partial restore; full quiescence and online qualification remain open.
+- Owner: root/resource closeout; reconciled at M1.1 handoff, 2026-10-22 UTC
+- Next: Close finite resource acceptance: protection=177 origin/coverage, successful reservation-release lifetime, and supported-candidate MEM_KEEP reachability/disposition. Complete SDK reuse/restore controls only after M3.5 resolves the retained forward-reference failure; newer observer passes do not substitute. RNG writer/seed attribution is owned by M3.5. Preserve the distinct M7.1 176-to-177 initial-base ordering finding and all validators. See docs/VALIDATION.md for trial-specific blockers; independent forward-only investigations need not wait for every resource case.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

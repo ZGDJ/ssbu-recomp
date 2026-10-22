@@ -1164,6 +1164,7 @@ int rbn_handshake_wanted(void); uint64_t rbn_match_seed(void);   /* rb_net.c (R3
 static ImportFn g_fh_orig;
 static struct { uint64_t boma; int entry; long long frame; } g_fh_f[8];
 static int g_fh_n, g_fh_det, g_fh_detoff;
+static int g_fh_rng_probe; /* opt-in early RNG observations; not a state or quiescence oracle */
 static FILE *g_fh_out;
 #include "bounded_trace.h"
 static BoundedTrace g_fh_trace;
@@ -1200,8 +1201,74 @@ static uint64_t fh_rng_base(void) {
     if (p) p = rd64(p);
     return p;
 }
+static ImportFn g_fh_seed_orig;
+static volatile LONG g_fh_seed_calls;
+static int g_fh_seed_id;
+static void fh_seed_checkpoint(const char *phase, int slot, long long frame) {
+    if (!g_fh_seed_id) return;
+    /* Read during the bounded interval: launcher shutdown need not run atexit.
+     * The existing trampoline count is approximate under concurrent calls. */
+    printf("[rng-seed] checkpoint phase=%s slot=%d frame=%lld entries=%lld eligible=%ld\n",
+           phase, slot, frame, hook_calls(g_fh_seed_id),
+           (long)InterlockedCompareExchange(&g_fh_seed_calls, 0, 0));
+    fflush(stdout);
+}
+static void fh_rng_observe(const char *phase, int slot, long long frame, uint64_t base, const uint32_t *words) {
+    char line[768];
+    int used = snprintf(line, sizeof line, "[rng-probe] phase=%s slot=%d frame=%lld thread=%lu base=%llx words=",
+                        phase, slot, frame, (unsigned long)GetCurrentThreadId(), (unsigned long long)base);
+    for (int i = 0; i < 45; i++) used += snprintf(line + used, sizeof line - (size_t)used, "%s%08x", i ? "," : "", words[i]);
+    printf("%s\n", line); fflush(stdout);
+    fh_seed_checkpoint(phase, slot, frame);
+}
+static void fh_seed_probe(Ctx *c, void *user) {
+    (void)user;
+    /* Only the established early fighter interval, not initializer calls during
+     * startup/teardown where the generator vector may be absent or incomplete. */
+    if (!g_fh_n || g_fh_f[0].frame < 1 || g_fh_f[0].frame > 3) { g_fh_seed_orig(c); return; }
+    LONG call = InterlockedIncrement(&g_fh_seed_calls);
+    uint32_t seed = (uint32_t)c->x[0]; uint64_t lr = c->x[30], owner = c->x[25];
+    if (call <= 32) {
+        printf("[rng-seed] phase=before call=%ld seed=%08x lr=%llx owner_reg=%llx frame0=%lld thread=%lu\n",
+               (long)call, seed, (unsigned long long)lr, (unsigned long long)owner, g_fh_f[0].frame, (unsigned long)GetCurrentThreadId());
+        fflush(stdout);
+    }
+    g_fh_seed_orig(c);
+    if (call <= 32) {
+        uint64_t owner_ptr = rd64(GA(0x71052c25b0ull)), vector = owner_ptr ? rd64(owner_ptr) : 0;
+        uint64_t rb = vector ? rd64(vector) : 0, end = vector ? rd64(vector + 8) : 0;
+        int available = rb && !(rb & 3) && end >= rb && end - rb == 180;
+        uint64_t hash = 0; uint32_t words[45];
+        if (available) { for (int i = 0; i < 45; i++) words[i] = rd32(rb + 4ull * i); hash = fh_fnv(0xcbf29ce484222325ull, words, sizeof words); }
+        printf("[rng-seed] phase=after call=%ld base=%llx end=%llx available=%d hash=%08x frame0=%lld thread=%lu\n",
+               (long)call, (unsigned long long)rb, (unsigned long long)end, available, (unsigned)(hash ^ (hash >> 32)), g_fh_f[0].frame, (unsigned long)GetCurrentThreadId());
+        fflush(stdout);
+    } else if (call == 33) { printf("[rng-seed] truncated=1 limit=32\n"); fflush(stdout); }
+}
+static void fh_seed_probe_start(void) {
+    const char *setting = getenv("SSBU_RNG_SEED_PROBE");
+    if (!setting || strcmp(setting, "1")) return;
+    /* Actual 13.0.5 address, not a GA reference address. Fingerprint covers the
+     * initializer through its vector loop; observe only, never replace its seed. */
+    const uint64_t address = 0x71015016e0ull;
+    int matches = 0;
+    for (int i = 0; i < fn_table_count; i++) if (fn_table[i].addr == address && fn_table[i].fn) matches++;
+    uint8_t code[0x88]; uint64_t fingerprint = 0;
+    if (g_game_build == GAME_13_0_5) {
+        for (size_t i = 0; i < sizeof code; i++) code[i] = rd8(address + i);
+        fingerprint = fh_fnv(0xcbf29ce484222325ull, code, sizeof code);
+    }
+    if (!g_fh_rng_probe || !g_fh_trace_enabled || matches != 1 || fingerprint != 0x346dd402d6c23b0bull ||
+        !(g_fh_seed_id = hook_install(address, fh_seed_probe, NULL, &g_fh_seed_orig))) {
+        fight_trace_fail("rng_seed_probe_identity");
+        fprintf(stderr, "RNG SEED PROBE FATAL: identity or hook refused matches=%d fingerprint=%llx\n", matches, (unsigned long long)fingerprint); abort();
+    }
+    printf("[rng-seed] installed=1 address=%llx fingerprint=%llx matches=%d observer=1\n",
+           (unsigned long long)address, (unsigned long long)fingerprint, matches); fflush(stdout);
+}
 static void fh_hook(Ctx *c, void *user) {
     (void)user;
+    int rng_probe_slot = -1; long long rng_probe_frame = 0;
     if (g_fh_trace_enabled) {
         AcquireSRWLockExclusive(&g_fh_trace_lock);
         g_fh_trace.active++;
@@ -1271,6 +1338,10 @@ static void fh_hook(Ctx *c, void *user) {
             fd_call(c, FD_N("25DamageModule__damage_impl") "i", boma, 0, 0, 0, 0, 0, 0, &dmg);
             uint64_t rb = fh_rng_base(), rh = 0xcbf29ce484222325ull; uint32_t rc = 0, w[45];
             if (rb) { for (int i = 0; i < 45; i++) w[i] = rd32(rb + 4ull * i); for (int i = 0; i < 9; i++) rc += w[i * 5 + 4]; rh = fh_fnv(rh, w, sizeof w); }
+            if (g_fh_rng_probe && k < 2 && f <= 3 && rb) {
+                rng_probe_slot = k; rng_probe_frame = f;
+                fh_rng_observe("before", k, f, rb, w);
+            }
             struct { long long f; int k, st; uint64_t mot; float mf, x, y, dmg; uint64_t rh; } rec;
             memset(&rec, 0, sizeof rec);
             rec.f = f; rec.k = g_fh_f[k].entry; rec.st = st; rec.mot = mot; rec.mf = mf; rec.x = x; rec.y = y; rec.dmg = dmg; rec.rh = rh;
@@ -1307,6 +1378,11 @@ static void fh_hook(Ctx *c, void *user) {
         ReleaseSRWLockExclusive(&g_fh_trace_lock);
     }
     g_fh_orig(c);
+    if (rng_probe_slot >= 0) {
+        uint64_t rb = fh_rng_base(); uint32_t words[45] = {0};
+        if (rb) for (int i = 0; i < 45; i++) words[i] = rd32(rb + 4ull * i);
+        fh_rng_observe("after", rng_probe_slot, rng_probe_frame, rb, words);
+    }
 }
 /* SSBU_DETERMINISTIC: main 0x710386fc30 (frame end of the graphics module: acquires the window texture) compares the
  * refresh count of the game's VSync Count Thread (window + 0x138) with the count at the last frame (+ 0x140) and
@@ -1358,6 +1434,9 @@ static void fh_exit(void) {
     if (g_fh_trace_enabled) ReleaseSRWLockExclusive(&g_fh_trace_lock);
 }
 static void fight_hash_start(void) {
+    const char *rng_probe = getenv("SSBU_RNG_EARLY_PROBE");
+    const char *seed_probe = getenv("SSBU_RNG_SEED_PROBE");
+    g_fh_rng_probe = rng_probe && !strcmp(rng_probe, "1");
     const char *trace = getenv("SSBU_TRACE_FRAMES");
     g_fh_trace_enabled = trace != NULL;
     g_fh_trace.target = bt_target(trace);
@@ -1365,7 +1444,7 @@ static void fight_hash_start(void) {
     const char *h = getenv("SSBU_FIGHT_HASH"), *d = getenv("SSBU_DETERMINISTIC"), *o = getenv("SSBU_DET_OFF");
     g_fh_det = (d && d[0] && d[0] != '0') || rbn_handshake_wanted();      /* R3: a match between online players needs it (no extra logic frames; generators from the agreed seed) */
     g_fh_detoff = o ? atoi(o) : 0;
-    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled) return;
+    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled && !(seed_probe && !strcmp(seed_probe, "1"))) return;
     if (h && h[0] && h[0] != '0') g_fh_out = strcmp(h, "1") == 0 ? stdout : fopen(h, "w");
     g_fh_trace_hash_enabled = g_fh_out != NULL;
     if (g_fh_trace_enabled && (!g_fh_out || g_fh_out == stdout)) bt_fail(&g_fh_trace, "dedicated_file_required");
@@ -1374,6 +1453,7 @@ static void fight_hash_start(void) {
     printf("[fight] SSBU_FIGHT_HASH %s, SSBU_DETERMINISTIC %d (off mask %d); hook on the fighters' frame line: %s\n", g_fh_out ? "on" : "off", g_fh_det, g_fh_detoff, id ? "installed or waiting for lua2cpp_common" : hook_error());
     if (g_fh_det) printf("[fight] SSBU_DETERMINISTIC: hook on the frame end %llx (dropped refreshes -> extra logic frames): %s\n", (unsigned long long)GA(0x710386fc30ull),
                          hook_install(GA(0x710386fc30ull), fh_frame_end, NULL, &g_fh_orig_frame_end) ? "installed" : hook_error());
+    fh_seed_probe_start();
     atexit(fh_exit);
 }
 static void fd_exit(void) { printf("[debug] %lld commands executed, %lld frames skipped because a differential recording was open\n", g_fd_done, g_fd_waited); fflush(stdout); }

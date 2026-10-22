@@ -77,6 +77,13 @@ def run_clang(job):
     return label, r.returncode, (r.stdout + r.stderr)[-3000:], time.time() - t
 
 
+def plain_config(flags):
+    return CLANG, flags
+
+
+compile_config = plain_config       # build_opt substitutes the flags/policy its wrapper actually uses
+
+
 def build_module(e, jobs, relift, opt):
     name = e['name']
     nro = os.path.join(RO, 'nro', e['file'])
@@ -105,18 +112,25 @@ def build_module(e, jobs, relift, opt):
 
     # 2. compile what changed
     t0 = time.time()
-    newest_header = max(os.path.getmtime(os.path.join(HERE, h)) for h in GEN_HEADERS)
     sources = sorted(n for n in os.listdir(gen) if n.endswith('.c'))
     import build                                            # NOCRT_FLAGS / link_dll: RECOMP_NOCRT (build.py)
     flags = ['-c', opt, '-w', '-fno-strict-aliasing', '-I', HERE, '-I', gen] + build.NOCRT_FLAGS + PLAT_FLAGS
-    todo = []
-    for n in sources:
-        src, o = os.path.join(gen, n), os.path.join(obj, n[:-2] + '.obj')
-        if not os.path.exists(o) or os.path.getmtime(o) < max(os.path.getmtime(src), newest_header):
-            todo.append((flags + [src, '-o', o], n))
+    compiler, config = compile_config(flags)
+    context = build.compile_context(compiler, config, gen)
+    known = build.read_hashes(obj)
+    cur = {k: v for k, v in known.items() if k == '$link'}
+    todo, keys = [], {}
     shim, shim_obj = os.path.join(HERE, 'nro_shim.c'), os.path.join(obj, '_shim.obj')
-    if not os.path.exists(shim_obj) or os.path.getmtime(shim_obj) < max(os.path.getmtime(shim), newest_header):
-        todo.append((flags + ['-DNRO_MODULE=' + name, shim, '-o', shim_obj], 'nro_shim.c'))
+    inputs = [(n, os.path.join(gen, n), os.path.join(obj, n[:-2] + '.obj'), flags) for n in sources]
+    inputs.append(('nro_shim.c', shim, shim_obj, flags + ['-DNRO_MODULE=' + name]))
+    for n, src, o, args in inputs:
+        key = build.content_key([src], (context, args))
+        keys[n] = key
+        if not os.path.exists(o) or known.get(n) != key:
+            todo.append((args + [src, '-o', o], n))
+        else:
+            cur[n] = key
+    build.write_hashes(obj, cur)
     wanted = set(n[:-2] + '.obj' for n in sources) | {'_shim.obj'}
     for n in os.listdir(obj):
         if n.endswith('.obj') and n not in wanted:
@@ -128,6 +142,12 @@ def build_module(e, jobs, relift, opt):
             if code:
                 failed += 1
                 print('FAILED %s %s\n%s' % (name, label, err), flush=True)
+                failed_obj = next(o for n, src, o, args in inputs if n == label)
+                if os.path.exists(failed_obj):
+                    os.remove(failed_obj)
+            else:
+                cur[label] = keys[label]
+    build.write_hashes(obj, cur)
     if failed:
         return 1
     times['compile'] = time.time() - t0
@@ -137,12 +157,17 @@ def build_module(e, jobs, relift, opt):
     dll = os.path.join(bindir, name + LIB_EXT)
     objs = sorted(os.path.join(obj, n) for n in os.listdir(obj) if n.endswith('.obj'))
     linked = False
-    if not os.path.exists(dll) or os.path.getmtime(dll) < max(os.path.getmtime(o) for o in objs):
+    link_key = build.dll_key(objs, dll, fltused=True)
+    if not os.path.exists(dll) or cur.get('$link') != link_key:
+        cur.pop('$link', None)
+        build.write_hashes(obj, cur)
         r = build.link_dll(objs, dll, os.path.join(obj, 'link.rsp'), implib=False, fltused=True)
         if r.returncode:
             print((r.stdout + r.stderr)[-4000:])
             print('could not link %s (is a game exe still running and holding it open?)' % dll)
             return 1
+        cur['$link'] = link_key
+        build.write_hashes(obj, cur)
         linked = True
         for ext in ('.lib', '.exp') if LIB_EXT == '.dll' else ():      # nothing links against a module DLL
             p = dll[:-4] + ext

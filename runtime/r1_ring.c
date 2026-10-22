@@ -1532,24 +1532,25 @@ uint64_t guest_function_of(uint64_t rip);
 volatile int g_rgp_seg;                                     /* set by r1_poll / r1_frame_end / rgs_step */
 #define RGS_SN 65536
 typedef struct { uint64_t fn; long long self[2][6], incl[2][6]; } RgsS;
-static RgsS g_rgss[RGS_SN]; static long long g_rgss_tot[2][6], g_rgss_host[2][6]; static HANDLE g_rgss_main; static volatile int g_rgss_run;
+static RgsS g_rgss[RGS_SN]; static long long g_rgss_tot[2][6], g_rgss_host[2][6]; static HANDLE g_rgss_main, g_rgss_threadhandle; static volatile int g_rgss_run; static int g_rgss_failed;
+static SRWLOCK g_rgss_start_lock = SRWLOCK_INIT;
 static RgsS *rgss_slot(uint64_t fn) {
     unsigned h = (unsigned)((fn * 0x9e3779b97f4a7c15ull) >> 48) % RGS_SN;
     for (int i = 0; i < 64; i++) { RgsS *e = &g_rgss[(h + (unsigned)i) % RGS_SN]; if (e->fn == fn) return e; if (!e->fn) { e->fn = fn; return e; } }
     return NULL;
 }
 static DWORD WINAPI rgss_thread(void *p) {
-    (void)p; uint64_t fr[64]; int nf;
+    HANDLE main = (HANDLE)p; uint64_t fr[64]; int nf;
     double next = now_ms();
     for (;;) {
         while (now_ms() < next) YieldProcessor();
         next += 0.1;
         int seg = g_rgp_seg, kd = g_ra_phase == 2;
         if (kd && g_rgs_left <= 1 && seg < 4) continue;              /* (the last re-run pass runs everything: not counted) */
-        if (!g_rg_ready || !g_rgss_main || seg < 1 || seg > 5) { if (now_ms() > next + 5) next = now_ms(); continue; }
-        if (SuspendThread(g_rgss_main) == (DWORD)-1) continue;
+        if (!g_rg_ready || !main || seg < 1 || seg > 5) { if (now_ms() > next + 5) next = now_ms(); continue; }
+        if (SuspendThread(main) == (DWORD)-1) continue;
         CONTEXT x; memset(&x, 0, sizeof x); x.ContextFlags = CONTEXT_FULL; nf = 0;
-        if (GetThreadContext(g_rgss_main, &x)) {
+        if (GetThreadContext(main, &x)) {
             for (int d = 0; d < 64 && nf < 64; d++) {
                 DWORD64 base = 0; PRUNTIME_FUNCTION f = RtlLookupFunctionEntry(x.Rip, &base, NULL);
                 uint64_t g = guest_function_of(x.Rip);
@@ -1559,7 +1560,7 @@ static DWORD WINAPI rgss_thread(void *p) {
                 if (!x.Rip) break;
             }
         }
-        r1_resume_owned(g_rgss_main);
+        r1_resume_owned(main);
         if (!nf) continue;
         g_rgss_tot[kd][seg]++;
         RgsS *e = rgss_slot(fr[0]); if (e) e->self[kd][seg]++;
@@ -1568,11 +1569,30 @@ static DWORD WINAPI rgss_thread(void *p) {
     }
     return 0;
 }
+static void rgss_close(HANDLE handle) {
+    if (handle && !CloseHandle(handle)) { LOG("r1: SAMPLER FATAL: startup handle cleanup failed\n"); abort(); }
+}
+static int rgss_prepare(void) {
+    if (g_rgss_main || g_rgss_threadhandle) {
+        if (!g_rgss_main || !g_rgss_threadhandle) { LOG("r1: SAMPLER FATAL: partial startup ownership\n"); abort(); }
+        return 1;
+    }
+    HANDLE main = NULL;
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main, 0, FALSE, DUPLICATE_SAME_ACCESS)) return 0;
+    HANDLE thread = CreateThread(NULL, 0, rgss_thread, main, 0, NULL);
+    if (!thread) { rgss_close(main); return 0; }
+    /* The sampler owns its immutable duplicate; both handles live until process exit. */
+    g_rgss_main = main; g_rgss_threadhandle = thread; return 1;
+}
 static void rgs_samp_start(void) {
-    if (g_rgss_run || g_rgs_prof != 3) return;
+    AcquireSRWLockExclusive(&g_rgss_start_lock);
+    if (g_rgss_run || g_rgss_failed || g_rgs_prof != 3) { ReleaseSRWLockExclusive(&g_rgss_start_lock); return; }
+    if (!rgss_prepare()) {
+        g_rgss_failed = 1; LOG("r1: RB PROF 3 unavailable: sampler startup failed\n");
+        ReleaseSRWLockExclusive(&g_rgss_start_lock); return;
+    }
     g_rgss_run = 1;
-    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_rgss_main, 0, FALSE, DUPLICATE_SAME_ACCESS);
-    CloseHandle(CreateThread(NULL, 0, rgss_thread, NULL, 0, NULL));
+    ReleaseSRWLockExclusive(&g_rgss_start_lock);
     LOG("r1: RB PROF 3: sampling the main thread every 0.1 ms during the fight\n");
 }
 static int g_rgss_k[3];

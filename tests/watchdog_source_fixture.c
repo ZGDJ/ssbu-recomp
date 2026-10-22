@@ -29,6 +29,7 @@ static void WINAPI fixture_acquire(PSRWLOCK lock) {
     }
     AcquireSRWLockExclusive(lock);
 }
+static const HANDLE watchdog_event_token = (HANDLE)(uintptr_t)0x1234;
 static DWORD WINAPI script_wait(HANDLE,DWORD);
 #define ResumeThread fixture_resume
 /* RESUME_SOURCE */
@@ -73,12 +74,12 @@ static void concurrency(int publishing) {
 typedef struct {DWORD timeout,result;int pause;double time;int replace;} Step;
 static Step steps[8];static int step_count,step_at;static jmp_buf script_end;
 static DWORD WINAPI script_wait(HANDLE h,DWORD timeout) {
-    (void)h;if(step_at==step_count) longjmp(script_end,1);
+    assert(h==watchdog_event_token);if(step_at==step_count) longjmp(script_end,1);
     Step s=steps[step_at++];assert(timeout==s.timeout);g_ra_wd_pause=s.pause;fake_time=s.time;
     if(s.replace) {ra_workers_release();if(s.replace==1)publish(4,2);}
     return s.result;
 }
-static void script(int count) {step_count=count;step_at=0;if(!setjmp(script_end))ra_watchdog(NULL);assert(step_at==count);}
+static void script(int count) {step_count=count;step_at=0;if(!setjmp(script_end))ra_watchdog(watchdog_event_token);assert(step_at==count);}
 static void watchdog(void) {
     /* Coalesced H2/next-H1 signal must keep watching the newly active hold. */
     clear();publish(1,3);steps[0]=(Step){INFINITE,WAIT_OBJECT_0,0,0,0};

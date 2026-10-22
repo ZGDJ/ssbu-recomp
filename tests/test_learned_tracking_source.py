@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from run_rollback_tests import resolve_clang
 from test_catch_source import function
+from test_learned_transitions_source import GATE_NAMES
 
 
 @unittest.skipUnless(os.name == "nt", "Windows learned tracking harness")
@@ -19,8 +20,8 @@ class LearnedTrackingSourceTest(unittest.TestCase):
         source = (ROOT / "runtime/rb_learned.c").read_text()
         bodies = next(line for line in source.splitlines() if line.startswith("static uint8_t *ls_addr("))
         bodies += "\n" + "\n".join(function(source, name) for name in
-                           ("ls_id", "ls_ns", "ls_validate_tracking", "ls_open", "ls_range",
-                            "ls_startup_vfree", "ls_startup_prepare", "ls_after_setup", "ls_rebase"))
+                           GATE_NAMES + ["ls_id", "ls_ns", "ls_validate_tracking", "ls_query_page", "ls_page_absent", "ls_open", "ls_decommit_learn", "ls_commit_track", "ls_range",
+                            "ls_startup_vfree", "ls_startup_prepare", "ls_after_setup", "ls_rebase"])
         fixture = (ROOT / "tests/learned_tracking_source_fixture.c").read_text()
         directory = ROOT / "artifacts/local/learned-tracking-source"
         directory.mkdir(parents=True, exist_ok=True)

@@ -27,6 +27,12 @@ jobs:
         run: python tools/check_project_docs.py
       - name: Validator regression tests
         run: python -m unittest discover -s tests -p test_project_docs.py -v
+      - name: Battle identity binding regressions
+        run: python -m unittest discover -s tests -p test_battle_identity.py -v
+      - name: Lifted compiler cache regressions
+        run: python -m unittest discover -s tests -p test_build_cache.py -v
+      - name: Optimized compiler scheduler regressions
+        run: python tests/build_opt_sched_test.py
       - name: Family installer archive regression tests
         run: python -m unittest discover -s tests -p 'test_family_*.py' -v
       - name: Installer download recovery tests
@@ -67,6 +73,16 @@ jobs:
         run: python -m unittest discover -s tests -p test_presentation_resources_source.py -v
       - name: Learned tracking failure regressions
         run: python -m unittest discover -s tests -p test_learned_tracking_source.py -v
+      - name: Learned protection transition regressions
+        run: python -m unittest discover -s tests -p test_learned_transitions_source.py -v
+      - name: Learned callback lifecycle regressions
+        run: python -m unittest discover -s tests -p test_learned_lifecycle_source.py -v
+      - name: SDK memory result and notification regressions
+        run: python -m unittest discover -s tests -p test_sdk_memory_source.py -v
+      - name: Bounded RNG initializer observation regressions
+        run: python -m unittest discover -s tests -p test_rng_seed_probe_source.py -v
+      - name: Hook caller census parsing and failure regressions
+        run: python -m unittest discover -s tests -p test_hook_inline_check.py -v
       - name: Capture preparation failure regressions
         run: python -m unittest discover -s tests -p test_capture_reservation_source.py -v
       - name: Capture pool ownership regressions
@@ -77,6 +93,12 @@ jobs:
         run: python -m unittest discover -s tests -p test_range_inventory_source.py -v
       - name: Runtime trial fatal-log regressions
         run: python -m unittest discover -s tests -p test_runtime_trial.py -v
+      - name: Watchdog startup resource regressions
+        run: python -m unittest discover -s tests -p test_watchdog_startup_source.py -v
+      - name: Sampler startup resource regressions
+        run: python -m unittest discover -s tests -p test_sampler_startup_source.py -v
+      - name: Protection resource regressions
+        run: python -m unittest discover -s tests -p test_protection_resources_source.py -v
       - name: Watchdog hold ownership regressions
         run: python -m unittest discover -s tests -p test_watchdog_source.py -v
       - name: Extras inventory regressions

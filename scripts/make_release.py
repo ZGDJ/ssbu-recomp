@@ -340,7 +340,8 @@ def main():
         'game_dll': 'ssbu_game_eh_o1.dll',
         'game_builds': sorted(setup.GAME_BUILDS.values()),
         'built': time.strftime('%Y-%m-%d %H:%M'),
-        'toolchain': {'clang': clang_ver, 'linker': 'MSVC link.exe (through clang)'},
+        'toolchain': {'clang': clang_ver, 'clang_sha256': sha256(clang),
+                      'linker': 'MSVC link.exe (through clang)'},
         'settings_menu': bool(imgui),          # Dear ImGui built in (F1)
         'files': {n: {'sha256': sha256(os.path.join(pkg, n)), 'size': os.path.getsize(os.path.join(pkg, n))}
                   for n in sorted(os.listdir(pkg))},

@@ -12,3 +12,5 @@ ADRs own decisions; [FSD](../docs/FSD.md) owns requirements; [milestones](../mil
 - [0007 OpenSmash adoption and hardening](0007-opensmash-adoption-and-hardening.md): adopted baseline/custom backend; qualification remains open.
 
 New ADRs need status/date, context, decision, alternatives, consequences and reconsideration trigger. Preserve superseded records with replacement links. Proposed does not mean implemented. Library/checkpoint choices require evidence.
+
+- [0008 Private pair sessions](0008-private-pair-sessions.md): direct private 1v1 first; lobby membership separated from battle participation; four-member persistent lobby and mandatory delayed spectating follow baseline 1v1 proof.

@@ -7,6 +7,10 @@
 #include <string.h>
 #include <windows.h>
 #include <stdarg.h>
+#define LS_GATE_CLOSING 0x40000000L
+#define LS_GATE_OFF ((LONG)0x80000000u)
+#define LS_GATE_COUNT 0x3fffffffL
+static volatile LONG g_ls_gate;
 #define PG 4096u
 #define WIN2 ((uintptr_t)0x20000000)
 #define WN2 (4u * PG)
@@ -66,7 +70,7 @@ static void reset(void) {
     memset(lc, 0, sizeof lc); memset(ns1, 0, sizeof ns1); memset(ns2, 0, sizeof ns2);
     g_ls_st = state; g_ls_list = list; g_ls_lc = lc; g_ns1 = ns1; g_ns2 = ns2;
     g_wn1 = 4 * PG; g_ls_n1 = 4; g_ls_np = 8; g_ls_cap = 8;
-    g_ls_n = g_ls_over = 0; g_ls_active = g_ls_bound = 1;
+    g_ls_gate = 0; g_ls_n = g_ls_over = 0; g_ls_active = g_ls_bound = 1;
     g_ls_protfail = g_ls_commit_prot = g_ls_wrote_open = g_ls_dec_learn = 0;
     protect_calls = protect_fail = push_calls = 0;
     g_ls_refault = g_ls_spin = g_ls_faults = 0;
@@ -110,12 +114,6 @@ static void validation_tests(void) {
 }
 static void range_tests(void) {
     uint64_t base = (uint64_t)(uintptr_t)g_win1;
-    reset(); protect_fail = 1; ls_range(base, PG, 2);
-    assert(protect_calls == 1 && g_ls_protfail == 1 && state[0] == 0);
-    assert(g_ls_commit_prot == 0 && !ls_validate_tracking());
-    reset(); state[0] = 1; protect_fail = 1; ls_range(base, PG, 2);
-    assert(protect_calls == 1 && g_ls_protfail == 1 && state[0] == 1);
-    assert(!ls_validate_tracking());
     reset(); ls_range(base + 1, PG, 2);
     assert(protect_calls == 2 && state[0] == 1 && state[1] == 1);
     assert(g_ls_commit_prot == 2 && ls_validate_tracking());

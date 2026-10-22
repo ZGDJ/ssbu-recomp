@@ -1888,9 +1888,10 @@ static void mark_check(void) {                         /* threads still held */
                     LOG("r1:   MARK missed %s%s%s%s\n", where(r->a + p * PG), g_miss_remarked_last != g_miss_remarked ? " (marked since the restore: a running thread wrote it during the hold)" : "", owner[0] ? " in the stack / TLS allocation of thread " : "", owner);
                 }
                 g_miss_remarked_last = g_miss_remarked;
-                memcpy(r->a + p * PG, r->s + p * PG, PG);
                 uint8_t *cm; size_t pi; uint8_t *sh = in_shadow(r->a + p * PG, &cm, &pi);
-                if (sh) { sh_commit(sh, cm, pi); memcpy(sh, r->s + p * PG, PG); }
+                if (sh && !sh_commit(sh, cm, pi)) { LOG("r1: MARK FATAL: shadow commit failed during check\n"); abort(); }
+                memcpy(r->a + p * PG, r->s + p * PG, PG);
+                if (sh) memcpy(sh, r->s + p * PG, PG);
             }
     }
     g_miss_total += (long long)miss; g_miss_cycles++;
@@ -1924,15 +1925,19 @@ typedef struct { uint64_t rip, caller; char mod[48]; const char *thr; uint64_t g
 static Site g_site[512]; static int g_nsite;
 static SRWLOCK g_site_lock = SRWLOCK_INIT;
 static volatile LONG g_prot_faults, g_prot_misses;
+static PVOID g_prot_handler;
+static SRWLOCK g_prot_start_lock = SRWLOCK_INIT;
+static void prot_fatal(const char *reason) { LOG("r1: PROT FATAL: %s\n", reason); abort(); }
 static int win_index(uint8_t *a, uint8_t **map, size_t *pi) {
     if (g_win1 && a >= g_win1 && a < g_win1 + g_wn1) { *map = *pm1; *pi = (size_t)(a - g_win1) >> 12; return 1; }
     if ((uintptr_t)a >= WIN2 && (uintptr_t)a < WIN2 + WN2) { *map = *pm2; *pi = (size_t)((uintptr_t)a - WIN2) >> 12; return 1; }
     return 0;
 }
 static LONG CALLBACK prot_veh(EXCEPTION_POINTERS *e) {
-    if (!g_prot_on || e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
+    if (!g_prot_on || e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->NumberParameters < 2 || e->ExceptionRecord->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
     uint8_t *a = (uint8_t *)(uintptr_t)e->ExceptionRecord->ExceptionInformation[1], *map; size_t pi;
     if (!win_index(a, &map, &pi)) return EXCEPTION_CONTINUE_SEARCH;
+    if (!map) prot_fatal("fault without mark map");
     uint8_t *pg = (uint8_t *)((uintptr_t)a & ~(uintptr_t)(PG - 1));
     InterlockedIncrement(&g_prot_faults);
     if (!map[pi]) {                                     /* a write that did not mark */
@@ -1951,31 +1956,71 @@ static LONG CALLBACK prot_veh(EXCEPTION_POINTERS *e) {
         ReleaseSRWLockExclusive(&g_site_lock);
         map[pi] = 1;
     }
-    DWORD old; VirtualProtect(pg, PG, PAGE_READWRITE, &old);
+    DWORD old; if (!VirtualProtect(pg, PG, PAGE_READWRITE, &old)) prot_fatal("fault writable transition");
     return EXCEPTION_CONTINUE_EXECUTION;
+}
+static void prot_prepare(void) {
+    AcquireSRWLockExclusive(&g_prot_start_lock);
+    if (!g_prot_handler) g_prot_handler = AddVectoredExceptionHandler(1, prot_veh);
+    if (!g_prot_handler) prot_fatal("handler registration");
+    ReleaseSRWLockExclusive(&g_prot_start_lock);
+}
+static uintptr_t prot_query(uintptr_t p, MEMORY_BASIC_INFORMATION *mq) {
+    if (VirtualQuery((void *)p, mq, sizeof *mq) != sizeof *mq) prot_fatal("region query");
+    uintptr_t base = (uintptr_t)mq->BaseAddress;
+    if (base > p || !mq->RegionSize || mq->RegionSize > UINTPTR_MAX - base || base + mq->RegionSize <= p)
+        prot_fatal("region bounds");
+    return base + mq->RegionSize;
 }
 static void prot_all(int on) {                          /* the committed RW parts of the saved ranges inside the windows */
     double t0 = now_ms(); size_t n = 0;
+    if (on) {
+        if (!g_prot_handler) prot_fatal("protection without handler");
+        /* A writer can fault as soon as the first page becomes read-only. */
+        g_prot_on = 1;
+    }
     for (int i = 0; i < g_nr; i++) {
         uint8_t *map; size_t pi;
         if (!win_index(g_r[i].a, &map, &pi)) continue;
+        uintptr_t start = (uintptr_t)g_r[i].a;
+        size_t size = g_r[i].n;
+        if (!size) continue;
+        if ((start & (PG - 1)) || (size & (PG - 1)) || size > UINTPTR_MAX - start) prot_fatal("saved range bounds");
+        uintptr_t end = start + size;
+        uint8_t *last_map; size_t last_pi;
+        if (!win_index((uint8_t *)(end - 1), &last_map, &last_pi) || !map || last_map != map || last_pi < pi || last_pi - pi != size / PG - 1)
+            prot_fatal("saved range crosses mark window");
         MEMORY_BASIC_INFORMATION mq;
-        for (uint8_t *p = g_r[i].a; p < g_r[i].a + g_r[i].n && VirtualQuery(p, &mq, sizeof mq); p = (uint8_t *)mq.BaseAddress + mq.RegionSize) {
-            uint8_t *x = (uint8_t *)mq.BaseAddress, *y = x + mq.RegionSize;
-            if (x < g_r[i].a) x = g_r[i].a;
-            if (y > g_r[i].a + g_r[i].n) y = g_r[i].a + g_r[i].n;
+        for (uintptr_t p = start; p < end;) {
+            uintptr_t next = prot_query(p, &mq), y = next < end ? next : end, x = p;
+            if ((next & (PG - 1)) || y <= p) prot_fatal("region alignment");
+            p = y;
             if (mq.State != MEM_COMMIT) continue;
             if (on && (mq.Protect & 0xff) != PAGE_READWRITE) continue;
-            DWORD old; VirtualProtect(x, (size_t)(y - x), on ? PAGE_READONLY : PAGE_READWRITE, &old); n += (size_t)(y - x);
+            DWORD old;
+            if (!VirtualProtect((void *)x, (size_t)(y - x), on ? PAGE_READONLY : PAGE_READWRITE, &old)) prot_fatal("range protection transition");
+            n += (size_t)(y - x);
         }
     }
     g_prot_on = on;
     if (g_cycle < 3) LOG("r1: PROT %s: %.1f MB in %.1f ms\n", on ? "read-only" : "writable again", n / 1048576.0, now_ms() - t0);
 }
 static void prot_open(uint64_t a, uint64_t n) {        /* a host writer that marked first (kernel reads): its pages writable again */
+    if (!n) return;
+    if (n > UINT64_MAX - a) prot_fatal("host write bounds");
+    uint64_t end = a + n;
     uint8_t *map; size_t pi;
-    for (uint64_t p = a & ~(uint64_t)(PG - 1); p < a + n; p += PG)
-        if (win_index((uint8_t *)(uintptr_t)p, &map, &pi)) { MEMORY_BASIC_INFORMATION mq; DWORD old; if (VirtualQuery((void *)(uintptr_t)p, &mq, sizeof mq) && mq.State == MEM_COMMIT && (mq.Protect & 0xff) == PAGE_READONLY) VirtualProtect((void *)(uintptr_t)p, PG, PAGE_READWRITE, &old); }
+    for (uint64_t p = a & ~(uint64_t)(PG - 1);;) {
+        if (win_index((uint8_t *)(uintptr_t)p, &map, &pi)) {
+            MEMORY_BASIC_INFORMATION mq; DWORD old;
+            uintptr_t next = prot_query((uintptr_t)p, &mq);
+            if (next - p < PG) prot_fatal("host page bounds");
+            if (mq.State == MEM_COMMIT && (mq.Protect & 0xff) == PAGE_READONLY && !VirtualProtect((void *)(uintptr_t)p, PG, PAGE_READWRITE, &old))
+                prot_fatal("host writable transition");
+        }
+        if (end - p <= PG) break;
+        p += PG;
+    }
 }
 static void prot_report(void) {
     LOG("r1: PROT: %ld first-write faults, %ld of them on pages NOT marked; writers (module+offset, thread, last guest function, count):\n", g_prot_faults, g_prot_misses);
@@ -2380,7 +2425,8 @@ static void ra_kick(Ctx *c, void *user) {            /* hook on FUN 0x710354c720
  * submission (H2), in every pass: at H2 they are always in the same state (blocked at their idle wait, the kick's jobs
  * queued and not started, its event signaled and not consumed), which is what a save / restore needs. Cost: the kick's
  * jobs start after the submission instead of during it. A watchdog lets them go if H2 does not come within 200 ms. */
-static HANDLE g_ra_wh[16]; static int g_ra_nwh; static volatile LONG g_ra_wh_on; static HANDLE g_ra_wd_ev; static long long g_ra_wh_fail, g_ra_wd_fired;
+static HANDLE g_ra_wh[16]; static int g_ra_nwh; static volatile LONG g_ra_wh_on; static HANDLE g_ra_wd_ev, g_ra_wd_thread; static long long g_ra_wh_fail, g_ra_wd_fired;
+static SRWLOCK g_ra_wd_start_lock = SRWLOCK_INIT;
 static SRWLOCK g_ra_wh_lock = SRWLOCK_INIT;
 static uint64_t g_ra_wh_generation;
 static uint64_t ra_workers_generation(void) {
@@ -2414,9 +2460,9 @@ static void ra_workers_publish(const HANDLE *pending, int count) {
     ReleaseSRWLockExclusive(&g_ra_wh_lock);
 }
 static DWORD WINAPI ra_watchdog(void *p) {
-    (void)p;
+    HANDLE event = (HANDLE)p;
     for (;;) {
-        if (WaitForSingleObject(g_ra_wd_ev, INFINITE) != WAIT_OBJECT_0)
+        if (WaitForSingleObject(event, INFINITE) != WAIT_OBJECT_0)
             r1_hold_fatal("watchdog idle wait failed");
         double t0 = now_ms();
         uint64_t timed_generation = ra_workers_generation();
@@ -2426,7 +2472,7 @@ static DWORD WINAPI ra_watchdog(void *p) {
                 timed_generation = generation;
                 t0 = now_ms();
             }
-            DWORD wait = WaitForSingleObject(g_ra_wd_ev, 200);
+            DWORD wait = WaitForSingleObject(event, 200);
             if (wait == WAIT_OBJECT_0) {
                 /* H2 and the next H1 may coalesce into one auto-reset signal. */
                 if (!ra_workers_generation()) break;
@@ -2442,6 +2488,29 @@ static DWORD WINAPI ra_watchdog(void *p) {
     }
     return 0;
 }
+static int ra_watchdog_prepare(void) {
+    AcquireSRWLockExclusive(&g_ra_wd_start_lock);
+    if (g_ra_wd_ev || g_ra_wd_thread) {
+        if (!g_ra_wd_ev || !g_ra_wd_thread) r1_hold_fatal("partial watchdog startup ownership");
+        ReleaseSRWLockExclusive(&g_ra_wd_start_lock);
+        return 1;
+    }
+    HANDLE event = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (!event) { ReleaseSRWLockExclusive(&g_ra_wd_start_lock); return 0; }
+    HANDLE thread = CreateThread(NULL, 0, ra_watchdog, event, 0, NULL);
+    if (!thread) {
+        if (!CloseHandle(event)) r1_hold_fatal("watchdog startup event cleanup");
+        ReleaseSRWLockExclusive(&g_ra_wd_start_lock);
+        return 0;
+    }
+    /* The worker owns its immutable event argument; both handles live until process exit. */
+    g_ra_wd_ev = event; g_ra_wd_thread = thread;
+    ReleaseSRWLockExclusive(&g_ra_wd_start_lock);
+    return 1;
+}
+static void ra_watchdog_signal(void) {
+    if (!g_ra_wd_ev || !SetEvent(g_ra_wd_ev)) r1_hold_fatal("watchdog event signal");
+}
 static void ra_workers_hold(void) {
     Ctx *tc; const char *nm; HANDLE h; DWORD me = GetCurrentThreadId();
     HANDLE pending[16]; int count = 0;
@@ -2452,7 +2521,7 @@ static void ra_workers_hold(void) {
         pending[count++] = h;
     }
     ra_workers_publish(pending, count);
-    SetEvent(g_ra_wd_ev);
+    ra_watchdog_signal();
 }
 static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170 (kick of a job group): points BEFORE the call */
     (void)user;
@@ -2465,7 +2534,7 @@ static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170
             if (tf > 0 && g_ff >= tf && g_ra_phase == 0) { tf = -1; Sleep((DWORD)tms); LOG("r1: TEST: a slow pass of %d ms at fight frame %lld, after the workers' hold (watchdog releases so far %lld)\n", tms, g_ff, g_ra_wd_fired); }
         }
     }
-    if (lr == g_ra_site) { ra_step(c); ra_workers_release(); SetEvent(g_ra_wd_ev); g_ra_wd_pause = g_ra_wd_base; }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
+    if (lr == g_ra_site) { ra_step(c); ra_workers_release(); ra_watchdog_signal(); g_ra_wd_pause = g_ra_wd_base; }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
     if ((g_ra_phase == 1 && g_ra_skip) || rgs_skip_now()) {      /* SSBU_RUNAHEAD_SKIP (experiment): job groups of the speculative pass whose result is thrown away (R2: SSBU_RB_SIM_SKIP, re-run passes but the last) */
         int prep = c->x[30] == GA(0x7103749b24ull) || c->x[30] == GA(0x710374b4f8ull) || c->x[30] == GA(0x710374b528ull) || c->x[30] == GA(0x710374b558ull), rend = c->x[30] == GA(0x710374c0d8ull);
         int logic = c->x[30] == GA(0x710374c398ull) || c->x[30] == GA(0x710374c5b8ull);
@@ -2538,6 +2607,7 @@ static void ra_report(void) {
 #include "r1_ring.c"                                  /* R2: the snapshot ring (rollback) */
 #include "rb_rollback.c"                              /* R3: online rollback on the ring (SSBU_RB_NET) */
 static void ra_init(void) {
+    if (!ra_watchdog_prepare()) r1_hold_fatal("watchdog startup");
     g_ra = 1;
     if (getenv("SSBU_RUNAHEAD_PARK_MS")) g_ra_park_ms = atof(getenv("SSBU_RUNAHEAD_PARK_MS"));
     g_ra_site = GA(0x7103749b24ULL);
@@ -2545,7 +2615,6 @@ static void ra_init(void) {
     if (getenv("SSBU_RUNAHEAD_SKIP")) g_ra_skip = atoi(getenv("SSBU_RUNAHEAD_SKIP"));
     { const char *m = getenv("SSBU_RUNAHEAD_MODE"); g_ra_submit_mode = m && !strcmp(m, "submit"); }
     if (g_ra_submit_mode) LOG("r1: RUN-AHEAD mode submit (no speculative pass; the submission step 71037f0590 is called at the save point): hook %s\n", hook_install(GA(0x71037f0590ull), ra_submit_hook, NULL, &g_orig_submit) ? "installed" : "FAILED");
-    g_ra_wd_ev = CreateEventA(NULL, FALSE, FALSE, NULL); CloseHandle(CreateThread(NULL, 0, ra_watchdog, NULL, 0, NULL));
     g_park_ms = 20;
     g_mark = mark_bind(); if (!g_mark) g_mark = ls_bind();      /* R4: no marked DLL: the learned set (rb_learned.c) */
     int k = hook_install(GA(0x710354c720ull), ra_kick, NULL, &g_orig_kick) && hook_install(GA(0x7103549170ull), ra_kick2, NULL, &g_orig_kick2);
@@ -2709,11 +2778,11 @@ void r1_init(void) {
         return;
     }
     if (getenv("SSBU_R1_PARK_MS")) g_park_ms = atoi(getenv("SSBU_R1_PARK_MS"));
-    AddVectoredExceptionHandler(1, r1_veh);
+    if (!AddVectoredExceptionHandler(1, r1_veh)) LOG("r1: crash observer unavailable: handler registration failed\n");
     atexit(r1_stats_report);
     g_audio_free = getenv("SSBU_R1_AUDIO_FREE") != NULL; /* async inventory grows through checked append */
     g_mark = getenv("SSBU_R1_MARK") != NULL;
-    g_prot = getenv("SSBU_R1_MARK_PROT") != NULL; if (g_prot) AddVectoredExceptionHandler(1, prot_veh); g_mcheck = getenv("SSBU_R1_MARK_CHECK") != NULL; if (g_mark && !mark_bind()) g_mark = 0;
+    g_prot = getenv("SSBU_R1_MARK_PROT") != NULL; if (g_prot) prot_prepare(); g_mcheck = getenv("SSBU_R1_MARK_CHECK") != NULL; if (g_mark && !mark_bind()) g_mark = 0;
     g_fast = getenv("SSBU_R1_FAST") != NULL; g_fcheck = getenv("SSBU_R1_FAST_CHECK") != NULL; if (getenv("SSBU_R1_LEARN")) g_learn = atoi(getenv("SSBU_R1_LEARN"));
     g_r1_keep_fibers = 1; g_wait_idle = getenv("SSBU_R1_WAIT_IDLE") != NULL; g_busy_log = g_wait_idle ? 3 : 0;
     ls_init();                                          /* R4: the presentation pool of the learned-set save */

@@ -36,6 +36,55 @@
  *   over) -> ls_fight_off(); r1_on_commit / r1_on_decommit / r1_wrote -> ls_range; ra_init: g_mark = mark_bind() || ls_bind();
  *   r1_init -> ls_init(); collect() -> ls_pool_meta; rgs_report -> ls_report(). */
 static int g_ls_on = -1, g_ls_active, g_ls_cmp, g_ls_off_done;
+/* Callback admission, not guest-writer quiescence. Lifecycle owners close
+ * admission and drain tokens before changing tracking/protection. OFF readers
+ * hold tokens too, so activation cannot race a pending-fault protection query.
+ * A suspended or recursively blocked callback causes bounded failure, not an
+ * indefinite lifecycle wait. The actual host write after r1_wrote is outside
+ * this contract. Geometry/backing remain process-owned after preparation. */
+#define LS_GATE_CLOSING 0x40000000L
+#define LS_GATE_OFF ((LONG)0x80000000u)
+#define LS_GATE_COUNT 0x3fffffffL
+static volatile LONG g_ls_gate = LS_GATE_OFF;
+static void ls_transition_fatal(const char *reason) { LOG("r1: LS TRANSITION FATAL: %s\n", reason); abort(); }
+static void ls_transition_wait(ULONGLONG started) {
+    if (GetTickCount64() - started >= 10000) ls_transition_fatal("callback lifecycle wait timed out");
+    YieldProcessor();
+}
+static int ls_transition_enter(int observe_off) {
+    ULONGLONG started = GetTickCount64();
+    for (;;) {
+        LONG v = InterlockedCompareExchange(&g_ls_gate, 0, 0);
+        if (v & LS_GATE_CLOSING) { ls_transition_wait(started); continue; }
+        if ((v & LS_GATE_OFF) && !observe_off) return 0;
+        if ((v & LS_GATE_COUNT) == LS_GATE_COUNT) ls_transition_fatal("callback count overflow");
+        if (InterlockedCompareExchange(&g_ls_gate, v + 1, v) == v) return v & LS_GATE_OFF ? 2 : 1;
+        ls_transition_wait(started);
+    }
+}
+static void ls_transition_leave(void) {
+    for (;;) {
+        LONG v = InterlockedCompareExchange(&g_ls_gate, 0, 0);
+        if (!(v & LS_GATE_COUNT)) ls_transition_fatal("unmatched callback release");
+        if (InterlockedCompareExchange(&g_ls_gate, v - 1, v) == v) return;
+    }
+}
+static int ls_transition_close(int skip_off) {
+    ULONGLONG started = GetTickCount64();
+    for (;;) {
+        LONG v = InterlockedCompareExchange(&g_ls_gate, 0, 0);
+        if (v & LS_GATE_CLOSING) { ls_transition_wait(started); continue; }
+        if ((v & LS_GATE_OFF) && skip_off) return 0;
+        LONG closed = LS_GATE_CLOSING | (v & LS_GATE_COUNT);
+        if (InterlockedCompareExchange(&g_ls_gate, closed, v) != v) { ls_transition_wait(started); continue; }
+        while (InterlockedCompareExchange(&g_ls_gate, 0, 0) & LS_GATE_COUNT) ls_transition_wait(started);
+        return 1;
+    }
+}
+static void ls_transition_publish(int active) {
+    if (InterlockedCompareExchange(&g_ls_gate, active ? 0 : LS_GATE_OFF, LS_GATE_CLOSING) != LS_GATE_CLOSING)
+        ls_transition_fatal("lifecycle publication without exclusive ownership");
+}
 static int g_ls_bound;                                /* placeholder maps require a healthy learned backend */
 static volatile uint8_t *g_ls_st;                       /* per ring page id (windows 1 + 2): 0 untracked, 1 read-only, 2 learned, 3 opening */
 static size_t g_ls_n1, g_ls_np;
@@ -73,11 +122,12 @@ static int ls_bind(void) {                               /* no game DLL with mar
     return 1;
 }
 static int ls_id(const uint8_t *a, size_t *id) {
-    if (g_win1 && a >= g_win1 && a < g_win1 + g_wn1) { *id = (size_t)(a - g_win1) >> 12; return 1; }
+    uintptr_t address = (uintptr_t)a, base = (uintptr_t)g_ls_storage_base;
+    if (base && address >= base && (address - base) / PG < g_ls_n1) { *id = (size_t)((address - base) / PG); return 1; }
     if ((uintptr_t)a >= WIN2 && (uintptr_t)a < WIN2 + WN2) { *id = g_ls_n1 + (((uintptr_t)a - WIN2) >> 12); return 1; }
     return 0;
 }
-static uint8_t *ls_addr(size_t id) { return id < g_ls_n1 ? g_win1 + id * PG : (uint8_t *)(uintptr_t)WIN2 + (id - g_ls_n1) * PG; }
+static uint8_t *ls_addr(size_t id) { return id < g_ls_n1 ? g_ls_storage_base + id * PG : (uint8_t *)(uintptr_t)WIN2 + (id - g_ls_n1) * PG; }
 static int ls_ns(size_t id) { return id < g_ls_n1 ? g_ns1[id] : g_ns2[id - g_ls_n1]; }
 static uint32_t *g_ls_lc; static int g_ls_decay; static SRWLOCK g_ls_lk = SRWLOCK_INIT; static long long g_ls_decayed, g_ls_decays; static double g_ls_decay_ms;
 /* Called before publishing capture history or preparing restore. This rejects
@@ -135,15 +185,30 @@ static void ls_note_writer(EXCEPTION_POINTERS *e) {      /* who faulted: 0 game 
     if (i < 64) g_ls_w[i].n++;
     ReleaseSRWLockExclusive(&g_ls_wlock);
 }
+static int ls_query_page(const void *page, MEMORY_BASIC_INFORMATION *m) {
+    uintptr_t p = (uintptr_t)page;
+    if ((p & (PG - 1)) || p > UINTPTR_MAX - PG || VirtualQuery(page, m, sizeof *m) != sizeof *m) return 0;
+    uintptr_t base = (uintptr_t)m->BaseAddress;
+    return base <= p && m->RegionSize && m->RegionSize <= UINTPTR_MAX - base && base + m->RegionSize >= p + PG;
+}
+static int ls_page_absent(size_t id) {
+    MEMORY_BASIC_INFORMATION m;
+    if (id >= g_ls_np || !ls_query_page(ls_addr(id), &m)) ls_transition_fatal("page query or bounds");
+    if (m.State == MEM_FREE || m.State == MEM_RESERVE) return 1;
+    if (m.State != MEM_COMMIT) ls_transition_fatal("unknown page state");
+    return 0;
+}
 static int ls_open(size_t id, EXCEPTION_POINTERS *e) {   /* the page writable for good, in the learned set; 0 = not ours */
+    ULONGLONG started = GetTickCount64();
     for (;;) {
         uint8_t s = g_ls_st[id];
         if (s == 0) return 0;
         if (s == 2) { DWORD old; InterlockedIncrement64(&g_ls_refault); int ok = VirtualProtect(ls_addr(id), PG, PAGE_READWRITE, &old) != 0; if (!ok) InterlockedIncrement64(&g_ls_protfail); return ok; }
-        if (s == 3) { InterlockedIncrement64(&g_ls_spin); YieldProcessor(); continue; }
+        if (s == 3) { InterlockedIncrement64(&g_ls_spin); ls_transition_wait(started); continue; }
+        if (s != 1) ls_transition_fatal("invalid opening state");
         if (__sync_bool_compare_and_swap(&g_ls_st[id], (uint8_t)1, (uint8_t)3)) {
             DWORD old; int ok = VirtualProtect(ls_addr(id), PG, PAGE_READWRITE, &old) != 0;
-            if (!ok) InterlockedIncrement64(&g_ls_protfail);
+            if (!ok) { InterlockedIncrement64(&g_ls_protfail); MemoryBarrier(); g_ls_st[id] = 1; return 0; }
             ls_push(id); MemoryBarrier(); g_ls_st[id] = 2;
             if (e) { InterlockedIncrement64(&g_ls_faults); ls_note_writer(e); }
             return ok;
@@ -151,9 +216,21 @@ static int ls_open(size_t id, EXCEPTION_POINTERS *e) {   /* the page writable fo
     }
 }
 static LONG CALLBACK ls_veh(EXCEPTION_POINTERS *e) {
-    if (!g_ls_st || e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
-    size_t id; if (!ls_id((const uint8_t *)(uintptr_t)e->ExceptionRecord->ExceptionInformation[1], &id)) return EXCEPTION_CONTINUE_SEARCH;
-    return ls_open(id, e) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
+    if (e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->NumberParameters < 2 || e->ExceptionRecord->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
+    int admission = ls_transition_enter(1); LONG result = EXCEPTION_CONTINUE_SEARCH;
+    size_t id;
+    if (g_ls_st && (admission == 1 || g_ls_off_done) && ls_id((const uint8_t *)(uintptr_t)e->ExceptionRecord->ExceptionInformation[1], &id)) {
+        if (admission == 2) {
+            MEMORY_BASIC_INFORMATION m;
+            if (ls_query_page(ls_addr(id), &m) && m.State == MEM_COMMIT && !(m.Protect & (PAGE_GUARD | PAGE_NOACCESS)) && (m.Protect & 0xff) == PAGE_READWRITE)
+                result = EXCEPTION_CONTINUE_EXECUTION; /* a fault queued before successful teardown */
+        } else if (g_ls_st[id]) {
+            if (!ls_open(id, e)) ls_transition_fatal("fault writable transition");
+            result = EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
+    ls_transition_leave();
+    return result;
 }
 static void ls_protect_run(size_t a, size_t b) {         /* ids [a, b): read-only (one call; per page if the run is not one region) */
     if (a >= b) return;
@@ -162,6 +239,7 @@ static void ls_protect_run(size_t a, size_t b) {         /* ids [a, b): read-onl
     for (size_t i = a; i < b; i++) { if (VirtualProtect(ls_addr(i), PG, PAGE_READONLY, &old)) { g_ls_st[i] = 1; g_ls_prot_pages++; } else g_ls_protfail++; }
 }
 static void ls_protect_all(void) {                       /* threads held: every committed RW simulation page of the windows (g_r = r1's ranges) */
+    ls_transition_close(0);
     double t0 = now_ms(); long long before = g_ls_prot_pages;
     memset((void *)g_ls_st, 0, g_ls_np); g_ls_n = 0; g_ls_over = 0;
     for (int i = 0; i < g_nr; i++) {
@@ -172,6 +250,7 @@ static void ls_protect_all(void) {                       /* threads held: every 
         ls_protect_run(run, id0 + np);
     }
     g_ls_prot_ms += now_ms() - t0; g_ls_bases++; g_ls_active = 1; g_ls_off_done = 0;
+    ls_transition_publish(1);
     LOG("r1: LS: %lld pages (%.1f MB) made read-only in %.1f ms; learned set emptied\n", g_ls_prot_pages - before, (g_ls_prot_pages - before) * (double)PG / 1048576.0, now_ms() - t0);
 }
 static void ls_startup_vfree(void *p) {
@@ -247,6 +326,7 @@ static int ls_capture_reserve(size_t need) {
     g_ls_cdiff = storage; g_ls_ccap = cap; return 1;
 }
 static void ls_decay_run(void) {                         /* threads held, after the capture's copies */
+    if (!ls_transition_close(1)) return;
     double t0 = now_ms(); long long nd = 0;
     AcquireSRWLockExclusive(&g_ls_lk);
     LONG n = g_ls_n; if (n > g_ls_cap) n = g_ls_cap; LONG m = 0;
@@ -259,6 +339,7 @@ static void ls_decay_run(void) {                         /* threads held, after 
     }
     g_ls_n = m;
     ReleaseSRWLockExclusive(&g_ls_lk);
+    ls_transition_publish(1);
     g_ls_decayed += nd; g_ls_decays++; g_ls_decay_ms += now_ms() - t0;
     if (g_ls_decays <= 3 || g_ls_decays % 20 == 0) LOG("r1: LS decay %lld: %lld pages read-only again in %.2f ms, set now %ld pages\n", g_ls_decays, nd, now_ms() - t0, (long)m);
 }
@@ -343,33 +424,86 @@ static void ls_rebase(void) {                            /* complete prepared ge
     ls_after_setup();
 }
 static void ls_fight_off(void) {                         /* the fight is over: every page still read-only writable again */
-    if (!g_ls_st || g_ls_off_done) return;
-    g_ls_active = 0; g_ls_off_done = 1;
+    if (!ls_transition_close(1)) return;
+    g_ls_active = 0;
     double t0 = now_ms(); long long n = 0;
     for (size_t a = 0; a < g_ls_np;) {
+        if (g_ls_st[a] == 3 || g_ls_st[a] > 3) ls_transition_fatal("opening state after callback drain");
         if (g_ls_st[a] != 1) { a++; continue; }
         size_t b = a; while (b < g_ls_np && g_ls_st[b] == 1 && (b == a || ls_addr(b) == ls_addr(b - 1) + PG)) b++;
         DWORD old;
-        if (VirtualProtect(ls_addr(a), (b - a) * PG, PAGE_READWRITE, &old)) n += (long long)(b - a);
-        else for (size_t i = a; i < b; i++) if (VirtualProtect(ls_addr(i), PG, PAGE_READWRITE, &old)) n++;
-        for (size_t i = a; i < b; i++) g_ls_st[i] = 0;
+        if (VirtualProtect(ls_addr(a), (b - a) * PG, PAGE_READWRITE, &old)) {
+            n += (long long)(b - a);
+            for (size_t i = a; i < b; i++) g_ls_st[i] = 0;
+        } else for (size_t i = a; i < b; i++) {
+            if (VirtualProtect(ls_addr(i), PG, PAGE_READWRITE, &old)) n++;
+            else if (!ls_page_absent(i)) ls_transition_fatal("fight cleanup writable transition");
+            g_ls_st[i] = 0;
+        }
         a = b;
     }
     g_ls_unprot_pages += n;
+    g_ls_off_done = 1;
+    ls_transition_publish(0);
     LOG("r1: LS: fight over: %lld pages writable again in %.1f ms; learned set %ld pages (%.1f MB); faults %lld (game DLL %lld, script modules %lld, exe %lld, other %lld, ?%lld)\n",
         n, now_ms() - t0, (long)g_ls_n, g_ls_n * (double)PG / 1048576.0, (long long)g_ls_faults, (long long)g_ls_fault_mod[0], (long long)g_ls_fault_mod[1], (long long)g_ls_fault_mod[2], (long long)g_ls_fault_mod[3], (long long)g_ls_fault_mod[4]);
 }
-static void ls_range(uint64_t a, uint64_t n, int what) { /* 0 r1_wrote: open; 1 decommit: learned; 2 commit: read-only unless learned */
-    if (!g_ls_st || !n || !g_ls_active) return;
-    size_t run = (size_t)-1, id = 0;
-    for (uint64_t p = a & ~(uint64_t)(PG - 1); p < a + n; p += PG) {
-        if (!ls_id((const uint8_t *)(uintptr_t)p, &id)) continue;
-        if (ls_ns(id)) continue;
-        if (what == 0) { if (g_ls_st[id] == 1 || g_ls_st[id] == 3) { ls_open(id, NULL); InterlockedIncrement64(&g_ls_wrote_open); } }
-        else if (what == 1) { if (g_ls_st[id] == 1) ls_open(id, NULL); else if (g_ls_st[id] == 0) { g_ls_st[id] = 2; ls_push(id); } InterlockedIncrement64(&g_ls_dec_learn); }
-        else if (g_ls_st[id] <= 1) { DWORD old; if (VirtualProtect((void *)(uintptr_t)p, PG, PAGE_READONLY, &old)) { g_ls_st[id] = 1; InterlockedIncrement64(&g_ls_commit_prot); } else InterlockedIncrement64(&g_ls_protfail); }   /* (a commit over committed pages makes them read-write again) */
-        (void)run;
+static void ls_decommit_learn(size_t id) {
+    ULONGLONG started = GetTickCount64();
+    for (;;) {
+        uint8_t s = g_ls_st[id];
+        if (s == 2) return;
+        if (s == 3) { ls_transition_wait(started); continue; }
+        if (s != 0 && s != 1) ls_transition_fatal("invalid decommit state");
+        if (s == 1) {
+            if (ls_open(id, NULL)) return;
+            if (!ls_page_absent(id)) ls_transition_fatal("decommit writable transition");
+        }
+        if (__sync_bool_compare_and_swap(&g_ls_st[id], s, (uint8_t)3)) {
+            ls_push(id); MemoryBarrier(); g_ls_st[id] = 2; return;
+        }
+        ls_transition_wait(started);
     }
+}
+static void ls_commit_track(size_t id) {
+    ULONGLONG started = GetTickCount64();
+    for (;;) {
+        uint8_t s = g_ls_st[id];
+        if (s == 2) return;
+        if (s == 3) { ls_transition_wait(started); continue; }
+        if (s != 0 && s != 1) ls_transition_fatal("invalid commit state");
+        if (!__sync_bool_compare_and_swap(&g_ls_st[id], s, (uint8_t)3)) { ls_transition_wait(started); continue; }
+        DWORD old;
+        if (VirtualProtect(ls_addr(id), PG, PAGE_READONLY, &old)) {
+            MemoryBarrier(); g_ls_st[id] = 1; InterlockedIncrement64(&g_ls_commit_prot); return;
+        }
+        /* SDK also notifies after a failed allocation. Absence is not a
+         * protection failure, but a committed page must never be ignored. */
+        int absent = ls_page_absent(id);
+        MemoryBarrier(); g_ls_st[id] = s;
+        if (!absent) { InterlockedIncrement64(&g_ls_protfail); ls_transition_fatal("commit read-only transition"); }
+        return;
+    }
+}
+static void ls_range(uint64_t a, uint64_t n, int what) { /* 0 r1_wrote: open; 1 decommit: learned; 2 commit: read-only unless learned */
+    if (!n || !ls_transition_enter(0)) return;
+    if (!g_ls_st || !g_ls_active) { ls_transition_leave(); return; }
+    if (n > UINT64_MAX - a) ls_transition_fatal("host range overflow");
+    uint64_t end = a + n; size_t id;
+    for (uint64_t p = a & ~(uint64_t)(PG - 1);;) {
+        if (ls_id((const uint8_t *)(uintptr_t)p, &id) && !ls_ns(id)) {
+            if (what == 0) {
+                if (g_ls_st[id] == 1 || g_ls_st[id] == 3) {
+                    if (!ls_open(id, NULL)) ls_transition_fatal("host writable transition");
+                    InterlockedIncrement64(&g_ls_wrote_open);
+                }
+            } else if (what == 1) { ls_decommit_learn(id); InterlockedIncrement64(&g_ls_dec_learn); }
+            else ls_commit_track(id);
+        }
+        if (end - p <= PG) break;
+        p += PG;
+    }
+    ls_transition_leave();
 }
 /* ---- the presentation pool (SSBU_LS_ROUTE)
  * Its BLOCKS are never saved; its BOOKKEEPING (which block is live, the bump pointer, the size classes) is: one 2 MB region

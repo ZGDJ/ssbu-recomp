@@ -1,0 +1,34 @@
+# Imported completion-save Competitive preset: Mario mirror, Final Destination, three stocks.
+# Requires the explicit debug-match settings and forward-only procedure in docs/VALIDATION.md.
+# Poll-based input fixture, not a single-tick driver or rollback input-history oracle.
+# Jump plus left crosses the blast zone; sustained left alone stopped at the ledge.
+# Observe both respawns, natural final KO/results and the returned character-select screen.
+@movie
+@draws:22-26/30
+@draws:36-44/30
+30:Z
+@draws:700-800/40 30:Z
+150:Z
+@draws:370-400/40 30:Z
+@draws:270-330/40 30:Z
+@draws:500-680/40
+30:u/30 20:l/18 30:Z
+90:Z
+90:Z
+@fight
+200
+30:l/100
+1:lC/8
+1:l/180
+300
+30:l/100
+1:lC/8
+1:l/180
+300
+30:l/100
+1:lC/8
+1:l/180
+300
+@until:38-50/30:Z/45
+@draws:500-680/40
+600

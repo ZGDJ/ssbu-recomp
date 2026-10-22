@@ -106,13 +106,18 @@ static void mp_note(int i, uint64_t bytes, LARGE_INTEGER t0) {
     }
 }
 static void mp_init(void) { const char *e = getenv("SSBU_MEM_KEEP"), *s = getenv("SSBU_MEMSTAT"); g_mp_stat = s && atoi(s); g_mp_keep = e && atoi(e); }
+static void sdk_memory_fatal(const char *operation, void *address, size_t size) {
+    DWORD error = GetLastError();
+    fprintf(stderr, "SDK MEMORY FATAL: %s address=%p size=%zu error=%lu\n", operation, address, size, (unsigned long)error);
+    abort();
+}
 static void os_AllocateMemoryPages(Ctx *c) {
     LARGE_INTEGER t0;
     if (g_mp_keep < 0) mp_init();
     QueryPerformanceCounter(&t0);
     uint64_t n = A1;
     int ok = VirtualAlloc(P(0), (SIZE_T)A1, MEM_COMMIT, PAGE_READWRITE) != NULL;
-    { void r1_on_commit(void *, size_t); r1_on_commit(P(0), (size_t)A1); }      /* R1 (r1_state.c): nothing without SSBU_R1_MARK */
+    if (ok) { void r1_on_commit(void *, size_t); r1_on_commit(P(0), (size_t)A1); } /* failed commitment must retain snapshot decommit bookkeeping */
     mp_note(0, n, t0);
     RET(ok ? 0 : 0x1015);
 }
@@ -130,12 +135,22 @@ static void os_FreeMemoryPages(Ctx *c) {
             if (mi.State == MEM_COMMIT && (mi.Protect & PAGE_READWRITE)) memset(p, 0, (size_t)(re - p));
             p = re;
         }
-    } else { void r1_on_decommit(void *, size_t); r1_on_decommit(P(0), (size_t)A1);      /* R1 (r1_state.c): marks the pages (nothing without SSBU_R1_MARK) */
-             cxxrt_mem_changed(A0, A1); VirtualFree(P(0), (SIZE_T)A1, MEM_DECOMMIT); cxxrt_mem_changed(A0, A1); }      // PR #2 (jfb112697): report the decommitted range, before and after
+    } else {
+        /* Learned tracking opens pages before decommit. Once notified, failure
+         * cannot return with snapshot maps claiming that live pages are absent. */
+        void r1_on_decommit(void *, size_t); r1_on_decommit(P(0), (size_t)A1);
+        cxxrt_mem_changed(A0, A1);
+        if (!VirtualFree(P(0), (SIZE_T)A1, MEM_DECOMMIT)) sdk_memory_fatal("decommit", P(0), (size_t)A1);
+        cxxrt_mem_changed(A0, A1);                       // PR #2 (jfb112697): report the decommitted range, before and after
+    }
     mp_note(1, n, t0);
     RET(0);
 }
-static void os_FreeAddressRegion(Ctx *c) { cxxrt_mem_changed(A0, 0); VirtualFree(P(0), 0, MEM_RELEASE); cxxrt_mem_changed(A0, 0); RET(0); }      // PR #2 (jfb112697): size 0 = the whole region at A0
+static void os_FreeAddressRegion(Ctx *c) {
+    cxxrt_mem_changed(A0, 0);                            // PR #2 (jfb112697): size 0 = the whole region at A0
+    if (!VirtualFree(P(0), 0, MEM_RELEASE)) sdk_memory_fatal("release", P(0), 0);
+    cxxrt_mem_changed(A0, 0); RET(0);
+}
 
 /* ---- more libc */
 static void c_strtol(Ctx *c) {

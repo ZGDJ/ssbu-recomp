@@ -1,6 +1,6 @@
 # Functional specification: SmashRollback
 
-Revision: 2026-10-21. Requirements live here; [milestones](../milestones/README.md) own status and [ADRs](../adr/README.md) own decisions.
+Revision: 2026-10-22. Requirements live here; [milestones](../milestones/README.md) own status and [ADRs](../adr/README.md) own decisions.
 
 The [Smash rollback design contract](ROLLBACK_DESIGN.md) defines frame conventions, adapter ownership, confirmation and primary-source Slippi learnings. It is required design context for FSD-002 through FSD-010 and FSD-014/015.
 
@@ -15,6 +15,8 @@ Preserve Ultimate battle behavior on Windows x64 with competitive 1v1 rollback. 
 Provisional experiment: 13.0.5 Mario mirror, Final Destination, three stocks, seven minutes, hazards/stage morph/spirits/Final Smash meter off, normal launch rate, no items or CPU. This is a test fixture, not a universal tournament ruleset or roster limit. Add object-heavy fighters before closing rewind coverage; qualify DLC and selected Mii configurations explicitly.
 
 Open choices: available private inputs; final stage/rules list and Mii settings; minimum hardware; acceptable input delay/window/network envelope. Source-only work can proceed; mock gameplay cannot replace missing private inputs.
+
+Private wireless play is the product priority: first two PCs in a direct private 1v1 session without required public matchmaking/relay, then a persistent four-member code-based lobby with any two active players and mandatory delayed live spectating for the others. Offline play remains a validation mechanism, not a couch-play feature initiative. See [ADR-0008](../adr/0008-private-pair-sessions.md). Implementation is location-independent; supported network conditions are measured, not defined by cities. Same-network and Internet routes need separate qualification.
 
 ## Requirements
 
@@ -62,6 +64,8 @@ Apply the ownership and confirmation contract to the inherited backend; do not a
 
 Reproduce delay, jitter, loss, duplication, reordering and bursts. Initial test cases: RTT 0/50/100/150 ms, jitter 0/10/30 ms, loss 0/1/3 percent; these are tests, not support promises. Acceptance: declared pairwise cases across two machines maintain confirmed-state agreement and latency/disconnect policy. Preserve failing seeds; qualify CPU/GPU/compiler differences explicitly.
 
+For the two-PC gate, export paired diagnostic bundles with a shared match ID, build/config identity, frame-correlated inputs and rollback events, and comparable confirmed-state fingerprints with declared coverage. Recording must be bounded and unable to stall gameplay; report dropped/incomplete records explicitly. Begin with manual export/sharing. Upload services and dashboards are deferred; this requirement does not expand M1.1's prelaunch inventory scope.
+
 ### FSD-010 - Full-roster competitive coverage
 
 Enumerate 13.0.5 fighters including DLC/selected Mii configurations and version rules/stage coverage. Acceptance: every fighter has representative mechanics, gameplay, rewind/correction and performance evidence; define pairwise/high-risk interactions without claiming every matchup from one test per fighter. Track untested/failed/verified. Full-roster milestone stays open until every entry qualifies. No items does not remove fighter-created objects/RNG.
@@ -76,6 +80,8 @@ Critical hooks uniquely match pinned module identity or disable rollback with an
 
 One ledger, dependency gates, bounded packets and evidence-backed status. Acceptance: new agents identify ready work, run checks and leave reproducible handoffs. Validator rejects invalid task/dependency/status/evidence references; it cannot certify gameplay truth. Independently review high-risk state/scheduling work.
 
+Every new work packet identifies a concrete defect or named next gameplay proof, a decisive observation and a stopping condition. Reuse verification infrastructure; optional hardening does not outrank evidence needed for deterministic battle/correction. Source safety acceptance and gameplay gates remain mandatory.
+
 ### FSD-013 - Preserve battle behavior
 
 Self-consistent replay can still reproduce an incorrect simulation. For changes affecting battle semantics, compare representative mechanics/outcomes with the pinned upstream 13.0.5 recompilation wherever practical, using identical conditions and documenting instrumentation/input differences. Acceptance: named behavioral cases and reference outputs, no unexplained changes in damage/timing/movement/collision outcomes, and explicit limitations for unavailable comparisons. Unresolved unexplained changes block qualification. This does not assert equivalence to console hardware; upstream bugs remain separately identifiable.
@@ -88,8 +94,30 @@ Map the inherited after-pass ring numbering to before-input checkpoint numbering
 
 Speculative last-stock KO, simultaneous lethal outcomes and timeout/last-hit changes must remain correctable. Defer teardown/results/save/module unload until causal inputs have been corrected and the outcome is committed, or prove all transition state rewindable. Acceptance: offline late-input tests reverse apparent terminal outcomes, preserve required state/resources and commit exactly once; networking subsequently tests disconnect and immediate rematch/old epoch. A fabricated offline confirmation schedule tests the barrier but does not prove the network confirmation signal.
 
+### FSD-016 - Private pair ownership and observable routing
+
+A battle binds exactly two explicit participant identities independently of lobby ownership, discovery service and controller slots. Preserve source identity through receive dispatch and reject nonparticipants before handshake, liveness or queue mutation. Use fresh full-width session/match identity and reset peer/timing/input ownership coherently. Acceptance: production-connected tests prove selected pair isolation against a third sender and old-pair traffic, including malformed packets and reset races. Reuse existing transport code where justified; no generic framework is required.
+
+Qualify private host/join without a public matchmaking/relay dependency. Same-network operation must not require external address-discovery services. Display actual rollback packet route and end-to-end timing, not merely ordinary online direct status. Direct-only failure is explicit; optional relay requires deliberate selection. Two-machine evidence covers both host assignments, Wi-Fi, declared NAT/manual-forwarding paths, reachability failure, disconnect/rematch, packet route and FSD-009 impairments. Choose latency/window settings from measured correction/catch-up behavior. A route test does not close battle-state gates.
+
+### FSD-017 - Persistent four-member private lobby
+
+Support up to four members in one persistent code-based lobby. Any two activate controllers/select fighters; the others stay connected as spectators. No automatic rotation schedule, manual rehosting or new shared code is required when changing the active pair. Role changes take effect between matches, after committed end or explicit abort/cleanup; controller loss during a match invokes a defined active-player failure policy, not immediate spectator reassignment. Assign slots independently of lobby ownership. Fresh pair identity/readiness rejects queued prior-pair traffic. Direct guest-to-guest battles cannot silently forward through the waiting owner.
+
+The lobby controller owns membership, codes, active-pair selection/readiness and spectator assignment, never frame approval or input confirmation. It may initially run on the creator's PC; no separately hosted server is required. Initial owner departure may close the lobby clearly; automatic host migration is deferred. Normal hosting, code entry, character selection and role changes are accessible in-game through the versus-based flow. The current F1 host/join overlay is reusable; router/firewall failures require clear guidance rather than a promise of universal automatic reachability. Do not integrate Local Wireless's battle synchronization in this scope.
+
+Acceptance: source tests and four-machine trials exercise all six unordered active pairs, admission conflicts when more than two select, role changes, old packets, unequal match histories and owner/spectator/active-player departure. No spectator affects battle confirmation. This lobby and FSD-018 spectating are required for the first family-ready release, after baseline two-PC rollback proof.
+
+### FSD-018 - Mandatory delayed spectating without gameplay backpressure
+
+Up to two spectators watch a delayed stream of corrected, committed battle inputs with validated initial state/configuration and match identity. Received inputs alone are not sufficient publication authority. Spectators replay using the same battle semantics and verify covered state; they never supply battle inputs, frame acknowledgments required by fighters, or confirmation votes. Spectator stalls, disconnects, corruption and catch-up failure cannot stall or change active battle state. Their delay may increase or playback may stop/rejoin rather than affecting fighters.
+
+Specify compatible-build admission, stream ownership, ordering/deduplication, bounded history, initial-state bootstrap and resynchronization. First-version playback may start at the next match for members joining mid-match; communicate that state in-game. No arbitrary live native-pointer snapshot transfer is assumed. Bound sender CPU, memory, locks, queues and bandwidth; prioritize gameplay and shed spectator work when limits are reached. Define committed stream retention independently of rollback history so a slow viewer cannot pin checkpoints. Session teardown releases viewer resources without waiting for their acknowledgment.
+
+Acceptance: source failure/load tests plus zero/one/two-viewer comparisons on actual four-PC battles, including slow/paused/disconnected viewers, queue overflow, loss/reorder, wrong epochs, incompatible builds, and resynchronization. Record active-pair RTT, delay, stalls, p95/p99 replay cost, bandwidth and memory against the no-viewer baseline under a declared budget. Fighter correctness is unchanged and no spectator-induced input-delay increase, confirmation dependency or blocking send is allowed. If measured resource contention violates the budget, degrade/disconnect spectators rather than weakening battle requirements. Lowest practical fighter latency is the priority within correctness and stability; neither zero overhead nor unlimited network tolerance is promised.
+
 ## Non-goals and decision gates
 
-Initial exclusions: full source recovery, Nintendo online interoperability, ranked/public services, anti-cheat, spectators, four players, items, arbitrary versions, Linux rollback and game-content distribution. Preserve inherited features without expanding acceptance scope.
+Initial exclusions: full source recovery, Nintendo online interoperability, ranked/public services, anti-cheat, simultaneous 3-4-player battles, items, arbitrary versions, Linux rollback and game-content distribution. Preserve inherited features without expanding acceptance scope.
 
 If FSD-002 through FSD-006 cannot pass, broaden targeted decompilation or restructure continuations through an ADR. Profile before revising performance scope; never weaken correctness criteria merely to close milestones.

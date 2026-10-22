@@ -8,6 +8,20 @@ For the current rollback continuation checkpoint, see [rollback handoff](ROLLBAC
 
 Work from OpenSmash upstream `c7c874977ea7510c291ec8c278a58883a2f4e368` and [ADR-0007](../adr/0007-opensmash-adoption-and-hardening.md). Inspect the existing `r1_*` / `rb_*` implementation before proposing replacements. M7.1–M7.8 are bounded source-hardening tasks; completing them does not close private-data, gameplay or full-roster M1–M6 gates. Use root [BUILDING.md](../BUILDING.md), not the former WindowSmash build commands or evidence.
 
+## Outcome-first work selection
+
+Optimize for the next falsifiable battle proof, not source-test counts or infrastructure completeness. Every implementation/investigation packet must name (a) a reproduced failure or concrete source invariant violation, or (b) the next gameplay gate it enables; name the smallest observation that would change the decision and the stopping condition. New tools must explain why existing probes cannot supply that observation. Do not add a general framework for a single experiment.
+
+Prioritize the ledger's proof-first queue. M7 safety fixes remain mandatory; ready M1 identity/cache/hook and early M6.1 fixture work must not be starved behind expanding resource cleanup. Bounded research may run before a downstream capability gate is dependency-ready under an explicit investigation task; it cannot close that gate. Keep forward-determinism research separate from snapshot-resource acceptance.
+
+After each cohesive runtime change, perform its required validation, then attempt the named next proof or record the exact prerequisite preventing it. Do not automatically open another adjacent hardening packet. If a probe supplies no new discriminating evidence, change the hypothesis/observation or stop with the remaining uncertainty; do not stack instrumentation without a decision it can resolve. Successful retries never diagnose prior failures.
+
+Defer optional diagnostic polish, unused configuration modes, public lobby improvements, generic transport abstractions and broader framework work unless they meet the same defect/proof test. A known optional unsafe mode may be deferred only with an explicit restriction and evidence that supported/default paths do not use it; otherwise its safety issue remains blocking. Deferral never means silently ignoring a reachable corruption bug or weakening acceptance.
+
+Validation is risk-based: keep mandatory fatal/trace/reference gates and frozen identity. For core capture/restore/resource changes, retain the full required control matrix. For an isolated diagnostic, use reviewed disabled/enabled controls plus affected source regressions unless shared-path changes justify broader coverage. State selected/omitted controls and why; do not rerun an unchanged matrix without new risk. These rules do not retroactively qualify failed or unrun SDK controls.
+
+Report progress as: gameplay outcome enabled, earliest remaining divergence/refusal, evidence limits, and next decisive experiment. Completed helper tests, effort totals and document counts are not completion percentages.
+
 ## Work loop
 
 1. Inspect the worktree; select unclaimed dependency-ready work. Independent source tasks can proceed around private-data blockers.
@@ -22,13 +36,15 @@ Work from OpenSmash upstream `c7c874977ea7510c291ec8c278a58883a2f4e368` and [ADR
 
 ```text
 Task/outcome: Mx.y / one sentence
+Proof/defect: named gameplay gate or concrete failure; next decisive observation
 Context: requirement, ADR, source symbols, relevant prior evidence
 Ownership: exact files/subsystem; other active writers
 Non-goals: deferred scope
 Approach: bounded experiment/implementation
 Acceptance: observable result + command/manual procedure
 Artifacts: code/tests + evidence + ledger update
-Split/stop: missing prerequisite, architecture decision, excessive scope
+Split/stop: falsifiable stop condition; missing prerequisite, architecture decision, excessive scope
+Validation scope: required controls and justified omissions; reusable existing tools
 Handoff: results, uncertainty, next action
 ```
 

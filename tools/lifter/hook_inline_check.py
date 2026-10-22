@@ -321,7 +321,8 @@ def c_calls(path, targets):
     return out, src_const
 
 
-FN_HDR = re.compile(r'^[0-9a-f]{16} <([^>]+)>:')
+# LLVM 9 COFF uses bare names; newer releases put the symbol in angle brackets.
+FN_HDR = re.compile(r'^[0-9a-fA-F]+ (?:<([^>]+)>|([^\s:]+)):\s*$')
 INSN = re.compile(r'^\s+([0-9a-f]+):\s+(\S+)\s*(.*)$')
 RELOC = re.compile(r'^\s+[0-9a-f]+:\s+IMAGE_REL_AMD64_\w+\s+(\S+)')
 
@@ -331,6 +332,8 @@ def disasm_refs(obj, targets):
     names = {'f_%x' % t: t for t in targets}
     consts = {'$0x%x' % t: t for t in targets}
     r = subprocess.run([OBJDUMP, '-d', '-r', '--no-show-raw-insn', obj], capture_output=True, text=True, errors='replace')
+    if r.returncode:
+        raise RuntimeError('objdump failed for %s (exit %d): %s' % (obj, r.returncode, r.stderr.strip()))
     refs = collections.defaultdict(collections.Counter)
     marks = collections.defaultdict(collections.Counter)
     cur, pending = None, None                 # pending = [function, target of the last branch instruction]
@@ -342,7 +345,7 @@ def disasm_refs(obj, targets):
         m = FN_HDR.match(line)
         if m:
             flush()
-            pending, cur = None, m.group(1)
+            pending, cur = None, m.group(1) or m.group(2)
             continue
         m = RELOC.match(line)
         if m:
@@ -436,7 +439,7 @@ def census_all(objdir):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     opts = dict(a[2:].split('=', 1) if '=' in a else (a[2:], '1') for a in sys.argv[1:] if a.startswith('--'))
-    base = BASE
+    base, span = BASE, None
     if 'module' in opts:                        # a script module: gen_nro_eh_o2\<m>, obj_nro_eh_o2\<m>, its guest base
         import relift_sites
         _, b, m, span = relift_sites.module_info(opts['module'])
@@ -457,13 +460,17 @@ def main():
             a = int(f[-1], 16)
             if a < base:
                 a += base
-            if not base <= a < base + span:
+            if span is not None and not base <= a < base + span:
                 continue                        # another module's address
             targets.append(a)
             if len(t) > 1:
                 labels[a] = t[1].strip()
     targets = sorted(set(targets))
-    res = check(targets, gen, objdir, base) if targets else {}
+    try:
+        res = check(targets, gen, objdir, base) if targets else {}
+    except RuntimeError as error:
+        print('hook_inline_check: %s' % error, file=sys.stderr)
+        return 1
     bad = []
     for t in targets:
         r = res[t]
