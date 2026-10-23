@@ -18,7 +18,7 @@ M0.10 and M7.9 are complete within their recorded scope; reuse them rather than 
 
 M7 completion means source failure regressions and production wiring are verified, not that actual battle replay works. M2/M3/M4 qualify native behavior; M5 qualifies network outcomes. Do not retrofit gameplay evidence into synthetic passes. Sizes are re-estimated scope; M7.9 is shared test infrastructure, not duplicate implementation effort.
 
-Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and [audit](../evidence/2026-10-22-private-network-audit.md). Preserve the M7 engine sequence. M5.4/M5.5 add source-level private pair ownership/routing alongside dependency-ready protocol work; actual network qualification remains after offline gates. M5.7-M5.11 deliver a persistent four-member lobby and mandatory delayed spectating after baseline 1v1 proof, before family release; simultaneous multiplayer remains deferred. No new capability is marked done by this plan.
+Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and [audit](../evidence/2026-10-22-private-network-audit.md). Preserve the M7 engine sequence. M5.4/M5.5 add source-level private pair ownership/routing alongside dependency-ready protocol work; actual network qualification remains after offline gates. M5.12-M5.14 define controlled 1v1 setup, paired diagnostics and initial 1v1 readiness. M5.7-M5.11 deliver a later persistent four-member lobby and mandatory delayed spectating after baseline 1v1 proof; simultaneous multiplayer remains deferred. No new capability is marked done by this plan.
 
 ## Proof-first execution priorities
 
@@ -29,7 +29,7 @@ See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and 
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 4. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
 5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
-6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
+6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their later four-member product requirements remain intact.
 
 Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Optional SSBU_MEM_KEEP work must first determine whether the supported candidate uses it and whether isolation is safe; no present assertion that disabling it is sufficient. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
 
@@ -494,7 +494,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: none
 - Acceptance: Four separate machines exercise all six active pairs through the same lobby/code, with verified direct-policy routes and confirmed outcomes. Delayed prior-pair packets, excess active selections, role changes and spectator/active/owner departure have defined outcomes. No inactive member gates inputs; no manual rehosting is needed. Spectator playback qualification remains M5.11.
 - Owner: unassigned
-- Next: Record identities, route, repetitions and failures; geographic location does not constrain the implementation. Keep live-viewer release gate separate and mandatory.
+- Next: Record identities, route, repetitions and failures; geographic location does not constrain the implementation. Keep the later four-member live-viewer release gate separate and mandatory.
 - Blocker: none
 
 ### M5.9 - Committed spectator stream and bounded publication
@@ -527,7 +527,40 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: none
 - Acceptance: Four-PC actual battles compare zero/one/two viewers, including slow, paused, disconnected and bandwidth-limited viewers. Confirm playback identity and committed outcomes; active-pair state/confirmation is unchanged. Measure RTT/delay/stalls, p95/p99 replay cost, memory and bandwidth against no-viewer baseline under declared budgets. Viewer pressure sheds viewer work, never adds input delay or blocks fighters. Repeat role changes with old viewer traffic.
 - Owner: unassigned
-- Next: Capture paired baseline/load evidence; resolve measured contention before family-ready claims. This gate is mandatory for first family release.
+- Next: Capture paired baseline/load evidence; resolve measured contention before family-ready claims. This gate is mandatory for the later four-member product, not the initial two-person version.
+- Blocker: none
+
+### M5.12 - Controlled versus 1v1 setup
+- Status: todo
+- Depends: M1.3, M5.4
+- Size: 5
+- Requirement: FSD-011, FSD-015, FSD-016
+- Evidence: none
+- Acceptance: Create/join and rematch use the versus simulation with exactly two human-controlled slots. Apply and read back a supported host-selected rules schema including timer, rule kind/stocks, stage/form, hazards/items, fighters/costumes and per-player profiles; mismatches/unsupported settings refuse visibly before speculative simulation. Tests cover differing saves, slot/host reversal, no AI input, failed agreement and stale rematch setup. Source acceptance does not qualify gameplay.
+- Owner: unassigned
+- Next: Reuse existing handshake/setup seams; replace the manual CPU-panel workflow with verified participant construction. Keep network/UI lifecycle separate from rewind state. Retain M7.7 compatibility and M5.6 game-backed gates.
+- Blocker: none
+
+### M5.13 - Freeze-safe paired diagnostic export
+- Status: todo
+- Depends: M1.1
+- Size: 5
+- Requirement: FSD-012, FSD-019
+- Evidence: none
+- Acceptance: External double-click/CLI collection produces bounded sanitized ZIPs during a hung game and after exit. Identified launcher and versioned manifest expose active mode, actual executable, shared match identity, config, frame/epoch telemetry, coverage and gaps. Pair inspector reports compatible comparable evidence or explicit refusal; zero checksums never means agreement. Live/locked/rotating/missing/large-log, privacy and clean-Windows tests pass; existing setup support is preserved.
+- Owner: unassigned
+- Next: Follow docs/ROLLBACK_TESTING_IMPLEMENTATION.md. Extend existing family support, preserving typed diagnostic hashes; first enable manual collection and bounded recording, then pair inspection. This source/tooling work can proceed before network qualification.
+- Blocker: none
+
+### M5.14 - Initial two-person product readiness
+- Status: todo
+- Depends: M5.6, M5.12, M5.13, M7.7, M0.9
+- Size: 3
+- Requirement: FSD-007, FSD-009, FSD-011, FSD-016, FSD-019
+- Evidence: none
+- Acceptance: Two separate PCs qualify supported host/join rules, human slot ownership, actual rollback, results/rematch and paired diagnostic collection including a bounded freeze test. Supported hardware/rules/roster/network envelope is explicit; no full-roster or four-member claim. Low-memory refusal and any fallback are visible and distinguished. Opt-in installation/update/recovery preserves the normal build and saves. Publication is separately authorized.
+- Owner: unassigned
+- Next: Prepare an isolated test channel and run the defined qualification at dependency readiness. Earlier experimental diagnostic distributions must clearly state unqualified status and their tested scope.
 - Blocker: none
 
 ## M6 - Full-roster qualification
@@ -554,9 +587,9 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Next: Split by mechanics families and disjoint evidence ownership.
 - Blocker: none
 
-### M6.3 - Product qualification and release readiness
+### M6.3 - Full-roster four-member product release readiness
 - Status: todo
-- Depends: M5.3, M5.6, M5.11, M6.2, M0.5, M0.9
+- Depends: M5.3, M5.6, M5.11, M5.14, M6.2, M0.5, M0.9
 - Size: 5
 - Requirement: FSD-007, FSD-009, FSD-010, FSD-011, FSD-017, FSD-018
 - Evidence: none

@@ -46,6 +46,10 @@ M1.4's lifted compiler cache checks are documented in [cache evidence](../eviden
 - Full restore/correction qualification retains the ledger's M7.8/M7.1/M7.3 chain. A forward-only fixture that demonstrably does not capture/restore is not held behind that entire chain. Optional MEM_KEEP trials require reachability/isolation review first; do not assume toggling it off proves safety.
 - M6.1's early subset should name concrete cases: press/hold/release across hitlag, a projectile spawn removed/created by correction, ownership/destruction/recreation, RNG-consuming actions, and last-stock KO/timeout reversal. Record expected oracle, inputs and correction boundary; stop at fixture specification before claiming coverage. Do not build a general mechanics catalog as a prerequisite for the first bounded replay case.
 
+### Tester diagnostics before network qualification
+
+M5.13/FSD-019 permit collector and bounded recording implementation before two-PC gameplay qualification. Follow [the implementation brief](ROLLBACK_TESTING_IMPLEMENTATION.md); synthetic ZIP/collector tests establish tooling behavior only. External collection must work during a hung game and report partial/unflushed logs explicitly. Actual rollback/fallback mode, comparison counts and available identity/coverage belong in each bundle. Zero comparisons are not agreement. Use a separate opt-in test installation; a pushed source branch is not a tested runtime artifact.
+
 ### Later two-PC paired bundles
 
 M5.2/M5.3 must retain a bundle from **each** peer with shared match ID, build/config identity, frame-correlated inputs and rollback events, comparable confirmed-state fingerprints and declared coverage. Test bounded recording under pressure: dropped/incomplete diagnostics must be explicit and must never block gameplay. Start with manual export/sharing; upload services and dashboards are deferred. This is future network acceptance, not work added to M1.1.
