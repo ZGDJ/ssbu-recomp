@@ -774,7 +774,7 @@ static void ro_UnloadModule(Ctx *c) {            /* (Module *) */
     for (uint64_t s = 0; s < (span + (1u << NRO_SLOT_SHIFT) - 1) >> NRO_SLOT_SHIFT; s++)
         g_slot[((m->info->base - NRO_BASE) >> NRO_SLOT_SHIFT) + s] = NULL;
     if (g_ro_reserved) VirtualFree((void *)(uintptr_t)m->info->base, span, MEM_DECOMMIT);      /* the range stays reserved for the next load */
-    else VirtualFree((void *)(uintptr_t)m->info->base, 0, MEM_RELEASE);
+    else r1_release_guest_reservation((void *)(uintptr_t)m->info->base);
     ReleaseSRWLockExclusive(&g_ro_lock);
     wr32(g + 8, 0);
     printf("nn::ro::UnloadModule: %s\n", m->info->name);

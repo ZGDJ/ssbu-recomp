@@ -115,3 +115,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Menu writer integration](2026-10-23-menu-writer-integration.md): menu writer discovery controls and result.
 - [Menu fixture contract](2026-10-23-menu-fixture-contract.md): M3.5 fixture identity contract and its offline falsification test over retained records.
 - [Menu repeat integration](2026-10-23-menu-repeat-integration.md): repeated uninstrumented same-tape arm, round 1; admission refused on host capacity, retry plan written, contract unchanged.
+
+- [Reservation lifetime and supported memory mode](2026-10-23-restore-resources.md): M7.8 source acceptance, reviewed release/MEM_KEEP refusal and O1/O3 injections; new-package control refused on capacity; M7.1 opened.

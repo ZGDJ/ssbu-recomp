@@ -754,8 +754,10 @@ void (*g_r1_fiber_born)(void *fiber);                 /* r1_state.c (R3 hs13): a
 static void CALLBACK fiber_main(void *arg) {
     Obj *o = arg;
     Ctx *c = new_ctx(o->stack + o->stack_size);
+    /* This temporary TLS block has never been published to an inventory. */
+    if (!VirtualFree((void *)(uintptr_t)c->tpidr, 0, MEM_RELEASE)) abort();
+    c->tpidr = o->tp;
     o->fctx = c;
-    VirtualFree((void *)(uintptr_t)c->tpidr, 0, MEM_RELEASE);   /* a fiber has no thread block of its own: it uses the one of the thread running it */
     for (;;) {
         c->tpidr = o->tp;
         c->x[0] = o->arg;
@@ -957,7 +959,7 @@ static void pt_attr_setstacksize(Ctx *c) { obj(A0)->stack_size = A1; RET(0); }
 static void pt_attr_getstacksize(Ctx *c) { Obj *o = obj(A0); wr64(A1, o->stack_size ? o->stack_size : 1u << 20); RET(0); }
 
 static void pthread_release(Obj *o) {                 /* after the thread ended and was joined or detached */
-    if (o->stack) { VirtualFree((void *)(uintptr_t)o->stack, 0, MEM_RELEASE); o->stack = 0; }
+    if (o->stack) { r1_release_guest_reservation((void *)(uintptr_t)o->stack); o->stack = 0; }
     if (o->thread) { CloseHandle(o->thread); o->thread = NULL; }
 }
 static DWORD WINAPI pthread_main(LPVOID arg) {
@@ -1001,7 +1003,7 @@ static void pt_create(Ctx *c) {
     EnterCriticalSection(&o->cs);                     /* a detach before CreateThread returns must see o->thread */
     o->thread = CreateThread(NULL, (SIZE_T)256 << 20, pthread_main, o, STACK_SIZE_PARAM_IS_A_RESERVATION | CREATE_SUSPENDED, NULL);
     LeaveCriticalSection(&o->cs);
-    if (!o->thread) { VirtualFree(stack, 0, MEM_RELEASE); o->stack = 0; o->is_pthread = 0; RET(P_EAGAIN); return; }
+    if (!o->thread) { r1_release_guest_reservation(stack); o->stack = 0; o->is_pthread = 0; RET(P_EAGAIN); return; }
     SetThreadPriority(o->thread, host_priority(o->priority));
     apply_sched(o->thread, o->core_mask);
     wr64(A0, o->key);

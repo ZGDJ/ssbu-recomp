@@ -10,6 +10,8 @@ typedef struct {uint64_t x[32];} Ctx;
 static Ctx context;
 static uint8_t page[PG];
 static void *const address=page;
+static SRWLOCK g_guest_release_lock = SRWLOCK_INIT;
+static int g_guest_reservations_pinned;
 static int g_mp_keep=0;
 static int allocation_failed,free_failed,host_committed,host_reserved,notification_count,note_count,return_count,init_count;
 static char events[32];static size_t event_count;

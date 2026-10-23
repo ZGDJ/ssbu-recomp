@@ -18,7 +18,7 @@ from test_catch_source import function
 class SdkMemorySourceTests(unittest.TestCase):
     def test_exact_memory_callers(self):
         source = (ROOT / 'runtime/nnsdk.c').read_text()
-        names = ['sdk_memory_fatal', 'os_AllocateMemoryPages', 'os_FreeMemoryPages', 'os_FreeAddressRegion']
+        names = ['r1_release_guest_reservation', 'sdk_memory_fatal', 'os_AllocateMemoryPages', 'os_FreeMemoryPages', 'os_FreeAddressRegion']
         fixture = (ROOT / 'tests/sdk_memory_source_fixture.c').read_text().replace('/* SOURCE */', '\n'.join(function(source, name) for name in names))
         directory = ROOT / 'artifacts/local/sdk-memory-source'
         directory.mkdir(parents=True, exist_ok=True)

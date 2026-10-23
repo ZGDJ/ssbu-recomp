@@ -81,6 +81,31 @@ static void ldn_MakeIpv4Address(Ctx *c) { RET(((A0 & 0xff) << 24) | ((A1 & 0xff)
 
 /* ---- nn::os: virtual memory, used by the game's own allocator (jemalloc) */
 /* cxxrt_guest_region, cxxrt_mem_changed: nncxxrt.c (P3) */      // PR #2 (jfb112697): prototypes now in hostrt.h (cxxrt_mem_changed takes the range)
+/* Snapshot addresses must not be recycled. Pin before the first inventory walk;
+ * serialize with releases already in flight. The pin is process-lifetime, even
+ * after a refused save: retired ranges/learned maps can still name the address.
+ * Unsupported release terminates BEFORE cache/OS mutation, never fake success. */
+static SRWLOCK g_guest_release_lock = SRWLOCK_INIT;
+static int g_guest_reservations_pinned;
+void r1_pin_guest_reservations(void) {
+    AcquireSRWLockExclusive(&g_guest_release_lock);
+    g_guest_reservations_pinned = 1;
+    ReleaseSRWLockExclusive(&g_guest_release_lock);
+}
+void r1_release_guest_reservation(void *p) {
+    AcquireSRWLockExclusive(&g_guest_release_lock);
+    if (g_guest_reservations_pinned) {
+        fprintf(stderr, "SDK MEMORY FATAL: reservation release refused after snapshot inventory began\n");
+        abort();
+    }
+    cxxrt_mem_changed((uint64_t)(uintptr_t)p, 0);
+    if (!VirtualFree(p, 0, MEM_RELEASE)) {
+        fprintf(stderr, "SDK MEMORY FATAL: reservation release failed error=%lu\n", (unsigned long)GetLastError());
+        abort();
+    }
+    cxxrt_mem_changed((uint64_t)(uintptr_t)p, 0);
+    ReleaseSRWLockExclusive(&g_guest_release_lock);
+}
 static void os_AllocateAddressRegion(Ctx *c) {
     void *p = VirtualAlloc(NULL, (SIZE_T)A1, MEM_RESERVE | MEM_WRITE_WATCH, PAGE_NOACCESS);      /* write watch: nvn_gl.c asks the OS which texture pages were written (P3) */
     if (p) cxxrt_guest_region((uint64_t)(uintptr_t)p, A1);      /* nncxxrt.c: readable checks inside this region are remembered (P3) */
@@ -89,9 +114,7 @@ static void os_AllocateAddressRegion(Ctx *c) {
 }
 /* Track V session 14 (the stalls at a match end: thousands of page faults in the game's allocator): what these two calls
  * cost is COUNTED (SSBU_MEMSTAT=1: a line every 2,000 calls: calls, megabytes, milliseconds inside the two handlers).
- * SSBU_MEM_KEEP=1 (OFF by default, not proven): FreeMemoryPages leaves the pages committed and clears them (the game's
- * allocator takes pages it commits again as zero-filled), so nothing is decommitted, no page comes back through a fault
- * and no other CPU is interrupted for the unmapping; the price is that freed memory stays in the working set. */
+ * SSBU_MEM_KEEP is unsupported: nonzero requests fail before allocation/decommit. */
 static volatile LONG64 g_mp_calls[2], g_mp_bytes[2], g_mp_ticks[2];
 static int g_mp_keep = -1, g_mp_stat;
 static void mp_note(int i, uint64_t bytes, LARGE_INTEGER t0) {
@@ -105,7 +128,16 @@ static void mp_note(int i, uint64_t bytes, LARGE_INTEGER t0) {
                g_mp_keep ? " (kept committed, cleared)" : " (decommitted)", (long long)g_mp_calls[1], (long long)(g_mp_bytes[1] >> 20), (double)g_mp_ticks[1] * 1000.0 / (double)fq.QuadPart);
     }
 }
-static void mp_init(void) { const char *e = getenv("SSBU_MEM_KEEP"), *s = getenv("SSBU_MEMSTAT"); g_mp_stat = s && atoi(s); g_mp_keep = e && atoi(e); }
+static void mp_init(void) {
+    const char *e = getenv("SSBU_MEM_KEEP"), *s = getenv("SSBU_MEMSTAT");
+    /* This optional mode cannot enumerate/zero/mark all required pages safely.
+     * Refuse explicitly, including forward-only runs, before any OS mutation. */
+    if (e && atoi(e)) {
+        fprintf(stderr, "SDK MEMORY FATAL: SSBU_MEM_KEEP is unsupported; use SSBU_MEM_KEEP=0\n");
+        abort();
+    }
+    g_mp_stat = s && atoi(s); g_mp_keep = 0;
+}
 static void sdk_memory_fatal(const char *operation, void *address, size_t size) {
     DWORD error = GetLastError();
     fprintf(stderr, "SDK MEMORY FATAL: %s address=%p size=%zu error=%lu\n", operation, address, size, (unsigned long)error);
@@ -126,30 +158,16 @@ static void os_FreeMemoryPages(Ctx *c) {
     if (g_mp_keep < 0) mp_init();
     QueryPerformanceCounter(&t0);
     uint64_t n = A1;
-    if (g_mp_keep) {
-        MEMORY_BASIC_INFORMATION mi;
-        uint8_t *p = P(0), *end = p + n;
-        while (p < end && VirtualQuery(p, &mi, sizeof mi)) {      /* only what is committed is cleared (a range may hold pages never committed) */
-            uint8_t *re = (uint8_t *)mi.BaseAddress + mi.RegionSize;
-            if (re > end) re = end;
-            if (mi.State == MEM_COMMIT && (mi.Protect & PAGE_READWRITE)) memset(p, 0, (size_t)(re - p));
-            p = re;
-        }
-    } else {
-        /* Learned tracking opens pages before decommit. Once notified, failure
-         * cannot return with snapshot maps claiming that live pages are absent. */
-        void r1_on_decommit(void *, size_t); r1_on_decommit(P(0), (size_t)A1);
-        cxxrt_mem_changed(A0, A1);
-        if (!VirtualFree(P(0), (SIZE_T)A1, MEM_DECOMMIT)) sdk_memory_fatal("decommit", P(0), (size_t)A1);
-        cxxrt_mem_changed(A0, A1);                       // PR #2 (jfb112697): report the decommitted range, before and after
-    }
+    /* Once notified, OS failure cannot return with maps claiming absence. */
+    void r1_on_decommit(void *, size_t); r1_on_decommit(P(0), (size_t)A1);
+    cxxrt_mem_changed(A0, A1);
+    if (!VirtualFree(P(0), (SIZE_T)A1, MEM_DECOMMIT)) sdk_memory_fatal("decommit", P(0), (size_t)A1);
+    cxxrt_mem_changed(A0, A1);
     mp_note(1, n, t0);
     RET(0);
 }
 static void os_FreeAddressRegion(Ctx *c) {
-    cxxrt_mem_changed(A0, 0);                            // PR #2 (jfb112697): size 0 = the whole region at A0
-    if (!VirtualFree(P(0), 0, MEM_RELEASE)) sdk_memory_fatal("release", P(0), 0);
-    cxxrt_mem_changed(A0, 0); RET(0);
+    r1_release_guest_reservation(P(0)); RET(0);
 }
 
 /* ---- more libc */

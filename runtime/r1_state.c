@@ -947,6 +947,7 @@ static int g_ra, g_save_failed; static int ra_hold_quiet(double limit);
 size_t nvn_r1_cb_save(void); void nvn_r1_cb_capture_config(void); void nvn_r1_cb_restore(void); static size_t g_ra_cb_bytes;      /* nvn_gl.c; SIZE_MAX save result means refusal */
 static size_t g_saved_bytes;
 static void save(Ctx *c) {
+    r1_pin_guest_reservations();
     if (g_capture_mode_failed) { g_save_failed = 2; LOG("r1: SAVE refused: incomplete capture-mode coverage\n"); return; }
     fibers_capture_config(); nvn_r1_cb_capture_config();
     double t0 = now_ms();

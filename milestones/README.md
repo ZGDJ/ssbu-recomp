@@ -24,14 +24,14 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 owns finite resource acceptance; M3.5 separately owns early forward-divergence research. SDK restore controls remain unrun until its failed baseline/reference is understood. Independent investigation may proceed with disjoint ownership and coordinated game trials.
-2. For M3.5, reuse the completed battle-initialization ownership audit. Advance reproducible offline initialization and retained reference-failure attribution independently of network readiness. Select the smallest supported correction or justified fixture treatment and its falsification test. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 source resource acceptance is complete; M7.1 now owns the next restoration correction. M3.5 is parked with a trustworthy reference comparator; its deferred repeat is not a prerequisite. New-candidate restore controls remain unrun until continuation safety and resource admission are ready. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
-4. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
+4. Reuse M7.8's completed source resource acceptance; continue M7.1/M7.3/M7.2 and the pending new-binary capture/restore controls. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
 5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
 6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their later four-member product requirements remain intact.
 
-Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Optional SSBU_MEM_KEEP work must first determine whether the supported candidate uses it and whether isolation is safe; no present assertion that disabling it is sufficient. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
+Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Nonzero SSBU_MEM_KEEP is now explicitly refused and its unsafe clearing branch removed; supported candidates use unset/zero. Reintroducing that mode requires a separately reviewed complete enumeration/zeroing/marking implementation. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
 
 ## M0 - Foundation and source reliability
 
@@ -269,7 +269,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Acceptance: Trace version-specific tick boundary, worker/fiber invariants, VI buffer recycling, audio completion and GPU guest timestamps; remediate unsafe continuations before closing this capability gate.
 - Owner: unassigned
 - Next: Split trace/job inventory/quiescence proof; measure existing r1_ring/r1_state boundary rather than assume it is safe.
-- Blocker: M1.2/M1.3 are done; M7.1 continuation/initial-base ordering and M7.8 protection coverage, reservation-release lifetime and MEM_KEEP disposition remain incomplete. Formal authoritative-step proof was not attempted.
+- Blocker: M1.2/M1.3/M7.8 are source-ready/done; M7.1 continuation and initial-base ordering remain incomplete. Formal authoritative-step proof was not attempted; source resource acceptance is not live-battle rollback qualification.
 
 ### M2.2 - Two-player frame input tapes
 - Status: todo
@@ -603,14 +603,14 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1-M6 remain mandatory game-backed qualification.
 
 ### M7.1 - Complete-or-refuse native restoration
-- Status: todo
+- Status: in_progress
 - Depends: M7.8, M7.10
 - Size: 5
 - Requirement: FSD-002, FSD-005
-- Evidence: none
+- Evidence: evidence/2026-10-23-restore-resources.md
 - Acceptance: Preflight all required threads/fibers before memory/history mutation. Busy/live/missing continuation injections refuse before mutation with state/history unchanged; unexpected post-mutation failure irrecoverably terminates the session and never resumes or reports success. Independent review required.
-- Owner: unassigned
-- Next: Own r1_state.c/r1_ring.c; investigate initial-base save releasing threads before learned validation/publication (arena-pad A count 176 to 177), then continuation preflight and refusal retry/eventual bounded failure with M7.3. Preserve guards and failed evidence.
+- Owner: root restore-resources integration, 2026-10-23T23:20:59.198985+00:00
+- Next: Opening caller trace complete: save unparks internally before ring LS validation/publication (176 to 177); release only frees backing. First correct hold ownership through validation/publication and refusal cleanup, checking intervening allocation/locks, with exact-body O1/O3 injected membership growth. Then reject mismatched-but-blocked threads as well as busy/live/missing continuations before mutation; fail-stop unexpected post-mutation incompleteness before unpark. See evidence and artifacts/local/restore-resources-/m71-opening.md; no M7.1 runtime fix yet.
 - Blocker: none
 
 ### M7.2 - Confirmation-safe terminal lifecycle
@@ -680,14 +680,14 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Blocker: none
 
 ### M7.8 - Fail safely on snapshot resource errors
-- Status: in_progress
+- Status: done
 - Depends: M7.9
 - Size: 5
 - Requirement: FSD-005, FSD-011
-- Evidence: evidence/2026-10-22-rollback-continuation.md
+- Evidence: evidence/2026-10-23-restore-resources.md
 - Acceptance: Inject protection/list-capacity/allocation and native thread/fiber table/stack-pool exhaustion through production snapshot helpers; capture must reject incomplete continuation coverage; no silently untracked writable pages or destructive load before reservation succeeds. Fallback coverage is verified or rollback disabled with diagnostic; independent review.
-- Owner: root integration; reservation task provider-rejected without technical result, 2026-10-22T21:22:37.613252+00:00
-- Next: Historical protection=177 is narrowed to setup 1 through initial-base validation, before reuse injection, not a demonstrated later setup. New historical-command probes retain complete first-setup observations with zero failures and do not reproduce it. Existing observer suffices for setup-versus-post-setup distinction if it recurs; add a decommit-opening observer only on that evidence. Reservation-release lifetime and supported MEM_KEEP disposition remain open; provider rejection was not a technical result. M7.1 separately owns 176-to-177 initial-base publication. See current continuation evidence.
+- Owner: root restore-resources integration, 2026-10-23T23:20:59.198985+00:00
+- Next: Reuse reviewed O1/O3 resource coverage and the process-lifetime guest-reservation pin; nonzero MEM_KEEP is explicitly unsupported. New frozen package built; its forward-only disabled control was refused before native launch on capacity (6.80/6.91 GiB available commit, 10 GiB required). Source acceptance only; new-binary capture/restore control matrix remains unrun, not waived. M7.1 owns initial-base publication and continuation preflight; preserve historical protection=177 and failed controls.
 - Blocker: none
 
 ### M7.9 - Production-connected failure regression harness

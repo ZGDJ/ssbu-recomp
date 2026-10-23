@@ -40,6 +40,8 @@ uint64_t guest_function_of(uint64_t host_rip);
 void print_import_summary(FILE *out);
 void trace_printf(const char *fmt, ...);
 /* nncxxrt.c (P3): regions of game-managed memory, and changes to guest memory, for the per-thread record of readable memory. */
+void r1_pin_guest_reservations(void);
+void r1_release_guest_reservation(void *p);
 void cxxrt_guest_region(uint64_t base, uint64_t size);
 // PR #2 (jfb112697): shared prototype so a caller left with the old (void) form fails to build; size 0 = release of the region at base
 void cxxrt_mem_changed(uint64_t base, uint64_t size);
