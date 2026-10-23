@@ -8,8 +8,8 @@ Planning provenance: [WindowSmash at cb110e7](https://github.com/ZGDJ/WindowSmas
 
 ## Source seams
 
-- [rb.h](../runtime/rb.h), [rb_input.c](../runtime/rb_input.c), [rb_wire.c](../runtime/rb_wire.c), [rb_timesync.c](../runtime/rb_timesync.c): input history, prediction, packet format and pacing.
-- [rb_net.c](../runtime/rb_net.c): handshake, receive queues, match identity, confirmation and checksums.
+- [rb.h](../runtime/rb.h), [rb_input.c](../runtime/rb_input.c), [rb_wire.c](../runtime/rb_wire.c), [rb_timesync.c](../runtime/rb_timesync.c): input history, prediction, packet format and clock-offset estimation. The skip/advance/speed actions computed by `rb_ts_decide` are not consumed; `rb_input_finalized` is unused.
+- [rb_net.c](../runtime/rb_net.c): handshake, receive queues, match identity, confirmation and checksums. Pacing lives in `rbn_pace_extra` (extra wait per frame from the offset estimate only); the finalized horizon is the newest remote pad received, capped at the current frame.
 - [rb_rollback.c](../runtime/rb_rollback.c): checkpoint selection, resimulation, progress limits and teardown.
 - [r1_ring.c](../runtime/r1_ring.c), [r1_state.c](../runtime/r1_state.c), [rb_learned.c](../runtime/rb_learned.c): page history, native continuations, protected-page learning and exclusions.
 - [nnhid.c](../runtime/nnhid.c): input consumption; [fighter_host.c](../fighter_sdk/fighter_host.c): limited fighter hash feed.

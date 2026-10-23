@@ -54,3 +54,24 @@ An actual default battle exposed pre-checkpoint registry overflow: 512 occupied 
 ## Private networking follow-up
 
 The [2026-10-22 network audit](../evidence/2026-10-22-private-network-audit.md) finds rollback-specific lobby routing, inferred peer selection and lobby-owner/slot coupling. ADR-0008 and M5.4-M5.8 add private pair isolation, route qualification and later rotation without replacing checkpoint hardening. These are source findings and planned work, not new multiplayer evidence.
+
+## Current anchors (2026-10-22, branch `feat/rollback-validation-audit` at `11287ff`)
+
+The line numbers in the M7 list above are pinned to the audited upstream commit and no longer match this branch. Re-inspection on 2026-10-22 confirms each finding is still present; use these anchors until the owning task closes. Runtime line numbers drift with every runtime commit, so cite the commit with any new reference.
+
+- **M7.1:** `r1_state.c:750` skips a fiber stack in use and `:766` counts a fiber not restored; `r1_ring.c:1364` logs threads/fibers not restored after a load that still returns success. Refusal before mutation now exists for several preparation steps (`r1_ring.c:1206` onward), but post-mutation incompleteness is still reported, not failed.
+- **M7.2:** `rb_rollback.c:381` releases the ring at fight-off with no terminal confirmation.
+- **M7.3:** `rb_rollback.c:104` and `:114` return zero on a missing state or a zero load result; the caller at `:234` captures and continues, and `:289` finalizes.
+- **M7.4:** one-byte match tag at `rb_net.c:174`; a PADS message without the trailer bypasses the tag check at `:511`; no future-frame bound at `rb_input.c:44`; drain trusts the payload player field at `rb_net.c:705`.
+- **M7.5:** `rb_rollback.c:277` continues alone on guesses indefinitely after five seconds of silence; `rb_net.c:516` refreshes liveness on any packet including PING/PONG; the start barrier at `rb_rollback.c:183` proceeds after its limit without a peer.
+- **M7.6:** `rb_net.c:665` logs a checksum mismatch and continues. Coverage is one fighter line per entity from `fighter_sdk/fighter_host.c:1358` plus the pads folded at `rb_net.c:742`; `rbn_hash_extra` still has no callers, so the comment at `rb_net.c:730` overstates what is folded.
+- **M7.7:** `rb_net.c:206` compares protocol and build only; executable stamp differences only warn at `:392` and `:405`; a rule-kind mismatch is printed, not refused, at `debug_mode.c:470`, and the joiner's hazards/items/stock are overwritten from the host at `:452`.
+- **M7.8:** partially addressed; see the evidence linked above and the ledger. Learned protection failures are counted at `rb_learned.c:206`.
+- **M5.4:** `net_relay.c:1487` learns the rollback peer from any sender; `rbn_match_reset` (`rb_net.c:833`) does not clear it.
+
+Additional source observations not in the original list:
+
+- `rb_timesync.c` computes skip/advance/speed actions, but `rbn_pace_extra` (`rb_net.c:796`) consumes only the offset estimate. The dormant `skip` action would violate FSD-008's fixed-tick rule if wired; keep it unwired or remove it.
+- `rb_input_finalized` in `rb.h` is unused; the finalized horizon is `rb_input_remote_latest` capped at the current frame (`rb_net.c:782`). The design contract's three horizons are therefore collapsed to receipt plus the same-tick rollback loop; M7.6 owns the distinction.
+- The handshake blocks the game's main thread inside the record builder for up to 120 s (`rb_net.c:367`), redrawing the last frame by hand. Any future route that keeps the game's own netcode alive during that wait must account for its six-second keep-alive (`nnldn.c` header); this is why fights started inside a Local Wireless room are refused at `rb_net.c:309`.
+- Verified non-issue: the button truncation at `rb_rollback.c:370` is harmless because `nnhid.c:647` derives the stick-direction bits after the hook.

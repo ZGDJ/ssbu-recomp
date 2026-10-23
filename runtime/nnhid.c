@@ -130,6 +130,8 @@ static int mark_seen(const char *what) {
 
 /* Optional read-only observer of the bounded pre-match confirmation wait. */
 void fight_rng_menu_boundary(const char *phase, int step, long long tick, int wait, int hold, const char *keys);
+void fight_rng_menu_consumer_tick(long long tick);
+void fight_rng_menu_writer_tick(long long tick);
 
 static void seq_begin(int i) {
     g_seq_index = i;
@@ -179,6 +181,8 @@ static void seq_tick(void) {                              /* once per poll of pl
         seq_begin(0);
     }
     g_seq_polls++;
+    fight_rng_menu_consumer_tick(g_seq_polls);
+    fight_rng_menu_writer_tick(g_seq_polls);
     {   /* SSBU_SEQ_LOG=<n>: the draw count every n polls, to find the ranges for @draws */
         static int every = -1;
         if (every < 0) every = getenv("SSBU_SEQ_LOG") ? atoi(getenv("SSBU_SEQ_LOG")) : 0;

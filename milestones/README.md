@@ -14,11 +14,11 @@ Run `python tools/check_project_docs.py` for calculated counts, effort totals an
 
 Task IDs are preserved from WindowSmash, but completed implementation tasks reopen here because their code/evidence was not ported. Historical status remains in the pinned prior repository linked by evidence. M0.1/0.2/0.3/0.6 close only migrated contract/source-investigation scope, not runtime capability. M0.5 is closed against the recorded hosted planning CI run.
 
-M0.10 and M7.9 are complete within their recorded scope; reuse them rather than rebuilding test infrastructure. Preserve the necessary safety chain **M7.8 -> M7.1 -> M7.3 -> M7.2**, but do not expand M7.8 with unrelated investigations. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. Reuse completed M1 tooling; early M6.1 fixture planning remains independent work. Missing private inputs must not block source/planning packets that do not require them.
+M0.10 and M7.9 are complete within their recorded scope; reuse them rather than rebuilding test infrastructure. Preserve the necessary safety chain **M7.8 -> M7.1 -> M7.3 -> M7.2**, but do not expand M7.8 with unrelated investigations. M7.4, M7.5, M7.6 and M7.7 can proceed with exclusive ownership after the harness; M7.4, M7.5 and M7.6 are dependency-ready now and also unblock M5.4/M5.5, so they are suitable parallel work beside M3.5. These share rb_net.c/rb_rollback.c/r1_ring.c: parallel investigations are safe; serialize overlapping edits. M5.12 and M7.7 both edit the handshake (`rb_hs.h`, `rbn_handshake` and the record-builder hook in `debug_mode.c`): one owner at a time for that seam. Reuse completed M1 tooling; early M6.1 fixture planning remains independent work. Missing private inputs must not block source/planning packets that do not require them.
 
 M7 completion means source failure regressions and production wiring are verified, not that actual battle replay works. M2/M3/M4 qualify native behavior; M5 qualifies network outcomes. Do not retrofit gameplay evidence into synthetic passes. Sizes are re-estimated scope; M7.9 is shared test infrastructure, not duplicate implementation effort.
 
-Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and [audit](../evidence/2026-10-22-private-network-audit.md). Preserve the M7 engine sequence. M5.4/M5.5 add source-level private pair ownership/routing alongside dependency-ready protocol work; actual network qualification remains after offline gates. M5.7-M5.11 deliver a persistent four-member lobby and mandatory delayed spectating after baseline 1v1 proof, before family release; simultaneous multiplayer remains deferred. No new capability is marked done by this plan.
+Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and [audit](../evidence/2026-10-22-private-network-audit.md). Preserve the M7 engine sequence. M5.4/M5.5 add source-level private pair ownership/routing alongside dependency-ready protocol work; actual network qualification remains after offline gates. M5.12-M5.14 define controlled 1v1 setup, paired diagnostics and initial 1v1 readiness. M5.7-M5.11 deliver a later persistent four-member lobby and mandatory delayed spectating after baseline 1v1 proof; simultaneous multiplayer remains deferred. No new capability is marked done by this plan.
 
 ## Proof-first execution priorities
 
@@ -29,7 +29,7 @@ See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and 
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 4. Finish M7.8's required resource cases, including default-path protection/coverage failures and reservation lifecycle, then M7.1/M7.3/M7.2. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
 5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
-6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their first-family-release requirements remain intact.
+6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their later four-member product requirements remain intact.
 
 Defer optional-mode/diagnostic expansion, public-lobby features, installer polish beyond required clean-PC validation, and generic backend rewrites unless a concrete supported-path defect or next proof requires them. Optional SSBU_MEM_KEEP work must first determine whether the supported candidate uses it and whether isolation is safe; no present assertion that disabling it is sufficient. A discovery updates the owning bounded task or adds a specifically scoped task, not endless expansion of M7.8.
 
@@ -344,11 +344,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.7, M7.9
 - Size: 5
 - Requirement: FSD-004, FSD-013
-- Evidence: evidence/2026-10-22-handshake-isolation.md
+- Evidence: evidence/2026-10-23-menu-repeat-integration.md
 - Acceptance: Attribute the preserved early RNG/reference discrepancy to a verified runtime writer/seed, scheduling or fixture cause; distinguish observed execution from candidate source/object identity. Validate a bounded correction or justified fixture treatment against preserved failures and original behavior without arbitrary reseeding, hash weakening or discarded references. Repeated uninstrumented same-tape runs agree for the chosen diagnostic interval; record coverage limits and unresolved cases. This does not close M3.2's 10,000-tick/state-coverage gate.
-- Owner: root integration; Astra activation audit, independent challenge and fresh frozen-candidate review complete, 2026-10-22T23:44:11Z
-- Next: Reviewed/built SSBU_RB_NET_INIT_ONLY diagnostic preserves actual successful handshake and original initialization while suppressing snapshot coordination. Prepare/review a distinct identified paired gate/launcher (existing forward-only gate correctly rejects NET), then disabled original-reference control and same-history actual handshake pair before differing histories/multiple seeds/uninstrumented repeats. Retain conditional input/owner contract and original references. Return to save/restore/correction under applicable M7.8/M7.1 gates.
-- Blocker: Paired feasibility failed declared 20GiB commit/20480MiB physical budget: 10.01/10.15GiB commit and 16371/16468MiB physical. No games launched; runtime controls and paired gate remain unrun/unprepared. Source tests/review/build do not qualify network initialization or rollback. Historical failures and M7.8/M7.1 prerequisites remain open.
+- Owner: root integration with Claude Fable 5.1 hypothesis and readiness reviewers, 2026-10-23T22:00:00+00:00
+- Next: Completed bounded debug-register writer discovery: new-binary disabled control and enabled original-tape arm pass all forward gates and original-reference 500R/0S with identical endpoints; enabled records all 312 stores (78 advances) on the guest main thread in the game DLL with full thread coverage. Exact mapping names all 78 advances: f_7101b1a360 (four inline draws, 36), f_7101b1ac70 (2) and f_71019eb330 (four inline draws, 40, mapped by verified return address through the frameless out-of-line wr32 of c_0228.c; round 4). Consumption is tick-locked bursts on 15 of 91 ticks: legitimate original menu-time RNG use, so the +60 reference failure is a tape-dependent fixture cause. Fixture contract specified offline from retained records and adopted after round-1 review (evidence/2026-10-23-menu-fixture-contract.md): a reference is comparable only under equal pre-fight RNG identity (interval 91, begin/confirm vectors, recomputed consumption 78, selector vectors, post-confirm count 20, owner seed b77b0413); tests/test_menu_fixture_contract.py accepts the five agreeing same-tape arms (three executables) and rejects the +60 arm by criterion (151 ticks, 130 advances, 40 post-confirm, seed fa10bec7) with twelve negative mutations; the contract reviewer's one blocking objection (identity stopped at confirm while the post-confirm segment varies) was fixed by extending the identity to the selector; reviews and frozen-source-fixture.json in artifacts/local/menu-fixture-20261023/. Repeated-agreement packet artifacts/local/menu-repeat-20261023/ (evidence/2026-10-23-menu-repeat-integration.md): one uninstrumented same-tape arm planned on the frozen writer executable 7e14bc76 (writer and consumer observers off, identity sampler and origin/reset/early probes on, fresh build copy with the package deployed as its own step, reviewed-equivalent plan), round-1 reviews applied (hypothesis: a tick-level disagreement surfaces as an unusable menu record and must be reported as a non-reproducing same-tape attempt, not retried as unmeasurable; readiness: nothing blocking); the attempt was refused at the native boundary after full identity hashing (7.51 GiB available commit < 10 GiB, user applications untouched) and is preserved unlaunched; the contract test is unchanged (refusals are never pinned). Decision 2026-10-23: the retry is deferred as an opportunistic five-minute task, not a prerequisite. Rollback needs from M3.5 only a trustworthy reference comparator, and that is met: the divergence is attributed, five retained same-tape runs match the reference frame-for-frame, and the contract says when a run is comparable. The retry (`run_trial.py --label uninstrumented-attempt2`, reviewed plan, prepared build copy) runs whenever a fresh sample meets the admission gate; it then extends tests/test_menu_fixture_contract.py as the sixth accepted or second rejected entry with constants unchanged and gets a new freeze name, with no new review round because nothing but output paths changed since round 1. Critical path moves to M7.8 then M7.1.
+- Blocker: Repeated uninstrumented same-tape agreement is not recorded (first attempt refused on host commit capacity, artifacts/local/menu-repeat-20261023/uninstrumented/native-admission.json; retry deferred, not blocking downstream work). Original +60 frame-2/499-frame failure remains preserved and explained as fixture-dependent history; the contract is a necessary condition only (no retained same-tape/different-count case). Complete initialization equality remains unproven; paired real preparation/controls unrun with separate capacity gates; M7.8/M7.1 restoration prerequisites remain open.
 
 ## M4 - Offline rollback proof
 
@@ -494,7 +494,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: none
 - Acceptance: Four separate machines exercise all six active pairs through the same lobby/code, with verified direct-policy routes and confirmed outcomes. Delayed prior-pair packets, excess active selections, role changes and spectator/active/owner departure have defined outcomes. No inactive member gates inputs; no manual rehosting is needed. Spectator playback qualification remains M5.11.
 - Owner: unassigned
-- Next: Record identities, route, repetitions and failures; geographic location does not constrain the implementation. Keep live-viewer release gate separate and mandatory.
+- Next: Record identities, route, repetitions and failures; geographic location does not constrain the implementation. Keep the later four-member live-viewer release gate separate and mandatory.
 - Blocker: none
 
 ### M5.9 - Committed spectator stream and bounded publication
@@ -527,7 +527,40 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: none
 - Acceptance: Four-PC actual battles compare zero/one/two viewers, including slow, paused, disconnected and bandwidth-limited viewers. Confirm playback identity and committed outcomes; active-pair state/confirmation is unchanged. Measure RTT/delay/stalls, p95/p99 replay cost, memory and bandwidth against no-viewer baseline under declared budgets. Viewer pressure sheds viewer work, never adds input delay or blocks fighters. Repeat role changes with old viewer traffic.
 - Owner: unassigned
-- Next: Capture paired baseline/load evidence; resolve measured contention before family-ready claims. This gate is mandatory for first family release.
+- Next: Capture paired baseline/load evidence; resolve measured contention before family-ready claims. This gate is mandatory for the later four-member product, not the initial two-person version.
+- Blocker: none
+
+### M5.12 - Controlled versus 1v1 setup
+- Status: todo
+- Depends: M1.3, M5.4
+- Size: 5
+- Requirement: FSD-011, FSD-015, FSD-016
+- Evidence: none
+- Acceptance: Create/join and rematch use the versus simulation with exactly two human-controlled slots. Apply and read back a supported host-selected rules schema including timer, rule kind/stocks, stage/form, hazards/items, fighters/costumes and per-player profiles; mismatches/unsupported settings refuse visibly before speculative simulation. Tests cover differing saves, slot/host reversal, no AI input, failed agreement and stale rematch setup. Source acceptance does not qualify gameplay.
+- Owner: unassigned
+- Next: Reuse existing handshake/setup seams; replace the manual CPU-panel workflow with verified participant construction. Keep network/UI lifecycle separate from rewind state. Retain M7.7 compatibility and M5.6 game-backed gates. Current inherited behaviour is the opposite of the acceptance: the joiner's hazards/items/stock are silently overwritten from the host's proposal and only a rule-kind mismatch is printed (`debug_mode.c` hs_apply); the no-ring fallback is announced on stdout/log only. Exclusive edit scope with M7.7 on the handshake seam.
+- Blocker: none
+
+### M5.13 - Freeze-safe paired diagnostic export
+- Status: todo
+- Depends: M1.1
+- Size: 5
+- Requirement: FSD-012, FSD-019
+- Evidence: none
+- Acceptance: External double-click/CLI collection produces bounded sanitized ZIPs during a hung game and after exit. Identified launcher and versioned manifest expose active mode, actual executable, shared match identity, config, frame/epoch telemetry, coverage and gaps. Pair inspector reports compatible comparable evidence or explicit refusal; zero checksums never means agreement. Live/locked/rotating/missing/large-log, privacy and clean-Windows tests pass; existing setup support is preserved.
+- Owner: unassigned
+- Next: Follow docs/ROLLBACK_TESTING_IMPLEMENTATION.md. Extend existing family support, preserving typed diagnostic hashes; first enable manual collection and bounded recording, then pair inspection. This source/tooling work can proceed before network qualification.
+- Blocker: none
+
+### M5.14 - Initial two-person product readiness
+- Status: todo
+- Depends: M5.6, M5.12, M5.13, M7.7, M0.9
+- Size: 3
+- Requirement: FSD-007, FSD-009, FSD-011, FSD-016, FSD-019
+- Evidence: none
+- Acceptance: Two separate PCs qualify supported host/join rules, human slot ownership, actual rollback, results/rematch and paired diagnostic collection including a bounded freeze test. Supported hardware/rules/roster/network envelope is explicit; no full-roster or four-member claim. Low-memory refusal and any fallback are visible and distinguished. Opt-in installation/update/recovery preserves the normal build and saves. Publication is separately authorized.
+- Owner: unassigned
+- Next: Prepare an isolated test channel and run the defined qualification at dependency readiness. Earlier experimental diagnostic distributions must clearly state unqualified status and their tested scope.
 - Blocker: none
 
 ## M6 - Full-roster qualification
@@ -554,9 +587,9 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Next: Split by mechanics families and disjoint evidence ownership.
 - Blocker: none
 
-### M6.3 - Product qualification and release readiness
+### M6.3 - Full-roster four-member product release readiness
 - Status: todo
-- Depends: M5.3, M5.6, M5.11, M6.2, M0.5, M0.9
+- Depends: M5.3, M5.6, M5.11, M5.14, M6.2, M0.5, M0.9
 - Size: 5
 - Requirement: FSD-007, FSD-009, FSD-010, FSD-011, FSD-017, FSD-018
 - Evidence: none
@@ -643,7 +676,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: none
 - Acceptance: Production handshake consumes manifest identities for runtime/modules/content/rules/config/input schema, seeded state and readiness; tests reject each mismatch before speculation. Timestamp/name-size equality alone never qualifies. Actual state agreement remains M5.2.
 - Owner: unassigned
-- Next: Own handshake rb_hs/rb_net; use M1.1 schema and M7.4 protocol version.
+- Next: Own handshake rb_hs/rb_net; use M1.1 schema and M7.4 protocol version. Exclusive edit scope with M5.12 on the handshake seam; coordinate before claiming both.
 - Blocker: none
 
 ### M7.8 - Fail safely on snapshot resource errors

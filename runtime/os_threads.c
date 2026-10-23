@@ -11,6 +11,7 @@
 #include <windows.h>
 #include "runtime.h"
 #include "hostrt.h"
+void fight_rng_menu_writer_admit(HANDLE thread, const char *source);   /* fighter_sdk\rng_menu_writer_probe.h: a new guest thread, still suspended, during the bounded menu writer interval */
 /* L1 round 3, TEST ONLY: guest sync calls during the SSBU_L1_TRACE window (display.c) */
 #ifdef _WIN32
 int display_l1_trace(void); double display_l1_ms(void); const char *guest_thread_name_of(unsigned long tid);
@@ -445,7 +446,7 @@ static void os_StartThread(Ctx *c) {
           (unsigned long long)o->fn, o->priority, o->ideal_core, (unsigned long long)o->core_mask, (unsigned long long)o->stack_size, (unsigned long long)c->x[30]);
     InterlockedIncrement(&g_thread_count);
     o->thread = CreateThread(NULL, (SIZE_T)256 << 20, thread_main, o, STACK_SIZE_PARAM_IS_A_RESERVATION | CREATE_SUSPENDED, NULL);
-    if (o->thread) { SetThreadPriority(o->thread, host_priority(o->priority)); apply_sched(o->thread, o->core_mask); ResumeThread(o->thread); }
+    if (o->thread) { SetThreadPriority(o->thread, host_priority(o->priority)); apply_sched(o->thread, o->core_mask); fight_rng_menu_writer_admit(o->thread, "os"); ResumeThread(o->thread); }
 }
 /* boot.c, on the main guest thread before the game starts: main.npdm gives it core 0 and priority 44 - 28 = 16 */
 void os_apply_main_sched(void) {
@@ -1004,6 +1005,7 @@ static void pt_create(Ctx *c) {
     SetThreadPriority(o->thread, host_priority(o->priority));
     apply_sched(o->thread, o->core_mask);
     wr64(A0, o->key);
+    fight_rng_menu_writer_admit(o->thread, "pthread");
     ResumeThread(o->thread);
     RET(0);
 }

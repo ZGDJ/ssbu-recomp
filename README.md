@@ -6,6 +6,8 @@ Fork: [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-recomp). Upstream: [Denkis
 
 **Experimental, not competitive-ready.** Prediction, input history, snapshots, native continuation restoration and resimulation exist. The [source audit](docs/ROLLBACK_AUDIT.md) identified correctness gaps. Identified offline baseline matches are recorded; rollback gameplay and full-roster qualification remain open. Current implementation and validation results are recorded in the ledger and evidence; historical migration results are not current branch status.
 
+Immediate product scope is a private two-person session using the versus battle simulation: agreed rules, two human players and rematches. Four-member lobbies and delayed spectators follow later. "Immediate" describes product priority, not schedule: the ledger gates that session (M5.14) behind two-PC qualification, which in turn waits on the offline determinism and correction chain M2 to M4; source and tooling packets for it can proceed now. [Test diagnostics implementation brief](docs/ROLLBACK_TESTING_IMPLEMENTATION.md) defines freeze-safe paired log export and opt-in distribution. This branch is development source, not a qualified replacement for an existing family installation.
+
 ## Start here
 
 - [Family installation helper](START-HERE.md): prepared game ZIP import, resumable build and desktop Play shortcut.

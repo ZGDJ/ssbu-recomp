@@ -40,6 +40,13 @@ static int mock_fflush(FILE *stream) {assert(stream==stdout);SetLastError(997);r
 #define getenv mock_getenv
 #define printf mock_printf
 #define fflush mock_fflush
+/* Consumer disabled here; its exact production behavior has a separate fixture. */
+static void fh_menu_consumer_prepare(const char *phase,long long tick,DWORD thread) {(void)phase;(void)tick;(void)thread;}
+static void fh_menu_consumer_boundary(const char *phase,long long tick,DWORD thread,const uint32_t rng[4]) {(void)phase;(void)tick;(void)thread;(void)rng;}
+static void fh_menu_consumer_unusable(const char *reason) {(void)reason;}
+static void fh_menu_writer_prepare(const char *phase,long long tick,DWORD thread) {(void)phase;(void)tick;(void)thread;}
+static void fh_menu_writer_boundary(const char *phase,long long tick,DWORD thread,const uint32_t rng[4]) {(void)phase;(void)tick;(void)thread;(void)rng;}
+static void fh_menu_writer_unusable(const char *reason) {(void)reason;}
 /* SOURCE */
 #undef printf
 #undef fflush

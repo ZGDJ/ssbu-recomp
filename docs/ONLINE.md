@@ -2,6 +2,8 @@
 # Play online (experimental)
 
 > Inherited upstream usage guide, not the rollback fork qualification status or product plan. Statements below about defaults, servers and versus describe the inherited guide and must be checked against the actual candidate before use. See [ADR-0008](../adr/0008-private-pair-sessions.md) for private rollback direction and the [ledger](../milestones/README.md) for accepted capabilities. Local Wireless and versus rollback are separate paths.
+>
+> Fork corrections to the inherited text: (1) the family installer writes `online_mode = off` and `rollback = off` (`scripts/family_setup.py`), so online play is OFF by default in a fork installation; (2) a Smash (versus) fight is local only while no room code is set, and is the online rollback match when a host/join code is set (see "Rollback netcode" below); (3) the room code is shown in the F1 host overlay with a Copy button as well as in the log; (4) the preserved [upstream README](../README-UPSTREAM.md) line saying rollback "is not available yet" predates the implementation audited in [ROLLBACK_AUDIT.md](ROLLBACK_AUDIT.md). None of these corrections is a qualification claim.
 
 This is the game's own Local Wireless mode, played over a network. You only open the game and use Local Wireless -> Create Room / Rooms List. No extra program is needed.
 
@@ -11,12 +13,13 @@ This is the game's own Local Wireless mode, played over a network. You only open
 4. Both players vote on a stage and pick their fighters.
 5. The host starts the match with L+R.
 
-Smash (versus) always stays a local fight (friends, CPUs), with rollback on or off.
+Smash (versus) stays a local fight (friends, CPUs) while no room code is set, with rollback on or off; with a host/join
+room code and rollback on, Smash (versus) is the online rollback match (see "Rollback netcode" below).
 The game's own Online menu (Quickplay, Battle Arenas) on our servers is in progress.
 
-Online play is experimental and ON by default: the game joins the project's public lobby
-(`opensmash-lobby.duckdns.org:39500`) when it starts. To turn it off: F1 -> Experimental -> Online play: OFF
-(or `online_mode = off` in `config\graphics.ini`).
+Online play is experimental. In the inherited upstream build it is ON by default and the game joins the project's public lobby
+(`opensmash-lobby.duckdns.org:39500`) when it starts; a fork family installation starts with it OFF. To change it:
+F1 -> Experimental -> Online play (or `online_mode` in `config\graphics.ini`).
 
 **Your name:** F1 -> Experimental -> **Your name** (keyboard, or "Type with the controller"). It is the name the
 game and the other players see (`player_name` in `config\graphics.ini`); empty = your Windows user name.
@@ -132,7 +135,7 @@ sees rooms of its own build.
 - NOT yet tested between two PCs, over the internet, against a real UPnP router, or with STUN.
 - No encryption and no authentication. Play only with people you know.
 - By default it uses the game's own delay-based netcode. **Rollback netcode** (experimental) is an option, see below.
-- For now the room code is shown only in the log, on lines starting with `[online]`.
+- The room code is shown in the F1 -> Experimental host overlay (with a Copy button) and in the log, on lines starting with `[online]`.
 - On first start, Windows may ask to allow the game through the firewall. LAN and host modes need it.
 
 ## Rollback netcode (experimental)

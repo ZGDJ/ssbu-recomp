@@ -25,6 +25,8 @@ static int fh_menu_before_selector(void) {
 }
 static void fh_menu_unusable(const char *reason) {
     g_fh_menu_state = -1;
+    fh_menu_consumer_unusable(reason);
+    fh_menu_writer_unusable(reason);
     printf("[rng-menu] unusable version=1 reason=%s\n", reason);
     fflush(stdout);
 }
@@ -59,6 +61,8 @@ void fight_rng_menu_boundary(const char *phase, int step, long long tick,
     if (!fh_menu_ready() || !fh_menu_before_selector()) {
         fh_menu_unusable("state"); goto out;
     }
+    fh_menu_consumer_prepare(phase, tick, thread);
+    fh_menu_writer_prepare(phase, tick, thread);
     if (!fh_reset_read(0x71052391c0ull, 0, rng, sizeof rng)) {
         fh_menu_unusable("read"); goto out;
     }
@@ -66,6 +70,8 @@ void fight_rng_menu_boundary(const char *phase, int step, long long tick,
     printf("[rng-menu] sample version=1 phase=%s step=15 tick=%lld wait=%d hold=8 keys=Z thread=%lu fighters=0 origin_entered=0 origin_returned=0 origin_active=0 origin_sampled=0 rng_ok=1 rng=%08x,%08x,%08x,%08x observer=non_atomic\n",
         phase, tick, wait, (unsigned long)thread, rng[0], rng[1], rng[2], rng[3]);
     fflush(stdout);
+    fh_menu_consumer_boundary(phase, tick, thread, rng);
+    fh_menu_writer_boundary(phase, tick, thread, rng);
     g_fh_menu_tick = tick; g_fh_menu_wait = wait; g_fh_menu_thread = thread;
     g_fh_menu_state++;
 out:

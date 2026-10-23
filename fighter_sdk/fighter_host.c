@@ -1215,7 +1215,15 @@ static void fh_seed_checkpoint(const char *phase, int slot, long long frame) {
 }
 #include "rng_reset_probe.h"
 #include "rng_seed_origin_probe.h"
+static void fh_menu_consumer_prepare(const char *phase, long long tick, DWORD thread);
+static void fh_menu_consumer_boundary(const char *phase, long long tick, DWORD thread, const uint32_t rng[4]);
+static void fh_menu_consumer_unusable(const char *reason);
+static void fh_menu_writer_prepare(const char *phase, long long tick, DWORD thread);
+static void fh_menu_writer_boundary(const char *phase, long long tick, DWORD thread, const uint32_t rng[4]);
+static void fh_menu_writer_unusable(const char *reason);
 #include "rng_menu_probe.h"
+#include "rng_menu_writer_probe.h"
+#include "rng_menu_consumer_probe.h"
 static void fh_rng_observe(const char *phase, int slot, long long frame, uint64_t base, const uint32_t *words) {
     char line[768];
     int used = snprintf(line, sizeof line, "[rng-probe] phase=%s slot=%d frame=%lld thread=%lu base=%llx words=",
@@ -1444,6 +1452,8 @@ static void fight_hash_start(void) {
     const char *reset_probe = getenv("SSBU_RNG_RESET_PROBE");
     const char *origin_probe = getenv("SSBU_RNG_SEED_ORIGIN_PROBE");
     const char *menu_probe = getenv("SSBU_RNG_MENU_PROBE");
+    const char *consumer_probe = getenv("SSBU_RNG_MENU_CONSUMER_PROBE");
+    const char *writer_probe = getenv("SSBU_RNG_MENU_WRITER_PROBE");
     g_fh_rng_probe = rng_probe && !strcmp(rng_probe, "1");
     const char *trace = getenv("SSBU_TRACE_FRAMES");
     g_fh_trace_enabled = trace != NULL;
@@ -1452,7 +1462,7 @@ static void fight_hash_start(void) {
     const char *h = getenv("SSBU_FIGHT_HASH"), *d = getenv("SSBU_DETERMINISTIC"), *o = getenv("SSBU_DET_OFF");
     g_fh_det = (d && d[0] && d[0] != '0') || rbn_handshake_wanted();      /* R3: a match between online players needs it (no extra logic frames; generators from the agreed seed) */
     g_fh_detoff = o ? atoi(o) : 0;
-    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled && !(seed_probe && !strcmp(seed_probe, "1")) && !(reset_probe && !strcmp(reset_probe, "1")) && !(origin_probe && !strcmp(origin_probe, "1")) && !(menu_probe && !strcmp(menu_probe, "1"))) return;
+    if ((!h || !h[0] || h[0] == '0') && !g_fh_det && !g_fh_trace_enabled && !(seed_probe && !strcmp(seed_probe, "1")) && !(reset_probe && !strcmp(reset_probe, "1")) && !(origin_probe && !strcmp(origin_probe, "1")) && !(menu_probe && !strcmp(menu_probe, "1")) && !(consumer_probe && !strcmp(consumer_probe, "1")) && !(writer_probe && !strcmp(writer_probe, "1"))) return;
     if (h && h[0] && h[0] != '0') g_fh_out = strcmp(h, "1") == 0 ? stdout : fopen(h, "w");
     g_fh_trace_hash_enabled = g_fh_out != NULL;
     if (g_fh_trace_enabled && (!g_fh_out || g_fh_out == stdout)) bt_fail(&g_fh_trace, "dedicated_file_required");
@@ -1465,6 +1475,8 @@ static void fight_hash_start(void) {
     fh_reset_probe_start();
     fh_origin_probe_start();
     fh_menu_probe_start();
+    fh_menu_writer_start();
+    fh_menu_consumer_start();
     atexit(fh_exit);
 }
 static void fd_exit(void) { printf("[debug] %lld commands executed, %lld frames skipped because a differential recording was open\n", g_fd_done, g_fd_waited); fflush(stdout); }
