@@ -1,6 +1,6 @@
 # Rollback continuation handoff
 
-Updated 2026-10-23 UTC. Branch `feat/rollback-validation-audit`, HEAD `11287ff8598c37db8561ff291cb7e85e446942ed`. Incoming uncommitted initialization tooling, the consumer-observer packet, the writer packet, the fixture packet and the repeat packet are preserved. The [ledger](../milestones/README.md) owns status; read [menu repeat evidence](../evidence/2026-10-23-menu-repeat-integration.md), [fixture contract evidence](../evidence/2026-10-23-menu-fixture-contract.md), [writer integration evidence](../evidence/2026-10-23-menu-writer-integration.md) and the [continuation prompt](ROLLBACK_NEXT_PROMPT.md).
+Updated 2026-10-23 UTC. Branch `feat/rollback-validation-audit`, HEAD `37a43754a4cfadf7bfa410984aee599936868a87` (the menu RNG attribution, fixture contract and repeat packet are committed there on top of `11287ff8`; the runtime tree digest `2a6b83f8…` is unchanged, so every frozen package and the prepared build copy remain valid). Packet directories under `artifacts/local/` stay ignored and preserved. The [ledger](../milestones/README.md) owns status; read [menu repeat evidence](../evidence/2026-10-23-menu-repeat-integration.md), [fixture contract evidence](../evidence/2026-10-23-menu-fixture-contract.md), [writer integration evidence](../evidence/2026-10-23-menu-writer-integration.md) and the [continuation prompt](ROLLBACK_NEXT_PROMPT.md).
 
 ## Decisive result
 
