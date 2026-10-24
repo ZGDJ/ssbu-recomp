@@ -946,6 +946,18 @@ static int g_mark; static int mark_setup(void); static void blk1_init(void);
 static int g_ra, g_save_failed; static int ra_hold_quiet(double limit);
 size_t nvn_r1_cb_save(void); void nvn_r1_cb_capture_config(void); void nvn_r1_cb_restore(void); static size_t g_ra_cb_bytes;      /* nvn_gl.c; SIZE_MAX save result means refusal */
 static size_t g_saved_bytes;
+/* Ring base publication runs inside save's successful hold. Only the ring's
+ * synchronous first-capture caller sets this request; all other saves use -1. */
+static long long g_save_base_frame = -1;
+static int rg_base_publish(long long frame);
+static int save_finish_held(int mark_failed, int cb_failed) {
+    if (mark_failed) g_save_failed = 2;
+    else if (cb_failed) g_save_failed = 4;
+    else if (g_save_base_frame >= 0 && !rg_base_publish(g_save_base_frame)) g_save_failed = 6;
+    unpark();
+    if (g_save_failed) { release(); return 0; }
+    return 1;
+}
 static void save(Ctx *c) {
     r1_pin_guest_reservations();
     if (g_capture_mode_failed) { g_save_failed = 2; LOG("r1: SAVE refused: incomplete capture-mode coverage\n"); return; }
@@ -1007,9 +1019,10 @@ static void save(Ctx *c) {
         int mfail = 0;
         if (g_mark > 0 && g_cycle == 0) { g_ctx_save = *c; mfail = !mark_setup(); }     /* round 5: the marks start while the threads are still held (no unmarked gap after this full save) */
         int cbfail = g_ra > 0 && !mfail && nvn_r1_cb_save() == SIZE_MAX;
-        unpark();
-        if (mfail) { release(); g_save_failed = 2; return; }
-        if (cbfail) { release(); g_save_failed = 4; LOG("r1: SAVE refused: command-buffer staging failed\n"); return; }
+        if (!save_finish_held(mfail, cbfail)) {
+            if (cbfail) LOG("r1: SAVE refused: command-buffer staging failed\n");
+            return;
+        }
         for (int i = 0; i < shown; i++) LOG("r1:   async page (written by host threads while main and the guest threads were held %d ms): %s\n", pause, where(g_e[i].a));
         LOG("r1: %zu pages written by host threads during a %d ms hold: left out of restore / verify; holding the guest threads took %.2f ms\n", np, pause, t1b - tp0);
     }

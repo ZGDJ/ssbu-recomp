@@ -473,40 +473,57 @@ static void rg_meta_prof_report(void) {
     LOG("r1: META PROF captures %lld: fibers %.4f (fiber pool %.0f KB), command buffers %.4f (%.0f KB), threads %.4f, let go %.4f ms; loads %lld: thread registers %.4f, fibers %.4f, catch table %.4f, command buffers %.4f, let go %.4f ms\n",
         g_mp_n[0], g_mp[0] / a, g_mp_b[0] / a / 1024, g_mp[1] / a, g_mp_b[1] / a / 1024, g_mp[2] / a, g_mp[3] / a, g_mp_n[1], g_mp[4] / b, g_mp[5] / b, g_mp[6] / b, g_mp[7] / b, g_mp[8] / b);
 }
+/* Called only from save_finish_held, before any writer is released. Allocation
+ * policy is the same as mark_setup's held initialization. Symbol lookup and
+ * worker startup are warmed by rg_capture_base before the hold. */
+static int rg_base_publish(long long frame) {
+    if (!ls_validate_tracking()) {
+        g_rg_nomem = 2;
+        LOG("r1: RING: base refused: incomplete learned tracking; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
+        return 0;
+    }
+    if (g_mark <= 0) { g_ra_off = 1; LOG("r1: RING: no marks (the game DLL with marks is not loaded): OFF\n"); return 0; }
+    if (!rg_init()) { g_rg_nomem = 2; if (!rbg_on()) g_ra_off = 1; LOG("r1: RING: its own allocations FAILED (out of memory): no rollback ring for the rest of this session\n"); return 0; }
+    RgSlot *s = &g_rg[0]; SlotMetaPlan plan;
+    if (!rg_meta_prepare(s, &plan)) {
+        g_rg_nomem = 2;
+        LOG("r1: RING: base refused: slot metadata reservation/validation failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
+        return 0;
+    }
+    if (!ls_validate_tracking()) {
+        g_rg_nomem = 2;
+        LOG("r1: RING: base refused: learned tracking changed during preparation; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
+        return 0;
+    }
+    rg_meta_capture(s, &g_ctx_save, &plan);
+    s->frame = frame; s->nent = 0;
+    g_rg_head = 0; g_rg_count = 1; g_rg_ready = 1;
+    g_ra_ready = 1; g_cycle = 1;
+    return 1;
+}
+static int rg_capture_base(long long frame, Ctx *c) {
+    if (g_rg_nomem) return 0;
+    rg_cb_find(); cp_init();
+    g_save_failed = 0; g_ra_wd_pause = 1; g_rs_drop = 1;
+    g_save_base_frame = frame;
+    save(c);
+    g_save_base_frame = -1;
+    release(); g_rs_drop = 0; g_ra_wd_pause = 0;
+    if (g_save_failed == 2) { g_rg_nomem = 1; LOG("r1: RING: the base state was NOT made (out of memory: free commit %.0f MB, needed %.0f MB + 1024 MB left for the game): no rollback ring\n", g_save_avail_mb, g_save_need_mb); return 0; }
+    if (g_save_failed == 3) { g_rg_nomem = 3; LOG("r1: RING: base refused: incomplete fiber capture; no rollback ring for this match\n"); return 0; }
+    if (g_save_failed == 4) { g_rg_nomem = 2; LOG("r1: RING: base refused: command-buffer staging failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
+    if (g_save_failed == 5) { g_rg_nomem = 2; LOG("r1: RING: base refused: incomplete range inventory; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
+    return !g_save_failed;
+}
 static void rgc_config(void);
 int r1_ring_capture(long long frame, Ctx *c) {
     rgc_config(); rg_capture_config();
     fibers_capture_config(); rg_meta_config(); nvn_r1_cb_capture_config();
     R1_CTR("capture (frame)", frame, 0);
     double t0 = now_ms(); int seg_was = g_rgp_seg; g_rgp_seg = 4;
-    if (!g_rg_ready) {                                    /* the first time: r1's full save (shadow filled, marks on: one hitch), the ring's base */
+    if (!g_rg_ready) {
         g_rgp_seg = seg_was;
-        if (g_rg_nomem) return 0;                         /* (hs13) out of memory: not tried again in this match */
-        g_save_failed = 0; g_ra_wd_pause = 1; g_rs_drop = 1;
-        save(c); release(); g_rs_drop = 0;
-        g_ra_wd_pause = 0;
-        if (g_save_failed == 2) { g_rg_nomem = 1; LOG("r1: RING: the base state was NOT made (out of memory: free commit %.0f MB, needed %.0f MB + 1024 MB left for the game): no rollback ring\n", g_save_avail_mb, g_save_need_mb); return 0; }
-        if (g_save_failed == 3) { g_rg_nomem = 3; LOG("r1: RING: base refused: incomplete fiber capture; no rollback ring for this match\n"); return 0; }
-        if (g_save_failed == 4) { g_rg_nomem = 2; LOG("r1: RING: base refused: command-buffer staging failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
-        if (g_save_failed == 5) { g_rg_nomem = 2; LOG("r1: RING: base refused: incomplete range inventory; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready); return 0; }
-        if (g_save_failed) return 0;
-        if (!ls_validate_tracking()) {
-            g_rg_nomem = 2;
-            LOG("r1: RING: base refused: incomplete learned tracking; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
-            return 0;
-        }
-        g_ra_ready = 1; g_cycle = 1;
-        if (g_mark <= 0) { g_ra_off = 1; LOG("r1: RING: no marks (the game DLL with marks is not loaded): OFF\n"); return 0; }
-        if (!rg_init()) { g_rg_nomem = 2; if (!rbg_on()) g_ra_off = 1; LOG("r1: RING: its own allocations FAILED (out of memory): no rollback ring for the rest of this session\n"); return 0; }
-        RgSlot *s = &g_rg[0]; SlotMetaPlan plan;
-        if (!rg_meta_prepare(s, &plan)) {
-            g_rg_nomem = 2;
-            LOG("r1: RING: base refused: slot metadata reservation/validation failed; no published base states=%d ready=%d\n", g_rg_count, g_rg_ready);
-            return 0;
-        }
-        rg_meta_capture(s, &g_ctx_save, &plan);
-        s->frame = frame; s->nent = 0;
-        g_rg_head = 0; g_rg_count = 1; g_rg_ready = 1;
+        if (!rg_capture_base(frame, c)) return 0;
         LOG("r1: RING: base state (frame %lld): full save in %.1f ms\n", frame, now_ms() - t0);
         return 1;
     }

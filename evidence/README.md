@@ -117,3 +117,7 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Menu repeat integration](2026-10-23-menu-repeat-integration.md): repeated uninstrumented same-tape arm, round 1; admission refused on host capacity, retry plan written, contract unchanged.
 
 - [Reservation lifetime and supported memory mode](2026-10-23-restore-resources.md): M7.8 source acceptance, reviewed release/MEM_KEEP refusal and O1/O3 injections; new-package control refused on capacity; M7.1 opened.
+
+## 2026-10-24
+
+- [Initial-base publication](2026-10-24-base-publication.md): keep the successful save hold through learned validation and publication; continuation preflight remains M7.1.
