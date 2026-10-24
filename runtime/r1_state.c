@@ -841,6 +841,18 @@ static int fibers_prepare(const Fib *saved, int count, const uint8_t *pool, size
     memcpy(g_fib_restore_actions, actions, (size_t)count);
     g_fib_restore_count = count; g_fib_restore_reason = "prepared"; return 1;
 }
+/* Recheck the identities used by preparation before destroying history.
+ * Required guest continuations remain held; this is not a host-writer lock. */
+static int fibers_prepared_valid(const Fib *saved, int count) {
+    if (count < 0 || count > 1024 || count != g_fib_restore_count || (count && !saved)) return 0;
+    for (int i = 0; i < count; i++) {
+        int j; for (j = 0; j < g_ncur; j++) if (g_cur[j].key == saved[i].key) break;
+        void *fiber, *fls, *fls_fiber; Ctx *context; DWORD tid;
+        if (j == g_ncur || !os_r1_fiber_audit_identity(saved[i].key, &fiber, &context, &fls, &fls_fiber, &tid) ||
+            fiber != g_cur[j].fiber || context != g_cur[j].c || tid != g_cur[j].tid) return 0;
+    }
+    return 1;
+}
 static void fibers_restore_prepared(void) {
     if (g_fib_restore_count != g_nfib) { LOG("r1: fatal: fiber restore without matching preparation\n"); abort(); }
     g_nrest = 0; g_fib_same = g_fib_diff = g_fib_new = 0;
@@ -860,6 +872,18 @@ static void fibers_restore_prepared(void) {
             for (int r = 19; r < 32; ++r) f->c->x[r] = f->regs.x[r];
             for (int r = 8; r < 16; ++r) f->c->v[r] = f->regs.v[r];
         } else { LOG("r1: fatal: invalid prepared fiber action\n"); abort(); }
+        /* Obj lookup/put can silently miss a retired object. Never count such
+         * a commit as restored or resume after it. */
+        void *fiber, *fls, *fls_fiber; Ctx *context; DWORD tid;
+        uint64_t actual[6] = {0};
+        if (!os_r1_fiber_audit_identity(f->key, &fiber, &context, &fls, &fls_fiber, &tid) ||
+            fiber != f->fiber || context != f->c) { LOG("r1: fatal: fiber identity lost during commit\n"); abort(); }
+        os_r1_fiber_get(f->key, actual);
+        if (memcmp(actual, f->obj, sizeof actual) ||
+            (action == FIB_RESTORE_NEVER && (fls || fls_fiber)) ||
+            (action == FIB_RESTORE_SUSPENDED && (fls != f->fls || fls_fiber != (f->fls ? f->fiber : NULL)))) {
+            LOG("r1: fatal: incomplete fiber object commit\n"); abort();
+        }
         ++g_fib_same;
     }
     fibers_abort_prepare();
@@ -2272,6 +2296,40 @@ static void ra_hold_restore(void) {
             SwitchToThread();
         }
     }
+}
+/* A count is not an identity check: finished/replaced Obj handles can change
+ * without registering a new slot. New threads since the snapshot are refused;
+ * permanently suspending them is not a supported retirement policy. */
+static int ra_restore_threads_valid(const Th *saved, int count, int ninfo, int held) {
+    if (count < 0 || count > 256 || ninfo < 0 || ninfo > 256 ||
+        (count && !saved) || !os_r1_thread_inventory_valid() ||
+        os_r1_thread_inventory_count() != ninfo) return 0;
+    unsigned char seen[256] = {0};
+    DWORD me = GetCurrentThreadId();
+    for (int i = 0; i < ninfo; i++) {
+        Ctx *c; const char *name; HANDLE h;
+        if (!guest_thread_info(i, &c, &name, &h)) return 0;
+        if (!h || GetThreadId(h) == me) continue;
+        int j; for (j = 0; j < count; j++) if (saved[j].h == h && saved[j].c == c) break;
+        if (j == count || seen[j] || !c || WaitForSingleObject(h, 0) != WAIT_TIMEOUT) return 0;
+        seen[j] = 1;
+        const Th *t = &saved[j];
+        if (!held && (t->held || t->cok)) return 0; /* snapshots never own live suspensions */
+        if (!t->parked) {
+            if (!t->name || !name || !ra_free(t->name) || !ra_free(name)) return 0;
+            continue; /* existing explicit decoder exclusion, not a restored continuation */
+        }
+        if (!t->imp || !waiting_import(t->imp)) return 0;
+        if (held) {
+            Ctx current;
+            if (!t->held || !t->same || !t->cok || !t->rsp || !t->rip ||
+                !fibers_writable(c, sizeof *c) || !fiber_capture_read(NULL, c, &current, sizeof current) ||
+                current.in_import != t->imp || current.import_from != t->from ||
+                current.x[31] != t->regs.x[31]) return 0;
+        }
+    }
+    for (int i = 0; i < count; i++) if (!seen[i]) return 0;
+    return os_r1_thread_inventory_valid() && os_r1_thread_inventory_count() == ninfo;
 }
 static int cmp_d(const void *a, const void *b);
 /* the job system at the kick is NOT quiet as at the frame end (the preparation jobs kicked at 0x71037494f8 may still run on

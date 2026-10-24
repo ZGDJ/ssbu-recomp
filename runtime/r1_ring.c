@@ -1247,6 +1247,7 @@ int r1_ring_load(long long frame, Ctx *c) {
     if(g->nth<0 || g->nth>256 || g->ninfo<0 || g->ninfo>256 || g->nfib<0 || g->nfib>1024 ||
        g->fpool_used>g_fpool_cap) goto refused;
     if(g_restore_writer_probe) { refusal="writer probe requires unprepared diagnostic path"; goto refused; }
+    if (!ra_restore_threads_valid(g->th, g->nth, g->ninfo, 0)) { refusal="saved thread identity or membership changed"; goto refused; }
     int k = g_rg_count - 1 - si;
     static Th cur[256]; int ncur = g_rg_kept ? g_nth : 0;  /* threads still held from the capture just made (g_rg_keep) */
     if (ncur) memcpy(cur, g_th, (size_t)ncur * sizeof *cur);
@@ -1266,7 +1267,7 @@ int r1_ring_load(long long frame, Ctx *c) {
     for (int j = 0; j < ncur; j++) {                      /* held at the same wait as in capture g: stays held; otherwise let go (the loop below waits for it) */
         if (!cur[j].held) continue;
         int keep = 0;
-        for (int i = 0; i < g_nth; i++) if (g_th[i].h == cur[j].h) { if (g_th[i].parked && cur[j].from == g_th[i].from && cur[j].imp == g_th[i].imp) { g_th[i].held = 1; g_th[i].rsp = cur[j].rsp; g_th[i].rip = cur[j].rip; g_th[i].cok = cur[j].cok; keep = 1; } break; }
+        for (int i = 0; i < g_nth; i++) if (g_th[i].h == cur[j].h) { if (g_th[i].c == cur[j].c && g_th[i].parked && cur[j].from == g_th[i].from && cur[j].imp == g_th[i].imp) { g_th[i].held = 1; g_th[i].rsp = cur[j].rsp; g_th[i].rip = cur[j].rip; g_th[i].cok = cur[j].cok; keep = 1; } break; }
         if (keep) g_rg_kept_same++; else r1_resume_owned(cur[j].h);
     }
     for (double tq = now_ms();;) {                        /* each thread at the wait it was held at in that capture, no job running */
@@ -1287,6 +1288,7 @@ int r1_ring_load(long long frame, Ctx *c) {
         int forced = tn > 0 && ++tc % tn == 0;
         if (g_th_running || g_ra_busy_fibers || forced) { refusal=forced?"test thread refusal":"native continuation still running"; goto refused; }
     }
+    if (!ra_restore_threads_valid(g_th, g_nth, g_ninfo, 1)) { refusal="thread not at saved continuation"; goto refused; }
     refusal="page plan bounds or reservation failed";
     if(g_refusal_audit_on && !g_refusal_audit_used) {
         g_refusal_audit_used=1; auditing=1;
@@ -1327,6 +1329,8 @@ int r1_ring_load(long long frame, Ctx *c) {
     if(g_rgs_on>0 && !rgv_prepare()) goto refused;
     if (!os_r1_thread_inventory_valid() || os_r1_thread_inventory_count() != inventory_count) { refusal="thread inventory changed during restore preparation"; goto refused; }
     if (!host_inventory_valid()) { refusal="incomplete historical host-stack inventory"; goto refused; }
+    if (!ra_restore_threads_valid(g_th, g_nth, g_ninfo, 1)) { refusal="thread continuation changed during preparation"; goto refused; }
+    if (!fibers_prepared_valid(g->fib, g->nfib)) { refusal="fiber identity changed during preparation"; goto refused; }
     if(auditing) { rg_payload_report(&payload_audit,frame,0); rg_native_report(&native_audit,frame,0); rg_refusal_report(&refusal_audit,frame,0); auditing=0; }
     double t1 = now_ms();
     R1_CTR("load (state of frame)", frame, 0);
@@ -1372,13 +1376,15 @@ int r1_ring_load(long long frame, Ctx *c) {
     restore_plan_dispose(&prepared,rg_plan_free,NULL);
     if (probe) rg_restore_probe(frame, sequence, "continuations", watchdog_load, 1, &probe_ms, &probe_pages);
     debug_writer_probe_begin(frame, g_rgv_target);
+    if (g_th_mismatch || g_fib_diff || g_fib_new || g_fib_same != g->nfib ||
+        !ra_restore_threads_valid(g_th, g_nth, g_ninfo, 1))
+        rg_restore_fatal("incomplete native continuation commit");
     double t3 = now_ms();
     rgc_release();
     unpark();
     g_mp[4] += t2a - t2; g_mp[5] += t2b - t2a; g_mp[6] += t2c - t2b; g_mp[7] += t3 - t2c; g_mp[8] += now_ms() - t3; g_mp_n[1]++;
     *c = g->ctx;
     g_rg_loads++;
-    if (g_th_mismatch || g_fib_diff) LOG("r1: RING load of frame %lld (k %d): %d threads not at their wait, %d fibers not restored\n", frame, k, g_th_mismatch, g_fib_diff);
     g_rg_last[1] = now_ms() - t0; g_rgp_seg = 1;
     if (k < RG_MAXSLOT && g_rgl_n[k] < RG_NL) { int i = g_rgl_n[k]++; g_rgl[k][i][0] = now_ms() - t0; g_rgl[k][i][1] = t1 - t0; g_rgl[k][i][2] = t2 - t1; g_rgl_pg[k][i] = pages; (void)t3; }
     return 1;

@@ -9,7 +9,8 @@
 #define LOG(...) ((void)0)
 typedef struct {int marker;} Ctx;
 typedef struct {HANDLE h;int held,marker;} Th;
-typedef struct {int nth,ninfo,nfib;size_t fpool_used;} Slot;
+typedef struct {int nth,ninfo,nfib;size_t fpool_used;Th th[256];} Slot;
+#define ra_restore_threads_valid(...) 1
 static Th g_th[256];static int g_nth,g_ninfo,g_rg_kept,g_nborn,g_rgp_seg,g_rg_refused;
 static int g_rg_count=3,g_rg_kept_n,g_restore_writer_probe;
 static size_t g_fpool_cap=1024;static void *g_restore_collect;

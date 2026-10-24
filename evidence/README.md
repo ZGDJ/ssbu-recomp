@@ -121,3 +121,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 ## 2026-10-24
 
 - [Initial-base publication](2026-10-24-base-publication.md): keep the successful save hold through learned validation and publication; continuation preflight remains M7.1.
+
+- [Ring continuation preflight](2026-10-24-continuation-preflight.md): exact full-caller refusal and fail-stop commit tests; legacy restore disposition remains open.

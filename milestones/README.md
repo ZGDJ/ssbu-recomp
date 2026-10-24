@@ -607,10 +607,10 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Depends: M7.8, M7.10
 - Size: 5
 - Requirement: FSD-002, FSD-005
-- Evidence: evidence/2026-10-24-base-publication.md
+- Evidence: evidence/2026-10-24-continuation-preflight.md
 - Acceptance: Preflight all required threads/fibers before memory/history mutation. Busy/live/missing continuation injections refuse before mutation with state/history unchanged; unexpected post-mutation failure irrecoverably terminates the session and never resumes or reports success. Independent review required.
-- Owner: root base-publication integration, 2026-10-24T01:40:15.295011+00:00
-- Next: Initial-base hold/publication correction passes exact full-save/caller O1/O3 injections, two independent reviews and new clean package build; own disabled control refused before native launch (5.14/5.16 GiB available commit; requires 10 GiB), with no gameplay qualification. Complete continuation preflight: include mismatched-but-blocked and audio alternate-wait threads (same=0 without mismatch), busy/live/missing fibers and identity changes before mutation; fail-stop unexpected commit incompleteness before unpark. M7.1 acceptance remains open.
+- Owner: root continuation integration, 2026-10-24T02:08:13.369008+00:00
+- Next: Ring continuation identity/wait preflight and fail-stop commit pass exact full-caller O1/O3 injections, both reviews and new clean package build; own disabled control refused before native launch (3.49/3.50 GiB available commit < 10 GiB). Resolve supported legacy full/fast/mark/run-ahead restore disposition before M7.1 closure. Preserve initial-base publication fix, excluded-writer limits and pending new-binary replay/refusal matrix.
 - Blocker: none
 
 ### M7.2 - Confirmation-safe terminal lifecycle
