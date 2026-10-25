@@ -24,10 +24,10 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1 and M7.3 bounded source acceptance are complete; M7.2 owns the next terminal-lifetime correction. M3.5 is parked with a trustworthy reference comparator; its deferred repeat is not a prerequisite. New-candidate restore controls remain unrun; retain correction/terminal safety gates and fresh resource admission. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. Next is the M4.1 battle experiment with required new-binary controls, comparable original fixture identity and fresh resource admission. M3.5 supplies a trustworthy reference comparator; its deferred repeat is not a prerequisite. Independent investigation may proceed with disjoint ownership and coordinated game trials.
 2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
-4. Reuse M7.8/M7.1/M7.3 completed source acceptance; continue M7.2 and the pending new-binary capture/restore controls. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
+4. Reuse M7.8/M7.1/M7.3/M7.2 completed source acceptance; execute the pending new-binary capture/restore controls when fresh admission permits. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Source acceptance does not qualify native restoration or terminal gameplay.
 5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
 6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their later four-member product requirements remain intact.
 
@@ -614,14 +614,14 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Blocker: none
 
 ### M7.2 - Confirmation-safe terminal lifecycle
-- Status: todo
+- Status: done
 - Depends: M7.3
 - Size: 5
 - Requirement: FSD-008, FSD-015
-- Evidence: none
+- Evidence: evidence/2026-10-25-terminal-lifetime.md
 - Acceptance: Production lifecycle policy retains snapshots/resources for speculative terminal ticks, commits once only after corrected confirmation, and handles disconnect/rematch explicitly. Synthetic reversal/duplicate-commit regressions pass; real KO/timeout proof remains M4.5/M5.2.
-- Owner: unassigned
-- Next: Own terminal paths in rb_rollback.c/r1_ring.c; coordinate with M7.3 and M7.5.
+- Owner: root Astra terminal integration, 2026-10-25T16:00:00Z
+- Next: Bounded source acceptance: terminal H2 drains corrections before confirmation, preserves learned/ring/session ownership on reversal, fails closed on interrupted/unrecoverable terminal sessions and commits cleanup once. Exact caller O1/O3 regressions and both independent reviews pass. Fresh build/audit passes; own disabled control refused before launch (9.42/9.38 GiB available commit < 10 GiB; physical 14,118/14,103 MiB passes). Proceed toward M4.1 with fresh admission and required new-binary controls. Guest irreversible effects before H2, native lifetime/restoration and actual KO/timeout reversal remain M4.5/M5.2 proof obligations.
 - Blocker: none
 
 ### M7.3 - Preserve or abort unrecoverable corrections

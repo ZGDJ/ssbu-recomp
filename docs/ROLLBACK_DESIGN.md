@@ -9,7 +9,7 @@ This is the design/acceptance companion to [FSD](FSD.md). OpenSmash upstream `c7
 M7 source packets address these observed risks without replacing M1–M6 qualification:
 
 - **M7.1:** complete-or-refuse restore: validate all required state before mutation, or fail the session if atomic refusal cannot be guaranteed; no partial-success restore.
-- **M7.2:** retain terminal-state recovery until corrected causal inputs permit exactly-once outcome commit; the inherited fight-off path currently releases the ring immediately.
+- **M7.2:** retain terminal-state recovery until corrected causal inputs permit exactly-once outcome commit. The corrected H2 coordinator drains mismatches before receipt-based commitment and defers learned/ring/session cleanup; guest effects before H2 and actual terminal reversal remain game-backed obligations.
 - **M7.3:** never discard an unrecoverable mismatch and finalize its simulation; stop with a bounded diagnostic failure.
 - **M7.4:** require full match epochs and admissible frame windows; reject missing/malformed epochs and far-future ring overwrites.
 - **M7.5:** distinguish transport heartbeat from simulation/input progress; bounded stall/disconnect instead of endless waiting or indefinite guessed play.

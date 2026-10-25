@@ -33,6 +33,7 @@ void input_mark(const char *what);                      /* nnhid.c: the input se
 /* (hs12) matches in one session: 0 = between matches, 1 = an online match runs (its base state made), 2 = a match that was
  * not agreed (handshake failed / given up) runs locally (Final Destination, one stock): no ring, and rbg_pad walks player 1 off the stage */
 static int g_rbg_in_match, g_rbg_rebase; static double g_rbg_quit_t0;
+static int g_rbg_terminal_commit;
 /* (R3 net3, runs pe3 / pe4: DESYNC from frame 2) the base state is the first capture of the fight; when it cannot be made at the
  * first safe point with the fight on ("RA: first save: no quiet moment within 200 ms: not now"), it was made one pass later, and
  * that game called fight frame 218 "frame 0" while the other called 217 so: every frame one apart. Now the frames are counted
@@ -383,10 +384,40 @@ static void rbg_pad(int id, uint64_t *b, int *lx, int *ly, int *rx, int *ry) {
     *b = p.buttons; *lx = p.lx; *ly = p.ly; *rx = p.rx; *ry = p.ry;
 }
 static void rbg_report(void);
+/* H2 has observed fight-off, but has not relinquished rollback ownership.
+ * Receipt alone is insufficient: drain corrections first, and return directly
+ * to restored replay on a successful load. No guest forward tick is allowed
+ * while waiting. This only commits the coordinator's terminal boundary; guest
+ * teardown before H2 and complete-state coverage still require battle proof. */
+static int rbg_terminal(Ctx *c) {
+    if (g_rbg_in_match != 1) return 0;
+    long long i = g_rgs_next;
+    g_ra_wd_pause = 1;
+    for (;;) {
+        if (g_ra_off || rbn_match_cancelled() || rbn_peer_gone())
+            rbg_correction_fatal(i, 0, "terminal session interrupted");
+        rbn_drain(i);
+        int m = rbg_correction_pending(rbn_take_mismatch());
+        if (m > 0 && m <= i) {
+            if (g_rbg_noring) rbg_correction_fatal(i, m, "terminal correction without snapshot ring");
+            return rbg_rollback(c, i, m);
+        }
+        if (m > 0) rbg_correction_fatal(i, m, "terminal correction beyond simulated boundary");
+        if (rbn_confirmed() >= i) break;
+        rbn_resend();
+        rbg_wait_until(now_ms() + 0.5);
+    }
+    rbn_pass_hash(i);
+    rbn_finalize(i);
+    g_rbg_terminal_commit = 1;
+    return 0;
+}
 /* (hs12) r1_ring.c rgs_step, every safe point while no fight is on: the end of a match (once): its report, the ring
  * emptied, the session reset for the next match (whose first safe point makes the ring's base again: r1_ring_rebase) */
 static void rbg_fight_off(void) {
     if (!g_rbg_in_match) return;
+    if (g_rbg_in_match == 1 && !g_rbg_terminal_commit)
+        rbg_correction_fatal(g_rgs_next, 0, "unconfirmed terminal cleanup");
     if (g_rbg_in_match == 1) { rbg_report(); r1_ring_let_go(); if (g_rg_ready) r1_ring_release(); g_rbg_rebase = 1; }
     else if (g_rbg_in_match == 3) LOG("r1: RB NET: the Local Wireless room fight is over\n");
     else LOG("r1: RB NET: the match that was not agreed is over after %.1f s (player 1 walked off)\n", (now_ms() - g_rbg_quit_t0) / 1000.0);
@@ -401,6 +432,7 @@ static void rbg_fight_off(void) {
     g_rbg_t_pre = g_rbg_t_load = g_rbg_t_rerun = g_rbg_t_recap = g_rbg_t_pass0 = 0; g_rbg_n_rerun = g_rbg_n_recap = 0;
     g_rbg_wd_before = g_ra_wd_fired;
     g_rbg_pend = 0;
+    g_rbg_terminal_commit = 0;
     rbn_match_reset();
 }
 static int cmp_f(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return x < y ? -1 : x > y; }

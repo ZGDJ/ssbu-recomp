@@ -137,3 +137,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_capture_mode_resources_source.py -v
       - name: Scratch ownership and trace completion regressions
         run: python -m unittest discover -s tests -p test_diagnostic_completion_source.py -v
+      - name: Correction failure coordination regressions
+        run: python -m unittest discover -s tests -p test_correction_source.py -v
+      - name: Confirmation-safe terminal caller regressions
+        run: python -m unittest discover -s tests -p test_terminal_source.py -v
