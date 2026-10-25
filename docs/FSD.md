@@ -70,7 +70,7 @@ For the two-PC gate, export paired diagnostic bundles with a shared match ID, bu
 
 Enumerate 13.0.5 fighters including DLC/selected Mii configurations and version rules/stage coverage. Acceptance: every fighter has representative mechanics, gameplay, rewind/correction and performance evidence; define pairwise/high-risk interactions without claiming every matchup from one test per fighter. Track untested/failed/verified. Full-roster milestone stays open until every entry qualifies. No items does not remove fighter-created objects/RNG.
 
-Select explicit early input-history, combat, lifecycle/RNG and terminal-event fixtures before the first rewind gate; see design contract. Mark non-applicable mechanics with reasons. Preload required modules/assets before ready or prove deterministic later loading. Full-roster coverage remains distinct from the initial fixture set.
+Select explicit early input-history, combat, lifecycle/RNG and terminal-event fixtures before the first rewind gate; see design contract. The [13.0.5 roster matrix](ROSTER_MATRIX.md) records the selected planning cases, provisional rules and untested qualification entries. Mark non-applicable mechanics with reasons. Preload required modules/assets before ready or prove deterministic later loading. Full-roster coverage remains distinct from the initial fixture set.
 
 ### FSD-011 - Hooks and safe artifacts
 

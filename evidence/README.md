@@ -134,3 +134,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [First default ring-replay admission](2026-10-25-default-replay.md): separately reviewed tooling toward M4.1 on the unchanged terminal package; default trial refused before launch on 9.68/9.78 GiB commit, post-identity unchanged.
 
 - [Default replay readiness](2026-10-25-replay-readiness.md): accepted second-attempt plan; 19:14 UTC capacity recheck fails both reserves; authorized pagefile change waits for user availability and Windows consent.
+
+- [Full-roster qualification planning](2026-10-25-roster-matrix.md): 89 untested fighter/form entries, selected Mii configurations and named early mechanics/terminal fixtures; provisional rules and owner choices explicit.

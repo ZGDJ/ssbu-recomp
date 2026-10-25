@@ -566,14 +566,14 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 ## M6 - Full-roster qualification
 
 ### M6.1 - Roster mechanics and competitive rules matrix
-- Status: todo
+- Status: done
 - Depends: M0.1
 - Size: 3
 - Requirement: FSD-010
-- Evidence: none
+- Evidence: evidence/2026-10-25-roster-matrix.md
 - Acceptance: Enumerate 13.0.5 fighters/DLC/Mii and approved stages/rules; entries initially untested; select named early input-history/combat/lifecycle/RNG/terminal fixtures before M4.1, plus full-roster interaction plan.
-- Owner: unassigned
-- Next: Enumerate full roster/mechanics/stage/Mii qualification matrix from verifiable sources without private-input dependency; unresolved owner choices remain explicit.
+- Owner: Astra integrator / M6.1, 2026-10-25T20:18:15.068948+00:00
+- Next: Use docs/ROSTER_MATRIX.md: 89 untested fighter/form rows, nine selected Mii loadouts, 15 early mechanics/terminal fixtures and eight directed interaction classes. Both complementary Astra reviews accept planning scope. Preserve provisional FD rules and unresolved final stage/Mii policy; prepare identified tapes and effective-rule/state readback only as native prerequisites permit. M6.2 and formal M4.1 gameplay acceptance remain open.
 - Blocker: none
 
 ### M6.2 - Qualify every fighter and interaction classes
