@@ -132,3 +132,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Terminal lifetime](2026-10-25-terminal-lifetime.md): corrected confirmation before coordinator cleanup, with reversal, duplicate-commit and resource/history ownership injections. Frozen binary disabled control passes comparable original-reference 500R/0S; native restore controls remain pending.
 
 - [First default ring-replay admission](2026-10-25-default-replay.md): separately reviewed tooling toward M4.1 on the unchanged terminal package; default trial refused before launch on 9.68/9.78 GiB commit, post-identity unchanged.
+
+- [Default replay readiness](2026-10-25-replay-readiness.md): accepted second-attempt plan; capacity fails and authorized pagefile change awaits Windows administrator consent.

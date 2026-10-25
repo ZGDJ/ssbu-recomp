@@ -360,7 +360,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-25-default-replay.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
 - Owner: unassigned
-- Next: Bounded default-replay packet complete: exact adapter accepted by both complementary R2 reviewers; 76 affected tests pass. Unchanged terminal package default attempt refused before native launch at 9.68/9.78 GiB available commit (<10 GiB); physical/process checks and full post-attempt identity pass. No replay control passed. Resolve host headroom, then a fresh separately labeled trial requires comparable original fixture, 500 real frames and exactly two depth-one replay runs. Remaining integrated controls and broader FSD fixtures/depths/dependencies remain mandatory.
+- Next: Prepared default-attempt2 accepted by both complementary Astra reviews; unchanged runtime/adapter/reference and separate menu/post-identity gates retained. Readiness-only sample fails at 4.31 GiB commit and 10,072 MiB physical; no native launch. User authorized 16/32 GiB pagefile settings, but Windows elevation was canceled; automatic management remains enabled. Apply authorized capacity change with OS consent, then fresh post-identity admission and original-fixture 500R/two depth-one runs. See evidence/2026-10-25-replay-readiness.md. Formal dependencies, integrated controls and broader fixtures remain mandatory.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects
