@@ -31,7 +31,7 @@ class CaptureModeResourcesSourceTests(unittest.TestCase):
 
     def test_exact_initialization(self):
         source = (ROOT / "runtime/r1_state.c").read_text()
-        names = ["cmp_ptr", "is_async", "learn_merge", "async_add", "async_learn", "fast_build", "fast_check", "fast_save", "fast_restore"]
+        names = ["legacy_restore_unsupported", "cmp_ptr", "is_async", "learn_merge", "async_add", "async_learn", "fast_build", "fast_check", "fast_save", "fast_restore"]
         fixture = (ROOT / "tests/capture_mode_resources_source_fixture.c").read_text()
         fixture = fixture.replace("/* SOURCE */", "\n".join(function(source, n) for n in names))
         directory = ROOT / "artifacts/local/capture-mode-resources-source"

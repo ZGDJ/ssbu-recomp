@@ -123,3 +123,7 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Initial-base publication](2026-10-24-base-publication.md): keep the successful save hold through learned validation and publication; continuation preflight remains M7.1.
 
 - [Ring continuation preflight](2026-10-24-continuation-preflight.md): exact full-caller refusal and fail-stop commit tests; legacy restore disposition remains open.
+
+## 2026-10-25
+
+- [Legacy restore disposition](2026-10-25-legacy-restore-disposition.md): explicit pre-speculation refusal for unsupported diagnostics/run-ahead; preserves reviewed ring dispatch.

@@ -51,9 +51,9 @@ static void seed_capture(void){g_nr=1;g_r[0]=(Rng){guest,saved,dirty,NULL,2*PG};
 static void saves(void){
  reset();parks=unparks=g_save_failed=g_nfs=g_nfr=0;fiber_ok=1;Ctx c={42};seed_capture();memset(guest,0x35,2*PG);
  fast_save(&c);assert(g_fast_saved_valid&&!g_save_failed&&parks==1&&unparks==1);assert(!memcmp(g_fbuf,guest,2*PG));
- memset(guest,0x61,2*PG);c.value=0;fast_restore(&c);assert(c.value==42&&parks==2&&unparks==2);for(int i=0;i<2*PG;i++)assert(guest[i]==0x35);
- fiber_ok=0;memset(guest,0x72,2*PG);fast_save(&c);assert(!g_fast_saved_valid&&g_save_failed==3&&parks==3&&unparks==3);for(int i=0;i<2*PG;i++)assert(g_fbuf[i]==0x72);
- g_capture_mode_failed=1;memset(guest,0x19,2*PG);fast_save(&c);assert(!g_fast_saved_valid&&g_save_failed==2&&parks==3);for(int i=0;i<2*PG;i++)assert(g_fbuf[i]==0x72);
+ /* Legacy restore is now refused; exercised by fatal subprocess cases. */
+ fiber_ok=0;memset(guest,0x72,2*PG);fast_save(&c);assert(!g_fast_saved_valid&&g_save_failed==3&&parks==2&&unparks==2);for(int i=0;i<2*PG;i++)assert(g_fbuf[i]==0x72);
+ g_capture_mode_failed=1;memset(guest,0x19,2*PG);fast_save(&c);assert(!g_fast_saved_valid&&g_save_failed==2&&parks==2);for(int i=0;i<2*PG;i++)assert(g_fbuf[i]==0x72);
 }
 static void growth(void){reset();g_async=alloc(sizeof(void*));g_async[0]=guest;g_async_cap=g_nasync=1;uint8_t **old=g_async;fail_at=calls+1;assert(!async_add(guest+PG)&&g_async==old&&g_nasync==1&&g_async_cap==1&&g_async[0]==guest);reset();g_async_cap=SIZE_MAX;assert(!async_add(guest)&&!calls);g_async_cap=0;reset();g_nr=2;for(int i=0;i<2;i++)g_r[i]=(Rng){guest+i*PG,saved+i*PG,dirty+i,NULL,PG};fail_at=2;assert(!learn_merge()&&g_nl==1&&g_l[0].learn&&g_r[0].learn==g_l[0].learn&&!g_r[1].learn);}
 int main(int argc,char **argv){if(argc>1){reset();if(!strcmp(argv[1],"async")){g_capture_mode_failed=1;(void)is_async(guest);}else if(!strcmp(argv[1],"check")){g_nr=1;g_r[0]=(Rng){guest,saved,dirty,NULL,PG};guest[0]=1;fast_check();}else {Ctx c={42};if(!strcmp(argv[1],"failed-save")){seed_capture();fiber_ok=1;memset(guest,0x35,2*PG);fast_save(&c);fiber_ok=0;memset(guest,0x72,2*PG);fast_save(&c);assert(!g_fast_saved_valid&&g_fbuf[0]==0x72);guest[0]=0x19;}fast_restore(&c);}puts("UNEXPECTED SUCCESS");return 0;}learning();asyncs();builds();growth();saves();reset();puts("capture_mode_resources_source_test: PASS");return 0;}

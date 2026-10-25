@@ -100,6 +100,14 @@ static long long g_pass_frames;
 /* run-ahead (round 5): SSBU_RUNAHEAD=1 (or graphics.ini `runahead = on`, gfx_options.c); default OFF.
  * R2 (r1_ring.c): SSBU_RB_SIM (the snapshot ring's rollback simulation) uses the same machinery; default OFF. */
 static int rgs_wanted(void); static void rgs_step(Ctx *c); static int rgs_poll(void); static void rgs_pad(uint64_t *b, int *lx, int *ly, int *rx, int *ry); static int rgs_skip_now(void); static void rgs_report(void); static void rgp_wait_note(uint64_t lr, double dt);
+/* Legacy checkpoints have no complete-or-refuse continuation transaction.
+ * Reject requests before hooks/capture; direct internal entry is fail-stop too.
+ * stderr is available even before g_log is initialized. Never return success. */
+static void legacy_restore_unsupported(void) {
+    fprintf(stderr, "r1: LEGACY RESTORE FATAL: full/fast/mark diagnostics and standalone run-ahead are unsupported; use the reviewed ring path\n");
+    fflush(stderr);
+    abort();
+}
 static int ra_wanted(void) {
     static int w = -1;
     if (w < 0) { const char *e = getenv("SSBU_RUNAHEAD"); int gfx_runahead(void); w = rgs_wanted() || (e ? (e[0] && e[0] != '0') : gfx_runahead()); }
@@ -110,6 +118,8 @@ int r1_on(void) {
         int rbn_init_only(void);
         if (rbn_init_only()) { g_on = 0; return 0; }
         const char *e = getenv("SSBU_R1");
+        if (!rgs_wanted() && ((e && e[0] && e[0] != '0') || ra_wanted()))
+            legacy_restore_unsupported();
         g_on = (e && e[0] && e[0] != '0') || ra_wanted();
         if (g_on) {
             if (e) sscanf(e, "%d,%d,%d,%d", &g_n, &g_k, &g_p, &g_c);
@@ -1147,52 +1157,8 @@ static void stop_born_threads(void) {      /* guest threads created in the windo
     g_born[o] = 0;
 }
 static void restore(Ctx *c) {
-    double tp0 = now_ms();
-    if (!getenv("SSBU_R1_KEEP_NEW_THREADS")) stop_born_threads();
-    park_quiet(1);
-    double t0 = now_ms();
-    g_ne = 0;
-    size_t pages = 0, ranges_hit = 0, ranges_hit_bytes = 0, skipped = 0;
-    for (int i = 0; i < g_nr; i++) {
-        Rng *r = &g_r[i];
-        MEMORY_BASIC_INFORMATION m;
-        if (!VirtualQuery(r->a, &m, sizeof m) || m.State != MEM_COMMIT || (uint8_t *)m.BaseAddress + m.RegionSize < r->a + r->n) { skipped++; if (!VirtualAlloc(r->a, r->n, MEM_COMMIT, PAGE_READWRITE)) continue; }   /* decommitted by the game in the window: committed again, its bytes come back below */
-        size_t hit = 0;
-        for (size_t p = 0; p < r->n / PG; p++) {
-            uint8_t *a = r->a + p * PG, *s = r->s + p * PG;
-            if (r->async && r->async[p]) continue;
-            if (memcmp(a, s, PG)) {
-                if (g_ne >= g_ecap) continue;          /* (65,536 pages = 256 MB: not reached) */
-                g_e[g_ne].a = a; memcpy(g_e[g_ne].d, a, PG); g_ne++;
-                memcpy(a, s, PG);
-                r->dirty[p] = 1; hit++;
-            }
-        }
-        pages += hit;
-        if (hit) { ranges_hit++; ranges_hit_bytes += r->n; }
-    }
-    restore_thread_regs();
-    fibers_restore();
-    double t1 = now_ms();
-    unpark();
-    *c = g_ctx_save;                                   /* the main thread's guest registers at the save point */
-    LOG("r1: holding the guest threads at their save-point waits took %.2f ms; %d of %d not at the same wait\n", t0 - tp0, g_th_mismatch, g_nth);
-    if (g_cycle == 0 || g_th_mismatch) park_report("at the restore");
-    LOG("r1: fibers at the restore: %d at their save-point state (registers restored), %d not, %d new\n", g_fib_same, g_fib_diff, g_fib_new);
-    (void)learn_merge();                              /* memory already restored: finish recorded-input replay; sticky failure refuses future captures */
-    LOG("r1: cycle %d RESTORE at fight frame %lld: %zu pages changed (%.1f MB) in %zu of %d ranges (those ranges %.1f MB); compare + copy back %.2f ms; %zu ranges partly decommitted in the window (committed again)\n",
-        g_cycle, g_ff, pages, pages * PG / 1048576.0, ranges_hit, g_nr, ranges_hit_bytes / 1048576.0, t1 - t0, skipped);
-    {   /* where the changed pages are: one line per contiguous group (first 40) */
-        int shown = 0;
-        for (size_t i = 0; i < g_ne && shown < 40; ) {
-            size_t j = i + 1;
-            while (j < g_ne && g_e[j].a == g_e[j - 1].a + PG) j++;
-            if (g_cycle == 0) LOG("r1:   changed %s: %zu pages\n", where(g_e[i].a), j - i);
-            shown++; i = j;
-        }
-    }
-    LOG("r1: learned set (union of changed pages, all cycles) %zu pages = %.1f MB: memcpy of it %.2f ms\n", g_learn_pages, g_learn_pages * PG / 1048576.0, learned_copy_ms(0));
-    os_compare("at the restore");
+    (void)c;
+    legacy_restore_unsupported();
 }
 static void verify(void) {
     double t0 = now_ms();
@@ -1318,25 +1284,8 @@ static void fast_save(Ctx *c) {
     if (!g_fcheck) LOG("r1: cycle %d SAVE at fight frame %lld (fast): %.3f ms (holding threads %.3f)\n", g_cycle, g_ff, t1 - t0, th - t0);
 }
 static void fast_restore(Ctx *c) {
-    if (!g_fast_saved_valid || g_capture_mode_failed || !g_fpages || !g_fbuf || g_nfp > g_fcap || g_fcap > SIZE_MAX / PG) {
-        LOG("r1: FAST RESTORE FATAL: no complete capture\n"); abort();
-    }
-    double t0 = now_ms();
-    park(1);
-    double th = now_ms();
-    for (size_t i = 0; i < g_nfp; i++) memcpy(g_fpages[i], g_fbuf + i * PG, PG);
-    if (g_catch_addr) memcpy((void *)(uintptr_t)g_catch_addr, g_catch_copy, sizeof g_catch_copy);
-    restore_thread_regs();
-    fibers_restore_all();
-    double tc = now_ms();
-    if (g_fcheck) fast_check();                        /* debug safety net, still holding the threads */
-    th += now_ms() - tc;                               /* (its time is not counted as restore time) */
-    t0 += now_ms() - tc;
-    unpark();
-    *c = g_fctx;
-    double t1 = now_ms();
-    if (g_nfr < 4096) { g_fr_ms[g_nfr] = t1 - t0; g_frh_ms[g_nfr] = th - t0; g_nfr++; }
-    LOG("r1: cycle %d RESTORE at fight frame %lld (fast): %.3f ms (holding threads %.3f; %d threads not at their save wait, %d fibers not restored)\n", g_cycle, g_ff, t1 - t0, th - t0, g_th_mismatch, g_fib_diff);
+    (void)c;
+    legacy_restore_unsupported();
 }
 
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
@@ -1938,23 +1887,8 @@ static void mark_check(void) {                         /* threads still held */
     LOG("r1: MARK check: %zu pages differed after the marked restore (unmarked writers); put back from the full snapshot\n", miss);
 }
 static void mark_restore(Ctx *c) {
-    double t0 = now_ms();
-    park(1);
-    if (g_prot > 0 && g_prot_on) { prot_all(0); if (g_cycle % 5 == 4) prot_report(); }
-    double t1 = now_ms();
-    size_t n = mark_sweep(1);
-    for (int i = 0; i < g_nx; i++) memcpy(g_x[i].a, g_x[i].b, g_x[i].n);
-    /* (the catch table is one of the extras) */
-    restore_thread_regs();
-    fibers_restore_all();
-    double t2 = now_ms();
-    if (g_mcheck) mark_check();
-    if (g_prot > 0) prot_all(1);                        /* debug: also the frames between this restore and the next save (a stale shadow page comes from there) */
-    unpark();
-    *c = g_mctx;
-    if (g_nmr < 4096) { g_ms_r[g_nmr] = t2 - t1; g_pg_r[g_nmr] = n; g_nmr++; }
-    LOG("r1: cycle %d RESTORE at fight frame %lld (marks): %zu pages, %.3f ms (+ %.3f ms holding the threads; %d threads not at their save wait, %d fibers not restored)\n",
-        g_cycle, g_ff, n, t2 - t1, t1 - t0, g_th_mismatch, g_fib_diff);
+    (void)c;
+    legacy_restore_unsupported();
 }
 /* ---------------------------------------------------------------- R1 round 4: who writes without marking (SSBU_R1_MARK_PROT=1, debug)
  * After a marked save every committed page of the windows is made read-only; the first write to a page faults here:
@@ -2389,35 +2323,8 @@ static int ra_save(Ctx *c) {
     return 1;
 }
 static void ra_restore(Ctx *c) {
-    double t0 = now_ms();
-    stop_born_threads();
-    if (g_nborn) LOG("r1: RA: %d guest threads created in a speculative pass, held for good:%s\n", g_nborn, g_born);
-    for (double tq = now_ms();;) {                       /* the same quiet moment as at the save (the speculative pass's jobs finished) */
-        ra_hold_restore();
-        if(g_th_hold_failed) r1_hold_fatal("run-ahead restore SuspendThread failed");
-        if (ra_fibers_quiet() || now_ms() - tq > 200) { if (g_ra_busy_fibers) LOG("r1: RA restore: %d fibers still busy after 200 ms\n", g_ra_busy_fibers); break; }
-        for (int i = 0; i < g_nth; i++) if (g_th[i].held && !ra_audio(g_th[i].name)) { r1_resume_owned(g_th[i].h); g_th[i].held = 0; }
-        g_ra_fiber_waits++;
-        SwitchToThread();
-    }
-    double t1 = now_ms();
-    cp_init(); g_cp_defer = 1;
-    size_t n = mark_sweep(1);
-    g_cp_defer = 0;
-    double t2 = now_ms();
-    for (int i = 0; i < g_nx; i++) cp_add_range(g_x[i].a, g_x[i].b, g_x[i].n);
-    cp_run();
-    double t3 = now_ms();
-    restore_thread_regs();
-    fibers_restore_all();
-    double t4 = now_ms();
-    nvn_r1_cb_restore();
-    double t5 = now_ms();
-    unpark();
-    g_ra_comp[1][0] += t2 - t1; g_ra_comp[1][1] += t3 - t2; g_ra_comp[1][2] += t4 - t3; g_ra_comp[1][3] += t5 - t4; g_ra_comp[1][4] += now_ms() - t5; g_ra_ncomp[1]++;
-    *c = g_mctx;
-    if (g_th_mismatch || g_fib_diff) LOG("r1: RA restore at fight frame %lld: %d threads not at their save wait, %d fibers not restored\n", g_ff, g_th_mismatch, g_fib_diff);
-    if (g_ra_nr < 16384) { g_ra_r[g_ra_nr] = now_ms() - t0; g_ra_rh[g_ra_nr] = t1 - t0; g_ra_rp[g_ra_nr] = n; g_ra_nr++; }
+    (void)c;
+    legacy_restore_unsupported();
 }
 /* Round 6, SSBU_RUNAHEAD_MODE=submit (experiment, needs a check of the pictures): no speculative pass at all. At the save point
  * the game's submission step (FUN 0x71037f0590: ends the render buffers recorded in the last real pass, records its own, submits
@@ -2450,41 +2357,7 @@ static void ra_step(Ctx *c) {
     g_ra_kicks++;
     if (g_ra_fe_kind) { int k = g_ra_fe_kind - 1; g_rap[k][3] += t - g_ra_fe_end; g_rapn[k]++; g_ra_fe_kind = 0; }
     if (rgs_wanted()) { rgs_step(c); return; }            /* R2: the snapshot ring's rollback simulation instead of run-ahead */
-    if (g_ra_phase == 1) {                               /* end of the speculative pass: its picture is presented; back to the save point */
-        g_ra_spec_sum += t - g_ra_t_mark; g_ra_nspec++;
-        ra_restore(c);
-        g_ra_phase = 2; g_ra_t_mark = now_ms();
-        return;
-    }
-    int was_quiet = g_ra_phase == 2;
-    if (was_quiet) { g_ra_real_sum += t - g_ra_t_mark; g_ra_nreal++; }
-    g_ra_phase = 0;
-    int ok = 0;
-    if (!g_ra_ready && (g_ra_kicks == 1 || g_ra_kicks % 300 == 0)) LOG("r1: RA: save point reached %lld times, fight frame %lld, ready-go %d\n", g_ra_kicks, g_ff, ra_fight_on());
-    if (!g_ra_off && ra_fight_on()) {
-        if (!g_ra_ready) {                               /* the first time: a full save, the shadow and the marks (one hitch) */
-            double t0 = now_ms();
-            g_save_failed = 0; g_ra_wd_pause = 1; g_rs_drop = 1;
-            save(c); release(); g_rs_drop = 0;
-            g_ra_wd_pause = 0;
-            if (g_save_failed >= 2) { g_ra_off = 1; LOG("r1: RA: first save not made (%s): run-ahead OFF\n", g_save_failed == 5 ? "incomplete range inventory" : g_save_failed == 4 ? "command-buffer staging failed" : g_save_failed == 3 ? "incomplete native continuation" : "out of memory"); return; }
-            if (g_save_failed) return;
-            g_ra_ready = 1; g_cycle = 1; ok = 1;
-            LOG("r1: RA: first save (full, shadow filled, marks on) at fight frame %lld in %.1f ms\n", g_ff, now_ms() - t0);
-            if (g_mark <= 0) { g_ra_off = 1; ok = 0; LOG("r1: RA: no marks (the game DLL with marks is not loaded): run-ahead OFF\n"); }
-        } else ok = ra_save(c);
-        if (!ok && g_ra_ready && !g_ra_off) { g_ra_skips++; if (g_ra_skips <= 20 || g_ra_skips % 100 == 0) LOG("r1: RA: save %lld skipped at fight frame %lld: thread %s not at a wait within %.1f ms\n", g_ra_skips, g_ff, g_ra_busy ? g_ra_busy : "?", g_ra_park_ms); }
-    }
-    if (!ok) { if (was_quiet) g_ra_after_quiet = 1; g_ra_t_mark = now_ms(); return; }
-    g_ra_specs++;
-    g_ra_phase = 1; g_ra_t_mark = now_ms();
-    if (g_ra_submit_mode && g_sub_ok) {                  /* submit mode: the submission step now, then back to the save point at once */
-        double ts = now_ms();
-        ra_direct_submit(c);
-        g_ra_spec_sum += now_ms() - ts; g_ra_nspec++;
-        ra_restore(c);
-        g_ra_phase = 2; g_ra_t_mark = now_ms();
-    }
+    legacy_restore_unsupported();
 }
 static ImportFn g_orig_kick2;
 static void ra_kick(Ctx *c, void *user) {            /* hook on FUN 0x710354c720 (wait on a job counter): a point at its RETURN */
@@ -2774,6 +2647,7 @@ static void pad_history_complete(void) {
     }
 }
 static void r1_frame_end(Ctx *c, void *user) {
+    if (g_ra <= 0) legacy_restore_unsupported();
     (void)user;
     uint64_t lr = c->x[30];
     double te = now_ms();

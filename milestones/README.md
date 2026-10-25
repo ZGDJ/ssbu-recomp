@@ -24,10 +24,10 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 source resource acceptance is complete; M7.1 now owns the next restoration correction. M3.5 is parked with a trustworthy reference comparator; its deferred repeat is not a prerequisite. New-candidate restore controls remain unrun until continuation safety and resource admission are ready. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8 and M7.1 bounded source acceptance are complete; M7.3 owns the next correction/finalization fix. M3.5 is parked with a trustworthy reference comparator; its deferred repeat is not a prerequisite. New-candidate restore controls remain unrun; retain correction/terminal safety gates and fresh resource admission. Independent investigation may proceed with disjoint ownership and coordinated game trials.
 2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Early M6.1 fixture work may proceed in disjoint scope. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
-4. Reuse M7.8's completed source resource acceptance; continue M7.1/M7.3/M7.2 and the pending new-binary capture/restore controls. Keep the 176-to-177 initial-base issue in M7.1 and protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
+4. Reuse M7.8/M7.1 completed source acceptance; continue M7.3/M7.2 and the pending new-binary capture/restore controls. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Do not weaken or mark these gates done to accelerate the plan.
 5. Drive M2/M3 controlled stepping, authoritative coverage and repeatable forward replay into M4 depth 1/2/4/8 correction and terminal reversal. Research failures early under bounded tasks; capability completion still requires its declared dependencies. M7.6 supplies trustworthy diagnostic bookkeeping, not complete-state proof by itself.
 6. Complete M7.4-M7.7 and M5.4/M5.5 as the minimum safe private-session work before M5 two-PC qualification. Select concrete failures/next gate, not every source-ready networking task. Lobby/spectator implementation waits for existing M5.6 dependencies; their later four-member product requirements remain intact.
 
@@ -603,14 +603,14 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenarios. Implementation acceptance here is source-level only. M1-M6 remain mandatory game-backed qualification.
 
 ### M7.1 - Complete-or-refuse native restoration
-- Status: in_progress
+- Status: done
 - Depends: M7.8, M7.10
 - Size: 5
 - Requirement: FSD-002, FSD-005
-- Evidence: evidence/2026-10-24-continuation-preflight.md
+- Evidence: evidence/2026-10-25-legacy-restore-disposition.md
 - Acceptance: Preflight all required threads/fibers before memory/history mutation. Busy/live/missing continuation injections refuse before mutation with state/history unchanged; unexpected post-mutation failure irrecoverably terminates the session and never resumes or reports success. Independent review required.
-- Owner: root continuation integration, 2026-10-24T02:08:13.369008+00:00
-- Next: Ring continuation identity/wait preflight and fail-stop commit pass exact full-caller O1/O3 injections, both reviews and new clean package build; own disabled control refused before native launch (3.49/3.50 GiB available commit < 10 GiB). Resolve supported legacy full/fast/mark/run-ahead restore disposition before M7.1 closure. Preserve initial-base publication fix, excluded-writer limits and pending new-binary replay/refusal matrix.
+- Owner: root Astra legacy disposition integration, 2026-10-25T04:46:09.435459+00:00
+- Next: Source acceptance complete: reviewed ring preflight/fail-stop plus explicit legacy full/fast/mark/run-ahead refusal before capture/speculation. Both complementary reviews and corrected exact-body O1/O3 fixtures pass. Fresh runtime build/audit passes; its disabled control refused before launch (7.85/7.84 GiB commit and 9,958/9,960 MiB physical below unchanged reserves). Proceed to M7.3 correction refusal/finalization, then M7.2 terminal lifetime. Native scheduling, allocator locks, excluded-writer quiescence and required new-binary replay/refusal controls remain game-backed obligations; no gameplay qualification.
 - Blocker: none
 
 ### M7.2 - Confirmation-safe terminal lifecycle
