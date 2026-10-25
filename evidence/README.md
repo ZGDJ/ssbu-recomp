@@ -127,3 +127,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 ## 2026-10-25
 
 - [Legacy restore disposition](2026-10-25-legacy-restore-disposition.md): explicit pre-speculation refusal for unsupported diagnostics/run-ahead; preserves reviewed ring dispatch.
+
+- [Correction failure](2026-10-25-correction-failure.md): bounded fail-stop for missing/refused corrections before forward progress or finalization.

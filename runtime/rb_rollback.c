@@ -78,9 +78,9 @@ static double g_rbg_t_pre, g_rbg_t_load, g_rbg_t_rerun, g_rbg_t_recap, g_rbg_t_p
 /* (hs14) every capture of the match tells the ring the oldest frame a rollback may still need (r1_ring.c g_rg_need): the
  * newest frame with both players' pads known (a wrong guess can only be at a later frame, and loads the state before it) */
 static long long g_rbg_short_waits;
-/* (R3 pub1) a load refused at a wrong guess at frame g_rbg_pend (r1_ring_load -1): the state before it must stay in the ring
- * until the rollback is made next tick; g_rbg_refused_tick: no second try in the same tick (each try may hold for 500 ms) */
-static int g_rbg_pend, g_rbg_refused_tick;
+/* Earliest correction owned by this coordinator. It is cleared only after a
+ * successful load; any unavailable/refused load terminates this session. */
+static int g_rbg_pend;
 void rbn_put_mismatch(int m);
 static int rbg_capture(long long i, Ctx *c) { g_rg_need = rbn_confirmed(); if (g_rbg_pend > 0 && g_rbg_pend - 1 < g_rg_need) g_rg_need = g_rbg_pend - 1; return r1_ring_capture(i, c); }
 void rbn_stats(int *delay, int *last, int *maxk) { *delay = rbn_delay(); *last = (int)g_rbg_last_k; *maxk = (int)g_rbg_max_k; }   /* net_relay.c net_stats_get (F2) */
@@ -98,20 +98,29 @@ static void rbg_wait_until(double t) {                  /* a high-resolution tim
     static const RbPaceOps ops = { rbg_pace_now, rbg_pace_timer, rbg_pace_sleep, rbg_pace_spin };
     rb_pace_wait_until(t, g_rbg_timer != NULL, &ops, NULL);
 }
+/* No proven recovery exists for missing or refused corrections. Do not release
+ * holds, capture another frame, resume forward play or finalize incorrect state. */
+static int rbg_correction_pending(int m) {
+    if (m > 0 && (!g_rbg_pend || m < g_rbg_pend)) g_rbg_pend = m;
+    return g_rbg_pend;
+}
+static void rbg_correction_fatal(long long i, int m, const char *reason) {
+    rbg_correction_pending(m);
+    LOG("r1: CORRECTION FATAL: frame %lld, mismatch %d, pending %d: %s; no resume or finalization\n",
+        i, m, g_rbg_pend, reason);
+    abort();
+}
 static int rbg_rollback(Ctx *c, long long i, int m) {
+    if (m <= 0 || m > i) rbg_correction_fatal(i, m, "invalid correction frame");
+    m = rbg_correction_pending(m);
     long long target = m - 1, best = -1;
     for (int s = 0; s < g_rg_count; s++) { long long f = rg_slot(s)->frame; if (f <= target && f > best) best = f; }
-    if (best < 0) {
-        g_rbg_miss++; g_rbg_pend = 0;
-        if (g_rbg_miss <= 10) LOG("r1: RB NET: wrong guess at frame %lld but no state at or before frame %lld in the ring (oldest %lld): NOT rolled back (desync)\n", (long long)m, target, r1_ring_oldest());
-        return 0;
-    }
+    if (best < 0) { g_rbg_miss++; rbg_correction_fatal(i, m, "no retained snapshot"); }
+    if (i - best > INT_MAX) rbg_correction_fatal(i, m, "replay depth out of range");
     double t0 = now_ms();
     if (!g_ra_wh_on) { g_rbg_rb_unheld++; if (g_rbg_rb_unheld <= 10) LOG("r1: RB NET: rollback at frame %lld while the task workers are NOT held (watchdog releases so far %lld): the load may leave the job system waiting\n", i, g_ra_wd_fired); }
-    if (g_rbg_refused_tick) { rbn_put_mismatch(m); return 0; }      /* (R3 pub1) refused once this tick: next tick */
     int lr = r1_ring_load(best, c);
-    if (lr < 0) { g_rbg_refused_tick = 1; g_rbg_pend = m; rbn_put_mismatch(m); return 0; }      /* (R3 pub1) refused (a thread running): the wrong guess stays pending */
-    if (!lr) { g_rbg_miss++; return 0; }
+    if (lr <= 0) rbg_correction_fatal(i, m, lr < 0 ? "restore refused" : "snapshot unavailable");
     g_rbg_pend = 0;
     g_rbg_load_ms += now_ms() - t0; g_rbg_t_load += now_ms() - t0; g_rbg_recap_first = -1; g_rbg_t_pass0 = now_ms();
     int k = (int)(i - best);
@@ -132,7 +141,6 @@ static int rbg_sched(long long i, int m) {
 /* at the safe point (H2) of every pass while the fight runs (r1_ring.c rgs_step) */
 static void rbg_step_body(Ctx *c) {
     long long i = g_rgs_next;
-    g_rbg_refused_tick = 0;
     if (g_rbg_wdfix < 0) { const char *e = getenv("SSBU_RB_NET_WDFIX"); g_rbg_wdfix = !e || atoi(e) != 0; e = getenv("SSBU_RB_NET_DETAIL"); g_rbg_detail = e && atoi(e) > 0;
         e = getenv("SSBU_RB_NET_RECAP"); g_rbg_recap = e ? atoi(e) : 5; e = getenv("SSBU_RB_NET_KEEP"); g_rbg_keep = e ? atoi(e) : 2; }
     if (g_rbg_wdfix) g_ra_wd_pause = 1;                 /* (until H2 lets the workers go: r1_state.c ra_kick2) */
@@ -219,12 +227,13 @@ static void rbg_step_body(Ctx *c) {
         g_rgs_next = i + 1; g_rbg_real++;
         rbn_drain(i);
         int m = rbn_take_mismatch();
-        if (m > 0 && m <= i) { g_rbg_miss++; if (g_rbg_miss <= 10) LOG("r1: RB NET: wrong guess at frame %d WITHOUT the ring (frame %lld): cannot be rolled back (desync)\n", m, i); }
+        if (m > 0 && m <= i) rbg_correction_fatal(i, m, "correction without snapshot ring");
     } else {                                            /* a real pass ended */
         g_rgs_next = i + 1; g_rbg_real++;
         rbn_drain(i);
         int m = rbg_sched(i, rbn_take_mismatch());
         if (m > 0 && m <= i) {
+            m = rbg_correction_pending(m);
             /* captured anyway, with the threads kept held for the load that follows (R2 round 2: load hold 3.5 -> 0.2 ms);
              * SSBU_RB_NET_KEEP=0: no capture, the load holds the threads itself */
             double tp = now_ms();
@@ -269,7 +278,7 @@ static void rbg_step_body(Ctx *c) {
     for (;;) {
         rbn_drain(i);
         int m = rbn_take_mismatch();
-        if (m > 0 && m <= i) { if (g_rbg_noring) { g_rbg_miss++; if (g_rbg_miss <= 10) LOG("r1: RB NET: wrong guess at frame %d WITHOUT the ring: cannot be rolled back (desync)\n", m); }
+        if (m > 0 && m <= i) { if (g_rbg_noring) rbg_correction_fatal(i, m, "correction without snapshot ring");
                                else { if (stalled) { g_rbg_stall_ms += now_ms() - ts; } if (rbg_rollback(c, i, m)) return; } }
         /* (hs14) the ring short of pool memory (its last capture given up): no frame on a guess until a capture succeeds */
         if (g_rgs_next - rbn_confirmed() <= (g_rbg_noring || g_rg_short ? 0 : rbn_ahead())) break;
@@ -286,7 +295,7 @@ static void rbg_step_body(Ctx *c) {
     }
     if (stalled) g_rbg_stall_ms += now_ms() - ts;
     r1_ring_let_go();
-    rbn_finalize(g_rbg_pend > 0 && g_rbg_pend - 1 < i ? g_rbg_pend - 1 : i);      /* (R3 pub1) a refused load: its frames are not final yet */
+    rbn_finalize(g_rbg_pend > 0 && g_rbg_pend - 1 < i ? g_rbg_pend - 1 : i);      /* Pending corrections never authorize finalization beyond their boundary. */
     if (g_rbg_pace) {
         double period = 1000.0 / 60.0 + rbn_pace_extra(g_rgs_next), now = now_ms();
         if (g_rbg_next <= 0 || now - g_rbg_next > 3 * period) g_rbg_next = now;      /* (far behind: no catching up in a burst) */

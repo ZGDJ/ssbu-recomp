@@ -40,7 +40,7 @@ class NetworkInitializationTests(unittest.TestCase):
         sources[3] = sources[3][sources[3].index('#else\n#include <stdio.h>'):]
         bodies = '\n'.join(function(sources[0], n) for n in ('rbn_init_only_fatal', 'rbn_init_only', 'rbn_init_only_begin_setup', 'rbn_init_only_agreement'))
         bodies += '\n' + function(sources[1], 'rbg_on') + '\n' + function(sources[2], 'rgs_wanted')
-        bodies += '\n' + function(sources[3], 'ra_wanted') + '\n' + function(sources[3], 'r1_on')
+        bodies += '\n' + function(sources[3], 'legacy_restore_unsupported') + '\n' + function(sources[3], 'ra_wanted') + '\n' + function(sources[3], 'r1_on')
         fixture = r'''
 #include <stdio.h>
 #include <stdlib.h>
