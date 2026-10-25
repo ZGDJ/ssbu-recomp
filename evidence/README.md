@@ -130,3 +130,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 
 - [Correction failure](2026-10-25-correction-failure.md): bounded fail-stop for missing/refused corrections before forward progress or finalization.
 - [Terminal lifetime](2026-10-25-terminal-lifetime.md): corrected confirmation before coordinator cleanup, with reversal, duplicate-commit and resource/history ownership injections. Frozen binary disabled control passes comparable original-reference 500R/0S; native restore controls remain pending.
+
+- [First default ring-replay admission](2026-10-25-default-replay.md): separately reviewed tooling toward M4.1 on the unchanged terminal package; default trial refused before launch on 9.68/9.78 GiB commit, post-identity unchanged.

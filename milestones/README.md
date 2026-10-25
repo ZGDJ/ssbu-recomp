@@ -357,10 +357,10 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M3.2, M3.3, M6.1, M7.3
 - Size: 8
 - Requirement: FSD-005
-- Evidence: none
+- Evidence: evidence/2026-10-25-default-replay.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
 - Owner: unassigned
-- Next: Split actual capture/restore, lifecycle and replay tests; retain depth-eight FSD requirement despite inherited seven-frame constant.
+- Next: Bounded default-replay packet complete: exact adapter accepted by both complementary R2 reviewers; 76 affected tests pass. Unchanged terminal package default attempt refused before native launch at 9.68/9.78 GiB available commit (<10 GiB); physical/process checks and full post-attempt identity pass. No replay control passed. Resolve host headroom, then a fresh separately labeled trial requires comparable original fixture, 500 real frames and exactly two depth-one replay runs. Remaining integrated controls and broader FSD fixtures/depths/dependencies remain mandatory.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects
@@ -621,7 +621,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: evidence/2026-10-25-terminal-lifetime.md
 - Acceptance: Production lifecycle policy retains snapshots/resources for speculative terminal ticks, commits once only after corrected confirmation, and handles disconnect/rematch explicitly. Synthetic reversal/duplicate-commit regressions pass; real KO/timeout proof remains M4.5/M5.2.
 - Owner: root Astra terminal integration, 2026-10-25T16:00:00Z
-- Next: Bounded source acceptance: terminal H2 drains corrections before confirmation, preserves learned/ring/session ownership on reversal, fails closed on interrupted/unrecoverable terminal sessions and commits cleanup once. Exact caller O1/O3 regressions and both independent reviews pass. Fresh build/audit passes; own disabled control refused before launch (9.42/9.38 GiB available commit < 10 GiB; physical 14,118/14,103 MiB passes). User-authorized same-package retry also refused: commit 9.25/9.23 GiB < 10 GiB, physical 13,685 MiB passes; no native launch. Third disabled attempt passes after authorized Discord shutdown: unchanged reserves, commit 10.42/10.45 GiB, physical 14,282/14,308 MiB; original-reference 500R/0S, comparable menu/RNG fixture and full post-run identity pass. Default replay requires a separately reviewed admission adapter; the current wrapper accepts only no-capture trials. Proceed toward M4.1 with fresh admission and required new-binary controls. Guest irreversible effects before H2, native lifetime/restoration and actual KO/timeout reversal remain M4.5/M5.2 proof obligations.
+- Next: Bounded source acceptance: terminal H2 drains corrections before confirmation, preserves learned/ring/session ownership on reversal, fails closed on interrupted/unrecoverable terminal sessions and commits cleanup once. Exact caller O1/O3 regressions and both independent reviews pass. Fresh build/audit passes; own disabled control refused before launch (9.42/9.38 GiB available commit < 10 GiB; physical 14,118/14,103 MiB passes). User-authorized same-package retry also refused: commit 9.25/9.23 GiB < 10 GiB, physical 13,685 MiB passes; no native launch. Third disabled attempt passes after authorized Discord shutdown: unchanged reserves, commit 10.42/10.45 GiB, physical 14,282/14,308 MiB; original-reference 500R/0S, comparable menu/RNG fixture and full post-run identity pass. Default replay adapter is now independently accepted; its first trial refused on 9.68/9.78 GiB available commit before native launch (see M4.1 evidence). Proceed toward M4.1 with fresh admission and required new-binary controls. Guest irreversible effects before H2, native lifetime/restoration and actual KO/timeout reversal remain M4.5/M5.2 proof obligations.
 - Blocker: none
 
 ### M7.3 - Preserve or abort unrecoverable corrections
