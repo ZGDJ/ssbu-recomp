@@ -27,3 +27,13 @@ The accepted settings remain SIM=120,1,60; LS=1; verify=2; skip/lite=0; restore-
 This packet adds reviewed launch preparation and capacity evidence, not a native replay pass. The unchanged terminal package's disabled control remains 500R/0S. M7 source acceptance stays distinct from complete-state/gameplay qualification. The battle path remains commit readiness -> default replay -> integrated restoration/refusal controls -> broader correction/depth and terminal coverage; formal M4.1 dependencies and wider fixtures remain mandatory.
 
 Retrospective: checking elevation before a system mutation avoided a partial configuration change; recording OS consent failure separately prevents confusing user authorization with an applied setting. No additional tooling is needed before the prepared experiment.
+
+## Continuation readiness, 19:14 UTC
+
+Astra integrator resumed from clean HEAD `873202e2dccb8fbe4458fef83a8c011a46b7212d`, verified against the live origin branch. The unchanged freeze, planned command and both accepted review dispositions were inspected; all 35 raw and 296 normalized runtime hashes still match. Accepted reviews remain applicable; no launcher, adapter, fixture, runtime or acceptance-method changes were made.
+
+The read-only 2026-10-25T19:14:08Z sample found **4.2389 GiB available commit (4,551,495,680 bytes) and 8,900 MiB physical**, below both required reserves. No game/build processes were present. Pagefile readback still shows automatic management enabled, 7,956 MiB allocated and no explicit settings. Raw observations are retained as `continuation-readiness.json`, `continuation-runtime-check.json` and `continuation-pagefile.json` in the existing packet.
+
+This is a readiness-only stop, not another native admission refusal or battle result. `default-attempt2/` remains absent. The user is away and cannot approve Windows prompts: do not reopen UAC until they are available. Authorization for 16 GiB initial / 32 GiB maximum persists; leave any restart to the user. No system mutation, application closure, restart or native launch was attempted. After capacity becomes available, execute the already accepted attempt with its own two fresh post-identity samples and all separate gates. Native replay remains untested on this package; formal M4.1 is unchanged.
+
+Validation: frozen identity recheck and project-documentation validator; unchanged adapter/runtime tests and independent reviews are reused. Retrospective: no additional tooling is needed; host capacity and user availability for OS consent remain the next prerequisite.

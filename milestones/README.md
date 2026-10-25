@@ -360,7 +360,7 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Evidence: evidence/2026-10-25-default-replay.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
 - Owner: unassigned
-- Next: Prepared default-attempt2 accepted by both complementary Astra reviews; unchanged runtime/adapter/reference and separate menu/post-identity gates retained. Readiness-only sample fails at 4.31 GiB commit and 10,072 MiB physical; no native launch. User authorized 16/32 GiB pagefile settings, but Windows elevation was canceled; automatic management remains enabled. Apply authorized capacity change with OS consent, then fresh post-identity admission and original-fixture 500R/two depth-one runs. See evidence/2026-10-25-replay-readiness.md. Formal dependencies, integrated controls and broader fixtures remain mandatory.
+- Next: Prepared default-attempt2 remains accepted by both complementary Astra reviews; unchanged freeze verified by Astra integrator at 2026-10-25T19:14Z from 873202e. Latest readiness-only sample fails at 4.2389 GiB available commit / 8,900 MiB physical; no native launch. Automatic pagefile management remains enabled, 7,956 MiB allocated. User is away: wait for availability before reopening UAC for authorized 16/32 GiB settings; leave restart to user. Then inspect active capacity and execute fresh post-identity admission with original-fixture 500R/two depth-one runs and separate menu/post-run identity gates. See evidence/2026-10-25-replay-readiness.md. Formal dependencies, integrated controls and broader fixtures remain mandatory.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects

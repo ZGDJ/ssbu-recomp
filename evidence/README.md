@@ -133,4 +133,4 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 
 - [First default ring-replay admission](2026-10-25-default-replay.md): separately reviewed tooling toward M4.1 on the unchanged terminal package; default trial refused before launch on 9.68/9.78 GiB commit, post-identity unchanged.
 
-- [Default replay readiness](2026-10-25-replay-readiness.md): accepted second-attempt plan; capacity fails and authorized pagefile change awaits Windows administrator consent.
+- [Default replay readiness](2026-10-25-replay-readiness.md): accepted second-attempt plan; 19:14 UTC capacity recheck fails both reserves; authorized pagefile change waits for user availability and Windows consent.
