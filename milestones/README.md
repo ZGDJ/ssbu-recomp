@@ -632,7 +632,7 @@ See [audit](../docs/ROLLBACK_AUDIT.md) for baseline locations and failure scenar
 - Evidence: evidence/2026-10-25-correction-failure.md
 - Acceptance: Missing oldest snapshot, zero load result and repeated refusal never drop pending correction into finalization. Production policy yields bounded diagnostic failure or proven recovery; source regressions assert horizons and unchanged state.
 - Owner: root Astra correction integration, 2026-10-25T11:41:55.830261+00:00
-- Next: Source complete: earliest pending retained before KEEP=1 capture; missing/zero/negative correction load and no-ring mismatch terminate before coordinator forward progress/finalization. Exact caller/finalizer O1/O3 injections, pre-fix/weak variants and both complementary review rounds pass. Fresh build/audit passes; own disabled control refused before launch (2.97/2.52 GiB commit; 5,774/5,425 MiB physical). Proceed to M7.2 terminal lifetime; native restore/refusal controls and gameplay remain unqualified.
+- Next: Source complete: earliest pending retained before KEEP=1 capture; missing/zero/negative correction load and no-ring mismatch terminate before coordinator forward progress/finalization. Exact caller/finalizer O1/O3 injections, pre-fix/weak variants and both complementary review rounds pass. Fresh build/audit passes; own disabled control refused before launch (2.97/2.52 GiB commit; 5,774/5,425 MiB physical). User-authorized same-package retry also refused: physical memory passes at 13,273/13,292 MiB, but commit remains 8.05/8.13 GiB below 10 GiB; identity unchanged, no game launched. Proceed to M7.2 terminal lifetime; native restore/refusal controls and gameplay remain unqualified.
 - Blocker: none
 
 ### M7.4 - Full match epochs and bounded input history
