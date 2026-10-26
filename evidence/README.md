@@ -144,3 +144,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Current-package restore localization](2026-10-26-restore-localization.md): sampled post-copy/continuation equality with later raw divergence; H1 watchdog transition leaves quiescence and writer attribution unresolved.
 
 - [First replay clock attribution](2026-10-26-replay-clock.md): reviewed new candidate passes disabled/enabled controls; targeted GetSystemTick returns match one covered field's divergent endpoints. Broader divergence and gameplay significance remain open.
+
+- [Replay consumers and queue capacity](2026-10-26-replay-consumers.md): effective SDK conversion leaves clock-derived scratch registers despite a discarded nominal result; retained queue counters conditionally change enqueue acceptance. No native rejection or gameplay qualification claimed.

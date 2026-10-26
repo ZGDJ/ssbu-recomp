@@ -21,6 +21,8 @@ No private game build, two-machine test or roster qualification was performed. T
 
 ## Current native evidence (2026-10-26)
 
+The subsequent [consumer investigation](../evidence/2026-10-26-replay-consumers.md) changes the next-proof choice without a runtime change or new native trial. The nominal clock conversion result is overwritten, but the effective lifted SDK leaves delta-derived guest scratch registers; the initial handwritten-handler equality inference is invalid for production. Exact-source O1/O3 interventions reproduce that distinction and a conditional next-enqueue accept/full consequence from the older restore-observer counters. Next use generation-aware queue accounting through unpark/recapture with actual callback identity. No full clock noninterference, native queue rejection, gameplay correction or page exclusion is established.
+
 The [clock attribution packet](../evidence/2026-10-26-replay-clock.md) resolves address coverage and narrows one first-replay divergence to fresh host-clock sampling: targeted original/replay GetSystemTick returns exactly match the respective main+593b470 endpoint qwords. The new reviewed candidate passes disabled 500R/0S and enabled 500R/two depth-one runs with fatal/original-reference fighter, fixture and full identity gates. Raw divergence remains; batch stopped. Equal selected restore pages and H1 generation transitions do not prove quiescence. Next trace this field's consumers and state ownership before proposing clock semantics or another native experiment. Formal M4.1 and integrated controls remain open; dated findings below retain their historical scope.
 
 ## Post-setup re-audit (2026-10-21)

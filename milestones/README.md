@@ -24,7 +24,7 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. The first default and restore-observer trials passed bounded fighter/reference gates but retained raw divergence. The reviewed clock experiment now attributes one covered word to fresh host-clock sampling (evidence/2026-10-26-replay-clock.md). Next trace that field's consumers and ownership before choosing the smallest justified native proof with required new-binary controls, comparable original fixture identity and fresh resource admission. M3.5 supplies a trustworthy reference comparator; its deferred repeat is not a prerequisite. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. Native default/observer trials passed bounded fighter/reference gates but retained raw divergence. M1.10's consumer experiments expose effective-SDK clock residuals despite a discarded nominal return, and a conditional queue accept/full consequence from retained older counters (evidence/2026-10-26-replay-consumers.md). Next target first-interval queue submissions, committed enqueue/dequeue and rejection accounting through unpark and recapture, including actual callback identity; do not replace clocks or exclude pages. Any changed runtime needs new-binary controls, original comparable fixture/reference and fresh resource admission. M3.5's deferred repeat is not a prerequisite. Independent investigation may proceed with disjoint ownership and coordinated game trials.
 2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Use the completed M6.1 fixture selections for subsequent gameplay coverage. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 4. Reuse M7.8/M7.1/M7.3/M7.2 completed source acceptance; resume pending integrated capture/restore controls after the current divergence investigation permits them and fresh admission passes. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Source acceptance does not qualify native restoration or terminal gameplay.
@@ -255,6 +255,17 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Acceptance: Run an opt-in bounded writer probe after the restore checkpoint, retain an uninstrumented control, report exact observed writers and incomplete coverage. Neither harmlessness nor safe state exclusion may be inferred from writer identity alone. Negative results complete only this investigation.
 - Owner: root, 2026-10-21 UTC
 - Next: Preserve the eight observed post-restore writes and native-helper attribution limits. Use these findings for M3.1 writer coverage, retaining disabled controls and avoiding unsupported state exclusions; follow the proof-first queue.
+- Blocker: none
+
+### M1.10 - Resolve replay clock consumers and causal boundary
+- Status: done
+- Depends: M1.9, M7.9
+- Size: 3
+- Requirement: FSD-004, FSD-005, FSD-012
+- Evidence: evidence/2026-10-26-replay-consumers.md
+- Acceptance: Trace the attributed clock field through current production consumers and ownership; select and execute the smallest justified causal experiment or validate a concrete correction. Retain independent complementary reviews, identity and mandatory trial gates; report unresolved aliases and gameplay limits without closing M4.1.
+- Owner: Astra integrator with complementary GPT-6.1-Sol/max investigators, 2026-10-26T16:00:09Z
+- Next: Both complementary reviews accept corrected effective-SDK clock and retained-counter O1/O3 experiments with negative variants; initial handwritten-converter equality is rejected as production evidence. Target accepted enqueues, completed callbacks and full-queue rejections with generation-aware unpark/recapture coverage and actual callback identity. No runtime change, new native trial, observed native rejection or gameplay qualification; M4.1 and integrated controls remain open.
 - Blocker: none
 
 ## M2 - Controlled simulation
