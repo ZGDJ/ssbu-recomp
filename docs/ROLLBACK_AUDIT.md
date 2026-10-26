@@ -19,6 +19,10 @@ Event/queue handling is not a complete process snapshot. Private Windows fiber-l
 
 No private game build, two-machine test or roster qualification was performed. The localhost lobby suite passed outside the sandbox. The C toy rollback test was not run because no suitable C compiler was found. Upstream performance/match claims remain unverified here.
 
+## Current native evidence (2026-10-26)
+
+The [first default replay](../evidence/2026-10-26-first-native-replay.md) and subsequent [restore observer trial](../evidence/2026-10-26-restore-localization.md) each completed sealed 500 real frames and two depth-one replays on the unchanged terminal package, passing fatal/original-reference fighter, fixture and full identity gates. Both still show raw page divergence. The observer measured equal selected readable pages after copy and continuation restoration, with decommitted exclusions and H1 watchdog generation changes. Separate ring suspensions mean those counter changes do not establish worker execution or causality. Next trace hold ownership and correlate differing addresses with observed coverage before selecting further instrumentation. Formal M4.1 and integrated controls remain open; the dated findings below retain their historical scope.
+
 ## Post-setup re-audit (2026-10-21)
 
 Local 13.0.5 setup does not invalidate ADR-0007. The owner later clarified that the downloaded completion save had not yet been applied; the original navigation probe used generated startup save data. Retain the existing backend provisionally: address translation covers worker kicks, the safe-point return and frame-end hooks (`runtime/hostrt.c`), but successful normal play does not establish checkpoint completeness or semantic hook uniqueness.
