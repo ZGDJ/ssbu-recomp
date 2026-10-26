@@ -157,7 +157,19 @@ int main(int argc,char **argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     _set_abort_behavior(0, _WRITE_ABORT_MSG|_CALL_REPORTFAULT);
     assert(argc==2);setup(); const char *test=argv[1]; ImportFn orig=NULL;uint64_t addr=0x71038701e0ull;
-    if(!strcmp(test,"main-valid")) { assert(hook_install_required(addr,replacement,NULL,&orig));assert(orig==original&&attach_count==1); }
+    if(!strncmp(test,"queue-",6)) {
+        fn_table_count=1;main_entries[0]=(FnEntry){0x710398bc70ULL,original};
+        if(!strcmp(test,"queue-version"))g_game_build=GAME_13_0_4;
+        if(!strcmp(test,"queue-missing"))fn_table_count=0;
+        if(!strcmp(test,"queue-duplicate")){main_entries[1]=main_entries[0];fn_table_count=2;}
+        if(!strcmp(test,"queue-fingerprint"))bad_guest=1;
+        if(!strcmp(test,"queue-attach")){attach_fail=1;expected_attach=1;}
+        if(!strcmp(test,"queue-capacity"))allocation_fail=1;
+        hook_install_queue_probe(replacement,&orig);
+        if(strcmp(test,"queue-valid"))goto unexpected;
+        assert(orig==original && attach_count==1 && read_count==924);
+    }
+    else if(!strcmp(test,"main-valid")) { assert(hook_install_required(addr,replacement,NULL,&orig));assert(orig==original&&attach_count==1); }
     else if(!strcmp(test,"all-main-valid")) {
         for(int i=0;i<fn_table_count;i++){g_hk_layers=0;assert(hook_install_required(fn_table[i].addr,replacement,NULL,&orig));}
         hook_require_run_ahead_sites(0x710374a0d4ull);

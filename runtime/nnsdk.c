@@ -57,6 +57,7 @@ static void os_GetSystemTick(Ctx *c) {
     RET((uint64_t)((double)now.QuadPart * (double)TICK_HZ / (double)freq.QuadPart));
     DWORD error = GetLastError();
     r1_clock_probe(c->x[30], c->x[0]);
+    r1_queue_tick(c);
     SetLastError(error);
 }
 static void os_GetSystemTickFrequency(Ctx *c) { RET(TICK_HZ); }

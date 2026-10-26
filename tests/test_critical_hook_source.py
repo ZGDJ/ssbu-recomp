@@ -26,6 +26,9 @@ def zero_hash(count):
 class CriticalHookSourceTests(unittest.TestCase):
     def test_exact_policy_and_callers(self):
         source = (ROOT / 'fighter_sdk/hook_host.c').read_text()
+        # Queue range lengths/addresses stay pinned; synthetic zero guest bytes.
+        source = re.sub(r'(0x[0-9a-f]+ULL,)0x[0-9a-f]+ULL,(\d+)',
+                        lambda m: m[1]+hex(zero_hash(int(m[2])))+'ULL,'+m[2], source)
         state = (ROOT / 'runtime/r1_state.c').read_text()
         state = state[state.index('#else\n#include <stdio.h>'):]
         learned = (ROOT / 'runtime/rb_learned.c').read_text()
@@ -40,7 +43,7 @@ class CriticalHookSourceTests(unittest.TestCase):
                           lambda m: m[1] + hex(zero_hash(20)) + 'ull', identity)
         names = ['hk_required_fatal', 'hk_required_build', 'hk_required_entry',
                  'hk_required_fingerprint', 'hk_required_main', 'hook_require_run_ahead_sites',
-                 'hook_require_presentation_sites', 'hook_install_required', 'hk_required_named_address', 'hook_install_name_required',
+                 'hook_require_presentation_sites', 'hook_install_required', 'hook_install_queue_probe', 'hk_required_named_address', 'hook_install_name_required',
                  'hook_require_critical_ready', 'hook_install', 'hook_install_name', 'hook_remove', 'hook_module_loaded']
         layer = next(line for line in source.splitlines() if line.startswith('typedef struct { HkSite *site;'))
         fixture = (ROOT / 'tests/critical_hook_source_fixture.c').read_text()
@@ -68,6 +71,8 @@ class CriticalHookSourceTests(unittest.TestCase):
                  'missing-entry', 'fingerprint', 'build-id', 'version', 'registry', 'main-export']
         failure += [prefix + case for prefix in ('named-', 'deferred-', 'later-') for case in named]
         failure += ['named-attach', 'deferred-attach']
+        success += ['queue-valid']
+        failure += ['queue-version','queue-missing','queue-duplicate','queue-fingerprint','queue-attach','queue-capacity']
         env = dict(os.environ, TMP=str(out), TEMP=str(out), TMPDIR=str(out))
         for opt in ('-O1', '-O3'):
             exe = out / (opt[1:] + '.exe')

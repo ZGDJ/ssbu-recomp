@@ -374,7 +374,7 @@ void icall_dump(FILE *out, uint64_t main_ctx) {
                     (unsigned long long)g_icall[i].x0, (unsigned long long)g_icall[i].x1, (unsigned long long)g_icall[i].x2);
 }
 
-void call_indirect(Ctx *c, uint64_t addr) {
+static void call_indirect_body(Ctx *c, uint64_t addr) {
     if (g_icall_mode) icall_record(c, addr);
     if (addr - GUEST_BASE < IMAGE_SIZE) {            /* P3: the common case first (a function of main); the ranges tested below do not overlap it */
         void (*fn)(Ctx *) = lookup_guest(addr);
@@ -407,6 +407,16 @@ void call_indirect(Ctx *c, uint64_t addr) {
     void (*fn)(Ctx *) = lookup_guest(addr);
     if (!fn) guest_trap("indirect call to an address that is not a known function", addr);
     fn(c);
+}
+
+void call_indirect(Ctx *c,uint64_t addr) {
+    DWORD error=GetLastError();
+    long token=r1_queue_dispatch_enter(c,addr);
+    SetLastError(error);
+    call_indirect_body(c,addr);
+    error=GetLastError();
+    r1_queue_dispatch_exit(c,token);
+    SetLastError(error);
 }
 
 /* Register context of the guest code running on this host thread, for crash reports. */
@@ -576,6 +586,9 @@ void guest_freeze_wait(void) { while (g_guest_frozen) Sleep(5); }
 static void host_import_real(Ctx *c, int sym);
 static int g_watch_sym = -2;
 void host_import(Ctx *c, int sym) {
+    DWORD queue_error=GetLastError();
+    r1_queue_signal(c,sym);
+    SetLastError(queue_error);
     if (g_watch_sym == -2) {
         const char *e = getenv("SSBU_IMPORT_WATCH");
         int w = -1;

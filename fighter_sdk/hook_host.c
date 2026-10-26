@@ -359,6 +359,31 @@ int hook_install_required(uint64_t addr, HookFn repl, void *user, ImportFn *orig
     ReleaseSRWLockExclusive(&g_hk_lock);
     return id;
 }
+/* Diagnostic-only, exact 13.0.5 addresses (not 13.0.4 GA references). Whole
+ * producer, consumer commit/checkpoint and submission slices pin the inference. */
+void hook_install_queue_probe(HookFn repl,ImportFn *orig) {
+    static const struct { uint64_t address, hash; unsigned size; } ranges[]={
+        {0x710398bc70ULL,0x8bb2b7d19f28567fULL,108},
+        {0x710398b91cULL,0x879e2040833bce9eULL,728},
+        {0x710398b400ULL,0x865954b2eda26c76ULL,72},
+        {0x71039c0ca0ULL,0x64f35b82b4afb823ULL,16}
+    };
+    AcquireSRWLockExclusive(&g_hk_lock);
+    hk_required_build();
+    uint64_t address=0x710398bc70ULL;
+    if(!hk_required_entry(fn_table,fn_table_count,address))hk_required_fatal("queue entry identity",address);
+    for(size_t i=0;i<sizeof ranges/sizeof ranges[0];i++) {
+        uint64_t hash=0xcbf29ce484222325ULL;
+        for(unsigned j=0;j<ranges[i].size;j++)hash=(hash^rd8(ranges[i].address+j))*0x100000001b3ULL;
+        if(hash!=ranges[i].hash)hk_required_fatal("queue instruction identity",ranges[i].address);
+    }
+    int id=hk_layer_new();
+    if(!id || !repl || !orig)hk_required_fatal("queue hook capacity",address);
+    HkLayer *l=hk_layer(id);l->repl=repl;l->user=NULL;l->orig_out=orig;l->required=1;
+    if(!hk_attach(id,address))hk_required_fatal("queue attachment refused",address);
+    ReleaseSRWLockExclusive(&g_hk_lock);
+}
+
 /* Returns 0 only while the expected module is not loaded. Never use the export
  * hash: it intentionally hides duplicate definitions for generic mod lookup. */
 static int hk_required_named_address(const char *name, uint64_t *addr) {

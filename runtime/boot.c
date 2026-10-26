@@ -498,6 +498,7 @@ int main(int argc, char **argv) {
     register_sdk2_imports();                 /* SDK families (lifted sdk.elf code + offline service answers): fills only; after the C runtime because its self-test needs every handler */
     { void audit_startup(void); audit_startup(); }   /* hostrt.c: fake audit / SSBU_STRICT (plan\FAKE_AUDIT.md) */
     display_init();
+    r1_queue_init();                                 /* install before creating any guest thread */
     int seconds = argc > 2 ? atoi(argv[2]) : 0;      /* no number = no time limit (a player's launch); tests pass theirs */
     /* the lifted code uses the host stack for every guest call: give it plenty */
     HANDLE t = CreateThread(NULL, (SIZE_T)1 << 30, guest_main, NULL, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);

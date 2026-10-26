@@ -268,6 +268,17 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Next: Both complementary reviews accept corrected effective-SDK clock and retained-counter O1/O3 experiments with negative variants; initial handwritten-converter equality is rejected as production evidence. Target accepted enqueues, completed callbacks and full-queue rejections with generation-aware unpark/recapture coverage and actual callback identity. No runtime change, new native trial, observed native rejection or gameplay qualification; M4.1 and integrated controls remain open.
 - Blocker: none
 
+### M1.11 - Account for first replay queue decisions
+- Status: blocked
+- Depends: M1.10, M7.9
+- Size: 5
+- Requirement: FSD-004, FSD-005, FSD-012
+- Evidence: evidence/2026-10-26-replay-queue.md
+- Acceptance: Run the smallest production-safe experiment distinguishing changed queue submissions, acceptance/rejection and consumer completion across first replay, or establish a concrete defect and validate its correction. Record actual callback and generation boundaries, incomplete coverage and unchanged mandatory native gates; no inference of gameplay qualification from queue counters alone.
+- Owner: Astra integrator with complementary GPT-6.1-Sol/max investigators, 2026-10-26 UTC
+- Next: Reuse both accepted revision-2 source reviews and built package. After capacity is available, verify identities and prepare fresh labels/userdata for separately admitted disabled 500R/0S then enabled 500R/two depth-one controls. Preserve all reference, fixture and identity gates; stop on refusal/divergence/incomplete accounting.
+- Blocker: Disabled attempt refused before native launch: fresh available commit 6.87/6.69 GiB below 10 GiB. No native queue evidence; enabled arm unrun. Source tests and package build pass but do not close acceptance.
+
 ## M2 - Controlled simulation
 
 

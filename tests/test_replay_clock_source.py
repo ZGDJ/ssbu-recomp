@@ -28,6 +28,8 @@ class ReplayClockSourceTests(unittest.TestCase):
 #include <string.h>
 #include <assert.h>
 typedef struct { uint64_t x[32]; } Ctx;
+static void r1_queue_tick(const Ctx *c){(void)c;}
+static void qp_drain(void){}
 #define GAME_13_0_5 1305
 #define TICK_HZ 19200000ULL
 #define RET(v) (c->x[0]=(uint64_t)(v))

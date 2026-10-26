@@ -67,5 +67,11 @@ int hook_install_name_required(const char *module, const char *name, void (*repl
 void hook_require_run_ahead_sites(uint64_t site);
 void hook_require_critical_ready(void);
 void hook_require_presentation_sites(void);
+void hook_install_queue_probe(void (*repl)(Ctx *,void *),ImportFn *orig);
+long r1_queue_dispatch_enter(const Ctx *c,uint64_t target);
+void r1_queue_dispatch_exit(const Ctx *c,long token);
+void r1_queue_signal(const Ctx *c,int sym);
+void r1_queue_tick(const Ctx *c);
+void r1_queue_init(void);
 
 #endif

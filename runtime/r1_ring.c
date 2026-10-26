@@ -74,6 +74,7 @@ static double g_rg_last[2];
 static int g_rgs_on; static long long g_rgv_target; static void rgv_before(int si, long long target); static void rgv_after(void);   /* (simulation / verify, below) */
 void debug_writer_probe_begin(long long frame, long long target);
 void debug_writer_probe_end(long long frame);
+#include "replay_queue_probe.h"
 /* costs: capture (all, hold, sweep + queue, copy, fibers / threads / cb), load per k */
 #define RG_NST 65536
 static double *g_rgc[5]; static size_t *g_rgc_pg, *g_rgc_xp; static int g_rgc_n;
@@ -596,6 +597,7 @@ int r1_ring_capture(long long frame, Ctx *c) {
     rg_meta_capture(s, c, &plan);
     double t4 = now_ms();
     rg_capture_finish();
+    { DWORD error=GetLastError(); qp_capture(frame); SetLastError(error); } /* before either release path */
     if (g_rg_keep) g_rg_kept = 1;                          /* a load follows at once (r1_ring_load / r1_ring_let_go lets them go) */
     else unpark();                                         /* every thread, the audio ones too (a real pass follows) */
     double t5 = now_ms();
@@ -1221,6 +1223,7 @@ static void rg_plan_memory_finish(RgRestoreMemory *memory) {
         if(!restore_memory_finish(&memory->journals[n-1])) rg_restore_fatal("cannot restore prepared page protection");
 }
 int r1_ring_load(long long frame, Ctx *c) {
+    { DWORD error=GetLastError(); qp_load_begin(frame); SetLastError(error); }
     rg_restore_config();
     int si = -1;
     for (int i = 0; i < g_rg_count; i++) if (rg_slot(i)->frame == frame) si = i;
@@ -1381,6 +1384,7 @@ int r1_ring_load(long long frame, Ctx *c) {
         rg_restore_fatal("incomplete native continuation commit");
     double t3 = now_ms();
     rgc_release();
+    { DWORD error=GetLastError(); qp_load_ready(frame); SetLastError(error); } /* before worker release */
     unpark();
     g_mp[4] += t2a - t2; g_mp[5] += t2b - t2a; g_mp[6] += t2c - t2b; g_mp[7] += t3 - t2c; g_mp[8] += now_ms() - t3; g_mp_n[1]++;
     *c = g->ctx;
