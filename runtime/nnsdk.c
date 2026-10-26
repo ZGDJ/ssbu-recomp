@@ -47,6 +47,7 @@ int host_fixed_clock(uint64_t lr) {
         (unsigned long long)GA(0x7100047d20ULL), (unsigned long long)GA(0x7100138534ULL), (unsigned long long)GA(0x710366d1f0ULL), (unsigned long long)GA(0x710366d388ULL)); }
     return on && (lr == GA(0x7100047d20ULL) || lr == GA(0x7100138534ULL) || lr == GA(0x710366d1f0ULL) || lr == GA(0x710366d388ULL));
 }
+void r1_clock_probe(uint64_t lr, uint64_t value);
 static void os_GetSystemTick(Ctx *c) {
     LARGE_INTEGER now, freq;
     host_clock_caller("GetSystemTick", c->x[30]);
@@ -54,6 +55,9 @@ static void os_GetSystemTick(Ctx *c) {
     QueryPerformanceCounter(&now);
     QueryPerformanceFrequency(&freq);
     RET((uint64_t)((double)now.QuadPart * (double)TICK_HZ / (double)freq.QuadPart));
+    DWORD error = GetLastError();
+    r1_clock_probe(c->x[30], c->x[0]);
+    SetLastError(error);
 }
 static void os_GetSystemTickFrequency(Ctx *c) { RET(TICK_HZ); }
 

@@ -217,3 +217,7 @@ Run `deps/python/Scripts/python.exe -I -m unittest discover -s tests -p test_ter
 ### Frozen default replay admission adapter
 
 `python -I -m unittest discover -s tests -p test_replay_admission.py -v` exercises the separate exact-configuration adapter without launching a game. It retains capacity, process exclusion, freshness and mutation checks and holds an exclusive local lease through native exit. The actual identified launcher, private plan and post-run inventory remain packet obligations. See [default replay evidence](../evidence/2026-10-25-default-replay.md). This does not change the disabled wrapper or weaken replay/reference/fixture gates.
+
+### Bounded replay clock attribution
+
+`deps/python/Scripts/python.exe -I -m unittest discover -s tests -p "test_replay_clock*.py" -v` exercises the exact observer and GetSystemTick handler at O1/O3 plus strict endpoint-correlation parsing. The diagnostic preserves returned ticks, context and last-error state, records only the first target pass on the H2 owner, and reports loss/foreign calls/capture completeness. `tools/analyze_replay_clock.py LOG --output NEW.json` always returns 1 for research output; inspect its structured status/errors. Positive attribution is limited to one source-mapped clock field and still requires independent fatal, sealed trace/reference, fixture and full identity gates. It does not qualify gameplay or justify replacing clocks. See [clock evidence](../evidence/2026-10-26-replay-clock.md).

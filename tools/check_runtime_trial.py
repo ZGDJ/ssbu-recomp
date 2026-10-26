@@ -28,6 +28,12 @@ def inspect_forward_config(path: Path) -> list:
             raise ValueError("invalid launcher command")
         if not isinstance(identity, dict):
             raise ValueError("invalid prelaunch inventory")
+        # Accept the explicitly reviewed isolated interpreter form as well as
+        # historical commands. Other interpreter flags remain unsupported.
+        script_index = 2 if command[1] == "-I" else 1
+        if len(command) <= script_index:
+            raise ValueError("missing launcher script")
+        arguments = command[script_index + 1:]
         recorded_hash = identity.pop("identity_sha256", None)
         # battle_identity.digest's existing canonical format, without importing setup.
         actual_hash = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -36,9 +42,9 @@ def inspect_forward_config(path: Path) -> list:
         options, environment = {}, {}
         allowed = {"--build", "--userdata", "--exe", "--seconds", "--seq", "--log",
                    "--identity-runtime", "--identity-output", "--seed", "--env"}
-        if len(command[2:]) % 2:
+        if len(arguments) % 2:
             raise ValueError("invalid launcher argument pairs")
-        for key, value in zip(command[2::2], command[3::2]):
+        for key, value in zip(arguments[::2], arguments[1::2]):
             if key not in allowed or value.startswith("--"):
                 raise ValueError("unsupported launcher argument")
             if key == "--env":
@@ -58,9 +64,9 @@ def inspect_forward_config(path: Path) -> list:
         seconds = int(options["--seconds"])
         if seconds <= 0 or type(identity.get("launcher_seconds")) is not int or identity["launcher_seconds"] != seconds:
             raise ValueError("bounded duration does not match identity")
-        if options["--exe"] != identity.get("executable_name") or Path(command[1]).name != "run.py":
+        if options["--exe"] != identity.get("executable_name") or Path(command[script_index]).name != "run.py":
             raise ValueError("launcher or executable does not match identity")
-        for filename, role in ((command[1], "launcher"), (options["--seq"], "sequence_file")):
+        for filename, role in ((command[script_index], "launcher"), (options["--seq"], "sequence_file")):
             contents = Path(filename).read_bytes()
             if identity.get(role) != {"size": len(contents), "sha256": hashlib.sha256(contents).hexdigest()}:
                 raise ValueError(role + " bytes do not match identity")

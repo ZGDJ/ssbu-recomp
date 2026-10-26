@@ -1421,6 +1421,63 @@ static int rgs_wanted(void) {
     if (g_rgs_on < 0) { const char *e = getenv("SSBU_RB_SIM"); g_rgs_on = e && e[0] && e[0] != '0'; if (g_rgs_on) sscanf(e, "%d,%d,%d", &g_rgs_n, &g_rgs_k, &g_rgs_warm); if (g_rgs_k < 1) g_rgs_k = 1; if (g_rgs_k > RG_MAXSLOT - 1) g_rgs_k = RG_MAXSLOT - 1; if (g_rgs_n < 1) g_rgs_n = 1; }
     return g_rgs_on;
 }
+/* Bounded clock observation: one known-covered word in the first 118->119
+ * interval. Only the H2 owner reads pass state or writes records. Other-thread
+ * target calls invalidate attribution without racing those non-atomic fields.
+ * No allocation, target reads, logging, hooks or clock substitution here. */
+#define RGS_CLOCK_CAP 32
+typedef struct { uint64_t lr, value; long long pass, fight; DWORD thread; int phase; } RgsClockEvent;
+static RgsClockEvent g_rgs_clock_events[RGS_CLOCK_CAP];
+static volatile LONG g_rgs_clock_on, g_rgs_clock_owner, g_rgs_clock_done, g_rgs_clock_foreign;
+static unsigned g_rgs_clock_count, g_rgs_clock_dropped;
+static int g_rgs_clock_original, g_rgs_clock_replay, g_rgs_clock_reported;
+static void rgs_clock_init(void) {
+    const char *e = getenv("SSBU_RB_CLOCK_PROBE");
+    if (!e || !strcmp(e, "0")) return;
+    const char *sim=getenv("SSBU_RB_SIM"), *verify=getenv("SSBU_RB_SIM_VERIFY");
+    const char *net=getenv("SSBU_RB_NET"), *skip=getenv("SSBU_RB_SIM_SKIP"), *lite=getenv("SSBU_RB_SIM_LITE");
+    if (strcmp(e,"1") || g_game_build!=GAME_13_0_5 || !sim || strcmp(sim,"120,1,60") ||
+        !verify || strcmp(verify,"2") || !net || strcmp(net,"0") ||
+        !skip || strcmp(skip,"0") || !lite || strcmp(lite,"0"))
+        r1_hold_fatal("clock probe requires the pinned offline depth-one fixture");
+    InterlockedExchange(&g_rgs_clock_on,1);
+}
+void r1_clock_probe(uint64_t lr, uint64_t value) {
+    if (!InterlockedCompareExchange(&g_rgs_clock_on,0,0) || lr!=0x710374a238ULL ||
+        InterlockedCompareExchange(&g_rgs_clock_done,0,0)) return;
+    DWORD owner=(DWORD)InterlockedCompareExchange(&g_rgs_clock_owner,0,0);
+    if (!owner) return; /* before the first H2, outside the measured interval */
+    DWORD thread=GetCurrentThreadId();
+    if (thread!=owner) { InterlockedIncrement(&g_rgs_clock_foreign); return; }
+    if (!g_rg_ready || g_rgs_next!=119 || (g_ra_phase!=0 && g_ra_phase!=2)) return;
+    if (g_rgs_clock_count==RGS_CLOCK_CAP) { g_rgs_clock_dropped++; return; }
+    RgsClockEvent *event=&g_rgs_clock_events[g_rgs_clock_count++];
+    event->lr=lr; event->value=value; event->pass=g_rgs_next; event->fight=g_ff;
+    event->thread=thread; event->phase=g_ra_phase;
+}
+static void rgs_clock_capture(long long pass,int ok) {
+    if (!InterlockedCompareExchange(&g_rgs_clock_on,0,0) || pass!=119 ||
+        InterlockedCompareExchange(&g_rgs_clock_done,0,0)) return;
+    if (g_ra_phase==0) g_rgs_clock_original=ok;
+    if (g_ra_phase==2) { g_rgs_clock_replay=ok; InterlockedExchange(&g_rgs_clock_done,1); }
+}
+static void rgs_clock_drain(void) {
+    if (!InterlockedCompareExchange(&g_rgs_clock_on,0,0) || g_rgs_clock_reported ||
+        !InterlockedCompareExchange(&g_rgs_clock_done,0,0) || g_rg_kept) return;
+    for (int i=0;i<g_nth;i++) if (g_th[i].held) return;
+    g_rgs_clock_reported=1;
+    LOG("r1: CLOCK_PROBE_BEGIN v=1 target=119 lr=710374a238 destination=710593b470 capacity=32 scope=h2_owner observer=deferred_import_return authoritative=0\n");
+    for (unsigned i=0;i<g_rgs_clock_count;i++) {
+        const RgsClockEvent *e=&g_rgs_clock_events[i];
+        LOG("r1: CLOCK_PROBE_EVENT v=1 index=%u pass=%lld fight=%lld phase=%s thread=%lu lr=%llx value=%llx\n",
+            i,e->pass,e->fight,e->phase==0?"original":"replay",(unsigned long)e->thread,
+            (unsigned long long)e->lr,(unsigned long long)e->value);
+    }
+    LOG("r1: CLOCK_PROBE_END v=1 recorded=%u dropped=%u foreign=%ld original_capture=%d replay_capture=%d finished=%ld\n",
+        g_rgs_clock_count,g_rgs_clock_dropped,(long)InterlockedCompareExchange(&g_rgs_clock_foreign,0,0),
+        g_rgs_clock_original,g_rgs_clock_replay,(long)InterlockedCompareExchange(&g_rgs_clock_done,0,0));
+}
+/* End bounded clock observation. */
 static void rgs_report(void);
 /* (R3 hs16) the main thread's CPU cycles per pass (QueryThreadCycleTime): a measure of the code's own speed that other
  * processes on the PC disturb much less than wall time (A/B of builds on a busy PC) */
@@ -1428,6 +1485,8 @@ static ULONG64 g_rgs_cyc0; static double g_rgs_cyc[2];
 static ULONG64 rgs_cyc_now(void) { ULONG64 v = 0; QueryThreadCycleTime(GetCurrentThread(), &v); return v; }
 /* at the safe point (H2) of every pass while the fight runs */
 static void rgs_step(Ctx *c) {
+    if (InterlockedCompareExchange(&g_rgs_clock_on,0,0))
+        InterlockedCompareExchange(&g_rgs_clock_owner,(LONG)GetCurrentThreadId(),0);
     double t = now_ms(); ULONG64 cy = rgs_cyc_now();
     g_rgp_main = GetCurrentThreadId(); g_rgp_seg = 1; if (g_rgs_prof == 3 && g_rg_ready) rgs_samp_start();
     if (g_rgs_pass_t0 > 0 && g_rg_ready) {                /* the pass that just ended: real (0) or re-run (1), without the capture / load */
@@ -1456,6 +1515,7 @@ static void rgs_step(Ctx *c) {
     }
     if (g_rgv_target >= 0 && i == g_rgv_target) debug_writer_probe_end(i);
     int ok = r1_ring_capture(i, c);
+    rgs_clock_capture(i,ok);
     g_rg_keep = 0;
     if (g_rgv_target >= 0 && i == g_rgv_target) { if (ok) rgv_after(); else g_rgv_target = -1; }
     if (!g_rg_ready) { g_rgs_pass_t0 = 0; return; }

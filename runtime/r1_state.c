@@ -33,6 +33,7 @@ int r1_on(void) {
     return 0;
 }
 int r1_ra_phase(void) { return 0; }
+void r1_clock_probe(uint64_t lr, uint64_t value) { (void)lr; (void)value; }
 int r1_ra_quiet(void) { return 0; }
 int r1_ra_present_mode(void) { return 0; }
 void r1_stats_report(void) {}
@@ -2472,6 +2473,7 @@ static void ra_workers_hold(void) {
     ra_watchdog_signal();
 }
 static void r1_protection_observation_drain(void);
+static void rgs_clock_drain(void);
 static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170 (kick of a job group): points BEFORE the call */
     (void)user;
     uint64_t lr = c->x[30];
@@ -2488,6 +2490,7 @@ static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170
         /* Drain only after H2 worker release and no retained native capture holds.
          * Refusal returns reach here too; retained holds defer to a later H2. */
         r1_protection_observation_drain();
+        rgs_clock_drain();
     }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
     if ((g_ra_phase == 1 && g_ra_skip) || rgs_skip_now()) {      /* SSBU_RUNAHEAD_SKIP (experiment): job groups of the speculative pass whose result is thrown away (R2: SSBU_RB_SIM_SKIP, re-run passes but the last) */
         int prep = c->x[30] == GA(0x7103749b24ull) || c->x[30] == GA(0x710374b4f8ull) || c->x[30] == GA(0x710374b528ull) || c->x[30] == GA(0x710374b558ull), rend = c->x[30] == GA(0x710374c0d8ull);
@@ -2589,6 +2592,7 @@ static void ra_init(void) {
     else if (rgs_wanted()) { if (getenv("SSBU_RB_SIM_SKIP")) g_rgs_skip = atoi(getenv("SSBU_RB_SIM_SKIP"));
         LOG("r1: RB SIM on (R2 snapshot ring): a rollback every %d real passes, k = 1..%d rotating, after %d captures; kick skip mask in re-run passes %d\n", g_rgs_n, g_rgs_k, g_rgs_warm, g_rgs_skip);
         rgs_lite_init(); }
+    rgs_clock_init();
     atexit(ra_report);
 }
 

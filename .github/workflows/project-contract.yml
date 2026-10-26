@@ -59,6 +59,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_fiber_payload_source.py -v
       - name: Writer observation integrity regressions
         run: python -m unittest discover -s tests -p test_writer_probe.py -v
+      - name: Replay clock observation regressions
+        run: python -m unittest discover -s tests -p test_replay_clock*.py -v
       - name: Catch insertion capacity regressions
         run: python -m unittest discover -s tests -p test_catch_source.py -v
       - name: Catch restore preparation regressions

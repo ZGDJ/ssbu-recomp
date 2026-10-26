@@ -8,6 +8,8 @@ static int g_hs_mine_ok=1,g_hs_blk_done=1,g_hs_peer_have[8],g_rq_tail,g_rq_head=
 static void menu_notice(const char*s){(void)s;}
 void start_boundary(long long f){assert(f==0);g_started=1;g_rg_count=3;}
 static int g_rg_head,g_rgp_main,g_rgp_seg,g_rgs_prof,g_rgs_polls_cur;
+static volatile LONG g_rgs_clock_on,g_rgs_clock_owner;
+static void rgs_clock_capture(long long pass,int ok){(void)pass;(void)ok;}
 static long long g_rgs_multi,g_rgs_npl[2],g_rgs_npass[2],g_rgs_real_since,g_rgs_done,g_rgs_nocap,g_rg_caps;
 static double g_rgs_pass_t0,g_rgs_cyc[2],g_rgs_pl[2],g_rgs_pass[2],g_rgs_plv[2][32],g_rgs_pass_v[2][32],g_ra_t_mark,g_rg_last[2];
 static int g_rgs_nplv[2],g_rgs_pass_nv[2],g_rgv_target=-1,g_rgs_warm=30,g_rgs_n=30,g_rgs_ki,g_rgs_k=7;

@@ -95,6 +95,7 @@ static int ra_watchdog_prepare(void){return 1;} static void r1_hold_fatal(const 
 #define ra_kick2 replacement
 #define ra_line replacement
 static void ra_report(void){}
+static void rgs_clock_init(void){}
 static int mark_bind(void){return 1;} static int ls_bind(void){return 1;}
 static int rgs_wanted(void){return 0;} static int rbg_on(void){return 0;}
 static void rbn_init(void){} static void rgs_lite_init(void){}
