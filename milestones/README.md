@@ -357,10 +357,10 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M3.2, M3.3, M6.1, M7.3
 - Size: 8
 - Requirement: FSD-005
-- Evidence: evidence/2026-10-26-first-native-replay.md
+- Evidence: evidence/2026-10-26-restore-localization.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
-- Owner: unassigned
-- Next: First native default-attempt2 completed on unchanged terminal package: 500 real frames/two depth-one replay runs, sealed trace, fatal/reference/fixture and full post-run identity gates pass. Both raw replay intervals differ (377/7/2 and 600/7/2 window1/window2/extras); batch stopped before integrated controls. Investigate the first 118 -> 119 byte divergence using existing M1.8/M1.9 leads without attributing this new run from old binaries; restore-verify was off. Pagefile 16/32 GiB configuration applied with user consent, no restart; fresh active admission passed. Preserve original reference and reserves. M6.1 planning complete; formal dependencies and broader fixtures remain mandatory.
+- Owner: unassigned (bounded restore-localization packet delivered by Astra integrator, 2026-10-26)
+- Next: Both result reviews accept the bounded finding. One reviewed restore-observer trial passes sealed 500R/two depth-one runs, fatal/reference/fixture/full identity gates. Sampled readable pages equal after copy and continuations; later raw differences remain 451/7/2 and 266/5/2. Watchdog H1 generation changed during both loads; separate ring holds mean this does not prove workers ran. Batch stopped. Investigate H1 versus ring suspension ownership and coverage of first differing addresses before a separately reviewed writer probe; no watchdog/semantic change justified yet. Preserve reserves, original fixture and reference. Integrated controls, formal dependencies and broader fixtures remain mandatory.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects
