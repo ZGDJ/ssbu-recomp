@@ -357,10 +357,10 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M3.2, M3.3, M6.1, M7.3
 - Size: 8
 - Requirement: FSD-005
-- Evidence: evidence/2026-10-25-default-replay.md
+- Evidence: evidence/2026-10-26-first-native-replay.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
 - Owner: unassigned
-- Next: Prepared default-attempt2 remains accepted by both complementary Astra reviews; unchanged freeze verified by Astra integrator at 2026-10-25T19:14Z from 873202e. Latest readiness-only sample fails at 4.2389 GiB available commit / 8,900 MiB physical; no native launch. Automatic pagefile management remains enabled, 7,956 MiB allocated. User is away: wait for availability before reopening UAC for authorized 16/32 GiB settings; leave restart to user. Then inspect active capacity and execute fresh post-identity admission with original-fixture 500R/two depth-one runs and separate menu/post-run identity gates. See evidence/2026-10-25-replay-readiness.md. Formal dependencies, integrated controls and broader fixtures remain mandatory.
+- Next: First native default-attempt2 completed on unchanged terminal package: 500 real frames/two depth-one replay runs, sealed trace, fatal/reference/fixture and full post-run identity gates pass. Both raw replay intervals differ (377/7/2 and 600/7/2 window1/window2/extras); batch stopped before integrated controls. Investigate the first 118 -> 119 byte divergence using existing M1.8/M1.9 leads without attributing this new run from old binaries; restore-verify was off. Pagefile 16/32 GiB configuration applied with user consent, no restart; fresh active admission passed. Preserve original reference and reserves. M6.1 planning complete; formal dependencies and broader fixtures remain mandatory.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects
