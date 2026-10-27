@@ -24,7 +24,7 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. Native default/observer trials passed bounded fighter/reference gates but retained raw divergence. M1.10's consumer experiments expose effective-SDK clock residuals despite a discarded nominal return, and a conditional queue accept/full consequence from retained older counters (evidence/2026-10-26-replay-consumers.md). Next target first-interval queue submissions, committed enqueue/dequeue and rejection accounting through unpark and recapture, including actual callback identity; do not replace clocks or exclude pages. Any changed runtime needs new-binary controls, original comparable fixture/reference and fresh resource admission. M3.5's deferred repeat is not a prerequisite. Independent investigation may proceed with disjoint ownership and coordinated game trials.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. M1.11 now accounts for first-interval queue divergence: identical submissions, different accept/full decisions and differently ordered confirmed consumer progress, with stable no-op sink/context (evidence/2026-10-27-replay-queue.md). M1.12 next classifies downstream effects and timing/event ownership before selecting a supported correction or the next authoritative divergence. No clock/event policy change or page exclusion is justified yet. Reuse passed unchanged-package disabled/enabled controls; any runtime revision needs new-binary controls, original comparable fixture/reference and fresh admission. M3.5 remains independent.
 2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Use the completed M6.1 fixture selections for subsequent gameplay coverage. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 4. Reuse M7.8/M7.1/M7.3/M7.2 completed source acceptance; resume pending integrated capture/restore controls after the current divergence investigation permits them and fresh admission passes. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Source acceptance does not qualify native restoration or terminal gameplay.
@@ -269,15 +269,26 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Blocker: none
 
 ### M1.11 - Account for first replay queue decisions
-- Status: blocked
+- Status: done
 - Depends: M1.10, M7.9
 - Size: 5
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: evidence/2026-10-26-replay-queue.md
+- Evidence: evidence/2026-10-27-replay-queue.md
 - Acceptance: Run the smallest production-safe experiment distinguishing changed queue submissions, acceptance/rejection and consumer completion across first replay, or establish a concrete defect and validate its correction. Record actual callback and generation boundaries, incomplete coverage and unchanged mandatory native gates; no inference of gameplay qualification from queue counters alone.
-- Owner: Astra integrator with complementary GPT-6.1-Sol/max investigators, 2026-10-26 UTC
-- Next: Reuse both accepted revision-2 source reviews and built package. After capacity is available, verify identities and prepare fresh labels/userdata for separately admitted disabled 500R/0S then enabled 500R/two depth-one controls. Preserve all reference, fixture and identity gates; stop on refusal/divergence/incomplete accounting.
-- Blocker: Disabled attempt refused before native launch: fresh available commit 6.87/6.69 GiB below 10 GiB. No native queue evidence; enabled arm unrun. Source tests and package build pass but do not close acceptance.
+- Owner: Astra integrator with complementary GPT-6.1-Sol/max investigators, 2026-10-27T18:03:06Z
+- Next: Unchanged package passes separately admitted disabled 500R/0S and enabled 500R/two depth-one runs plus fatal/original-reference/fixture/full identity gates. Complete 133-record accounting: identical eleven attempts, original 6 accepts/5 rejects versus replay 5/6, four confirmed dequeues each, stable no-op sink/context. Fourth consumer completion occurs after replay's final rejection but before recapture; progress ordering explains the different capacity decisions. Batch stopped at bookkeeping divergence. M1.12 owns downstream significance; formal M4.1 and integrated controls remain open.
+- Blocker: none
+
+### M1.12 - Classify queue divergence consequences
+- Status: todo
+- Depends: M1.11
+- Size: 3
+- Requirement: FSD-004, FSD-005, FSD-012
+- Evidence: none
+- Acceptance: Trace differing enqueue decisions/cursors and consumer timing/event state to actual readers and effects, retaining indirect aliases and effective lifted-register behavior. Establish a supported correction boundary or scoped noninterference classification and select the next authoritative divergence/native proof. No-op sink alone cannot justify page exclusion or clock/event policy changes.
+- Owner: unassigned
+- Next: Reuse complete native accounting and stable bare-return sink in evidence/2026-10-27-replay-queue.md. Bound source work to downstream consequences and ownership; distinguish proven bookkeeping cause from the unproven timer/event cause of service ordering. Any runtime revision requires a new reviewed package and disabled control, then original-reference/fixture/full-identity enabled proof with fresh admission.
+- Blocker: none
 
 ## M2 - Controlled simulation
 
@@ -381,8 +392,8 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Requirement: FSD-005
 - Evidence: evidence/2026-10-26-replay-clock.md
 - Acceptance: FSD-005 counts/depths and named early mechanics fixtures pass uninterrupted oracle, including altered spawn/ownership/allocation/RNG paths; independent review passes.
-- Owner: unassigned (bounded clock packet complete; formal gate remains todo)
-- Next: New reviewed clock candidate passes disabled 500R/0S and enabled 500R/two depth-one trials, fatal/original-reference/fixture/full identity gates. Targeted original/replay GetSystemTick returns exactly match main+593b470 endpoint differences; one-field attribution only. Raw divergence remains; batch stopped. Trace this field's consumers and ownership before any clock policy change or next native proof. Separate ring holds and H1 counters do not prove worker execution. Preserve original fixture/reference and fresh admission; integrated controls, formal dependencies and broader fixtures remain mandatory. Both complementary Sol Max result reviews accepted with no blockers.
+- Owner: unassigned (bounded clock/queue investigations complete; formal gate remains todo)
+- Next: Queue candidate now passes disabled 500R/0S and enabled 500R/two depth-one native, original-reference, fixture and full identity gates (evidence/2026-10-27-replay-queue.md). Complete accounting attributes differing accept/full decisions for identical submissions to consumer progress ordering with a stable no-op sink. This is bookkeeping causality only; M1.12 owns downstream significance before policy changes or the next native proof. Prior one-field clock attribution remains valid. Integrated controls, formal dependencies, authoritative coverage and broader fixtures remain mandatory; preserve original reference and fresh admission.
 - Blocker: none
 
 ### M4.2 - Prediction correction and effects

@@ -1,0 +1,42 @@
+# First replay queue native attempt
+
+2026-10-27. Astra integration; base HEAD `236de3ecde07323b6147301aa913ff201c055698`, branch `feat/rollback-validation-audit`. The initial worktree was clean and origin matched. [Ledger](../milestones/README.md) owns status. This continues the [accepted queue candidate and refused attempt](2026-10-26-replay-queue.md). Raw evidence is retained in `artifacts/local/replay-queue-20261027/`; the original packet remains preserved.
+
+## Decision and identity
+
+Attempt the already-reviewed experiment with fresh post-identity capacity admission. Disabled 500R/0S must pass all gates before enabled 500R/exactly two depth-one replay runs. Refusal, divergence or incomplete accounting stops this batch. No runtime or analyzer revisions were made; the accepted 74 tests, revision-2 source reviews, build and prior refusal reviews are reused within their unchanged scope.
+
+`preparation.json` verifies all 297 normalized sources, digest `7b680a9deddb92450d1b3d1a8e6ac10541b367b28c02a10cbf09872fdad68848`, all eight package files and deployed binaries. Executable SHA-256 remains `9be796f3f7ef7ed4d78428ce5489127f816d6591592303f8ec41b7c26543c0b2`. The prior frozen raw-file differences are precisely the four accepted result documents. Package `artifacts/local/runtime-replay-queue/package` is reused without rebuilding. The existing deployed build copy is reused after verifying the prior attempt never launched; its mutable cache remains outside immutable identity claims.
+
+The new packet gives both arms fresh full labels and disposable userdata while retaining the admission adapter's exact arm basenames. Launcher, identity and admission helpers are byte-identical copies. Planned command differences are restricted to new packet paths; deployed build path and all fixture settings remain unchanged. Keep original tape/reference, seed 1, verify 2, skip/lite 0, MEM_KEEP 0 and clock probe off. Enabled uses SIM `120,1,60`, LS 1 and restore verification 1; disabled uses SIM/LS/restore verification 0. Native trials are serialized under the exclusive lease through exit; no restart or system configuration change was performed.
+
+## Disabled control
+
+`run_queue-disabled.py` exited 0 in 108.328 seconds. Fresh post-identity admission observed 25,521,815,552 / 25,514,102,784 bytes available commit and 15,631 / 15,653 MiB physical memory, with no excluded processes. Samples were 16.0416 seconds apart; launch age was 0.9055 seconds and committed-byte drift was 7,712,768 bytes. All unchanged admission limits passed.
+
+The fatal gate and sealed original-reference comparison pass: 500 real frames, no replay, identical diagnostic fighter telemetry. The separate menu/RNG fixture is comparable (91 ticks, consumption 78, post-confirm consumption 20, owner seed `b77b0413`). Full post-run immutable identity has no differing fields; only userdata and the declared graphics cache are mutable. No queue-probe records were emitted. `queue-disabled/complete-gates.json` records the driver and separate gates; this is a bounded disabled control, not gameplay qualification.
+
+## Enabled control and decisive observation
+
+Only after every disabled gate passed, `run_queue-observer.py` ran with fresh userdata and full prelaunch identity. It exited 0 in 115.063 seconds. Admission observed 26,167,910,400 / 26,140,454,912 bytes available commit (24.3708 / 24.3452 GiB), 16,296 / 16,300 MiB physical, no excluded processes, 16.0395-second sample spacing, 0.9204-second launch age and 27,455,488-byte committed drift. The lease covered native exit. Fatal, sealed trace and original-reference checks pass: 500R and exactly two one-frame replay runs. Separate fixture comparability and full post-identity pass unchanged.
+
+The first analyzer invocation mistakenly supplied `game.log`; its missing-envelope failure is retained in `queue-analysis.json`, `queue-analysis.log` and `complete-gates.json`. The observer's `LOG` output is in the commanded `SSBU_R1_LOG`, `r1.log`. Running the unchanged analyzer on that existing file exits 0 and writes `queue-analysis-r1-log.json`. `complete-gates-corrected.json` explicitly reconciles the input-path error without overwriting the failure, changing the analyzer or rerunning a native arm. This was a wrong-input analysis failure, not missing native receipts.
+
+The 133 published records end with errors=0, no active producer/consumer, no pending completion and stage=4. Original and restored starts both have P=`1f8d`, C=`1f8b`, occupancy 2 and matching slot payloads. Complete accounting covers original 118-to-119 and replay through held recapture:
+
+- Original: 11 attempts, 6 committed enqueues, 5 full rejections, 4 confirmed dequeues; endpoint P=`1f93`, C=`1f8f`, occupancy 4.
+- Replay: the same 11 attempt payloads, 5 committed enqueues, 6 full rejections, 4 confirmed dequeues; endpoint P=`1f92`, C=`1f8f`, occupancy 3.
+
+Every attempted/consumed payload is `00000000,43200000,00000000,43c00000,00000000,43200000,00000000,43c00000`. Actual submission dispatch remains target `710398bc70`, queue context `710529b840`; actual sink remains `710373e620`, context zero, including all held boundaries. The latter is the bare-return sink identified in the preceding source investigation. Stable producer and consumer actor/Ctx identities are distinct. SignalEvent-tail receipts witness committed P; callback returns have separate subsequent C+1 confirmations. FIFO, modulo-32 increments, all four held slots, restored-start equality and operation/generation completeness pass. The sole gap record is the load-preparation boundary, not an unaccounted queue operation.
+
+The eleventh decision differs. Original's fourth dequeue is confirmed at event 52 before attempts ten/eleven; event 59 commits the eleventh enqueue. Replay's eleventh attempt is rejected at event 123 with P=`1f92`, C=`1f8e` (full); its fourth dequeue is confirmed later at event 127, before recapture. Equal total dequeue counts therefore conceal different service ordering. This establishes the bounded queue bookkeeping cause: equal submission sequences encounter different available capacity because consumer progress occurs at different positions. It does not identify the timer/event mechanism causing that ordering, prove uninstrumented scheduling, or establish a gameplay effect from this no-op sink.
+
+## Disposition, limits and next proof
+
+The native batch stops at this accounted divergence. M1.11's bounded investigation acceptance is met; formal M4.1, integrated capture/restore controls, authoritative state coverage, native lifetime/quiescence and broader fixtures remain open. No runtime correction, event reset, clock replacement, worker scheduling policy or page exclusion follows from this result alone.
+
+Next bounded work is M1.12: trace the differing enqueue decision/cursors and consumer timing/event state into actual readers and externally visible effects, including aliases and effective lifted-register behavior. Establish a supported correction boundary or a narrowly justified noninterference classification, then select the next authoritative divergence or integrated proof. A no-op sink alone cannot justify excluding the queue or changing clock semantics. Any runtime revision requires a new frozen package and its own disabled control before fresh enabled proof; preserve original reference/fixture, all admission limits and stop conditions.
+
+Both complementary independent read-only result reviews accept the frozen result with no blockers. Returned and live selections match `codex / gpt-6.1-sol / reasoningEffort=max`. Each verified all 1,034 frozen raw hashes and 297 normalized sources; the invariants review independently reconciled operation tokens and commitment ordering, while the consistency review independently checked identities, admission, traces, fixture and scope. Receipts are `review-invariants-result-r1.json` and `review-consistency-result-r1.json`; accepted unchanged source evidence is reused. `tools/check_project_docs.py` and `git diff --check` pass.
+
+Retro: the protocol investigation suggested `game.log` for analysis, but production queue `LOG` records go to `r1.log`. Preserve both reports and name the actual output channel explicitly in future briefs; no instrumentation expansion is needed. The current full-identity-then-admission sequence successfully admitted both arms without weakening reserves or changing the host.

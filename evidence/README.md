@@ -148,3 +148,7 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 - [Replay consumers and queue capacity](2026-10-26-replay-consumers.md): effective SDK conversion leaves clock-derived scratch registers despite a discarded nominal result; retained queue counters conditionally change enqueue acceptance. No native rejection or gameplay qualification claimed.
 
 - [Replay queue accounting candidate](2026-10-26-replay-queue.md): reviewed observer and analyzer, 74 source/analyzer tests and new package; disabled control refused before launch on commit capacity. Native accounting and both controls remain unrun.
+
+## 2026-10-27
+
+- [Native replay queue accounting](2026-10-27-replay-queue.md): unchanged package passes disabled/enabled native gates; equal eleven submissions encounter different accept/full decisions with fully confirmed dequeues. Consumer progress ordering explains bounded bookkeeping divergence; no-op sink does not establish gameplay impact.
