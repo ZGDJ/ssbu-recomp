@@ -152,3 +152,5 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 ## 2026-10-27
 
 - [Native replay queue accounting](2026-10-27-replay-queue.md): unchanged package passes disabled/enabled native gates; equal eleven submissions encounter different accept/full decisions with fully confirmed dequeues. Consumer progress ordering explains bounded bookkeeping divergence; no-op sink does not establish gameplay impact.
+
+- [Queue consequences and continuation](2026-10-27-queue-consequences.md): scoped no-op sink and conditional scratch survival, exact-source O1/O3 proof and accepted complementary reviews; next identify actual audio callback/full Ctx.

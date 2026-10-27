@@ -1,0 +1,31 @@
+# Queue consequences and producer continuation
+
+2026-10-27. Astra integration with complementary Codex GPT-6.1-Sol/max investigations and independent reviews. Base HEAD `a955781529584f81ad85ae1dcf7a25d4f12440a4`. [Ledger](../milestones/README.md) owns status. Raw packet: `artifacts/local/queue-consequences-20261027/`. This extends the [native queue accounting](2026-10-27-replay-queue.md) without runtime edits or another native trial.
+
+## Classification and decision
+
+The extra original enqueue remains pending at held recapture; both intervals completed four identical bare-return sink calls. No extra completed effect or permanent callback loss was observed. A further identical submission without intervening consumption could reject in original and accept in replay, equalizing P. This conditional consequence is not a recorded later event.
+
+The producer has no explicit accept/full return status. Its caller overwrites the observed x0 address difference, x8/x9 and flags before meaningful use. Acceptance can nevertheless change x10-x12; caller-saved ABI labels do not establish noninterference in the lifted whole-Ctx execution model. Effective lifted acosf overwrites x10 but can preserve x11/x12 to the unresolved indirect audio edge `7103964b9c`. Alternate edge `7103964ddc` converges on tested positive copy paths but can retain scratch when the copy product is zero. The tested optional-callback-disabled paths converge at `710398b708`.
+
+Prior acceptance of the same payload can already prime scratch identically: complete Ctx then agrees at the first edge. The retained native run does not record full scratch or these audio callback identities. Thus source evidence establishes a possible channel, not native scratch inequality or a downstream gameplay effect. The actual queue sink only updates diagnostic Ctx.fn and returns. Static reader/alias searches found no additional direct sink replacement or gameplay reader, but do not exclude dynamic aliases, other queues or lifecycle changes. Filter state shares the page; no page-wide exclusion follows.
+
+The consumer independently paces a sweep of eight queues at roughly 5 ms. Its clocks are not reads of the previously attributed main-loop stamp. The manual-clear event latches signals; unequal signal counts do not imply unequal final event bits. Current prepared restoration requires the matching wait signature/SP, but does not reconstruct host event state or kernel timer deadlines. Existing confirmation ticks show paced service in both intervals without identifying the cause of changed ordering. No additional queue or suspension-ownership invariant violation was established. Event clearing, clock replacement and worker scheduling changes remain unjustified.
+
+## Exact-source validation and limits
+
+`continuation-proof/run_proof.py` reuses the exact producer, extracts the caller continuation and audio helper prologues, and uses effective lifted acosf/sqrtf plus actual runtime helpers and SignalEvent Ctx semantics. Controlled event lookup has no concurrent waiters; unknown audio callees stop before dispatch without invented returns. The source cut and feasible controlled entry alternatives do not establish full predecessor/native reachability.
+
+Final receipt `continuation-proof/run-20261027T214412296004Z/result.json`: 23 paired cases at each of O1/O3 (46 pairs, 92 single-arm executions), plus six required negative rejections. Equal complete entry Ctx and initialized memory differ only at the consumer cursor to select occupancy three/four. Full-Ctx, producer-byte, sequential memory, branch and semantic-import oracles pass. Nonqueue writes and semantic inputs agree across the tested segment; queue effects/signals intentionally differ. Distinguishable payloads, primed controls, repeated decisions, wrap and copy alternatives prevent trivial equality claims. Wrong payload interleaving, scratch normalization and handwritten-math substitution are rejected.
+
+Development failures and superseded runs remain retained, including wrong extraction path, missed math coverage, an invalid automatic-Ctx/longjmp lifetime fixture and subsequently tightened entry conditions. Final Ctx resides in static Result storage. No superseded run is used as final proof. Commands use `deps/python/Scripts/python.exe -I`; `inspect_proof.py`, `coverage.json` and `packet-manifest.json` retain decoder, scope and provenance. Private generated sources remain ignored.
+
+Both complementary independent read-only reviews accept with no blockers; returned selections are Codex/gpt-6.1-sol/reasoningEffort=max. Each verified all 1,086 files frozen by `freeze-review-r1.json`. The proof reviewer independently checked nine extractions, translation/constants/compiler/negative variants, all 46 paired binary receipts and 1,612 complete Ctx snapshots. The ownership reviewer checked bindings, alias/timing limits and proposed next proof. Accepted unchanged 74 observer/analyzer tests and native accounting were reused; no runtime build or native experiment occurred.
+
+## Next proof
+
+M1.12 closes this scoped classification and selection of a discriminating proof. M1.13 must capture the actual first reachable audio target/context and complete Ctx after LR setup, correlated with producer ordinal/decision, actor and original/replay generation. Then trace surviving scratch to its first use or definition in that actual callee. Missing records remain inconclusive; convergence closes only the observed channel/invocation. A scratch difference alone is not an effect. Broader timing instrumentation is deferred unless needed to choose a correction boundary.
+
+Any observer revision needs frozen source, complementary reviews, a new package, its own disabled control, then separately admitted enabled proof. Preserve original reference/fixture, fresh userdata/labels, fatal/sealed traces, separate menu/RNG and full identity gates, all capacity/lease requirements and batch stop rules. M4.1, authoritative coverage and integrated controls remain open.
+
+Retro: the exact continuation proof avoided a premature native timing expansion. Effective handler binding and full-Ctx checks matter; nominal ABI assumptions and identical repeated payloads can hide surviving scratch. No runtime policy change was selected.

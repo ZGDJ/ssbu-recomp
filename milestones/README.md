@@ -24,7 +24,7 @@ Private-network direction: [ADR-0008](../adr/0008-private-pair-sessions.md) and 
 
 See [goal-alignment audit](../evidence/2026-10-22-proof-first-alignment.md) and the workflow's outcome-first packet rule. This is ordering guidance, not a second status ledger.
 
-1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. M1.11 now accounts for first-interval queue divergence: identical submissions, different accept/full decisions and differently ordered confirmed consumer progress, with stable no-op sink/context (evidence/2026-10-27-replay-queue.md). M1.12 next classifies downstream effects and timing/event ownership before selecting a supported correction or the next authoritative divergence. No clock/event policy change or page exclusion is justified yet. Reuse passed unchanged-package disabled/enabled controls; any runtime revision needs new-binary controls, original comparable fixture/reference and fresh admission. M3.5 remains independent.
+1. Preserve existing runtime changes, candidate identities and failed controls; reconcile active ownership before editing. M7.8, M7.1, M7.3 and M7.2 bounded source acceptance are complete. M1.11 now accounts for first-interval queue divergence: identical submissions, different accept/full decisions and differently ordered confirmed consumer progress, with stable no-op sink/context (evidence/2026-10-27-replay-queue.md). M1.12 classifies a possible producer scratch channel without proving a native effect. M1.13 next identifies the actual reachable audio continuation and its scratch use. No clock/event policy change or page exclusion is justified yet. Reuse passed unchanged-package disabled/enabled controls; any runtime revision needs new-binary controls, original comparable fixture/reference and fresh admission. M3.5 remains independent.
 2. For M3.5, reuse the completed battle-initialization ownership audit, menu RNG attribution and fixture comparability contract. Preserve the deferred uninstrumented repeat without prioritizing it over M7.1. Its old package requires matching isolated source after current runtime changes. Network initialization has separate path-specific evidence obligations; it is not a blanket prerequisite for offline progress. Return to controlled save/restore/correction as its prerequisites become available.
 3. M1.1, M1.4, M1.2 and M1.3 are complete within their recorded acceptance; reuse their manifests, cache tooling, offline fixture and hook identity checks. Use the completed M6.1 fixture selections for subsequent gameplay coverage. Formal M2.1 still requires M7.1/M7.8; completed source hooks do not prove loaded execution.
 4. Reuse M7.8/M7.1/M7.3/M7.2 completed source acceptance; resume pending integrated capture/restore controls after the current divergence investigation permits them and fresh admission passes. Preserve the M7.1 initial-base publication correction and keep protection=177 origin distinct. Source acceptance does not qualify native restoration or terminal gameplay.
@@ -280,14 +280,25 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Blocker: none
 
 ### M1.12 - Classify queue divergence consequences
-- Status: todo
+- Status: done
 - Depends: M1.11
 - Size: 3
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: none
+- Evidence: evidence/2026-10-27-queue-consequences.md
 - Acceptance: Trace differing enqueue decisions/cursors and consumer timing/event state to actual readers and effects, retaining indirect aliases and effective lifted-register behavior. Establish a supported correction boundary or scoped noninterference classification and select the next authoritative divergence/native proof. No-op sink alone cannot justify page exclusion or clock/event policy changes.
+- Owner: Astra integrator with complementary GPT-6.1-Sol/max investigators, 2026-10-27T21:18:57.726201+00:00
+- Next: Both complementary independent Sol/max reviews accept scoped sink/continuation classification and 23 paired exact-source cases at O1/O3 with six negative rejections. Scratch can survive to unresolved audio callbacks, while prior identical-payload acceptance can erase it. No native scratch inequality or gameplay effect is established. M1.13 owns actual callback identity/full-Ctx observation; preserve queue state and defer clock/event policy changes.
+- Blocker: none
+
+### M1.13 - Identify the reachable audio continuation
+- Status: todo
+- Depends: M1.12
+- Size: 3
+- Requirement: FSD-004, FSD-005, FSD-012
+- Evidence: none
+- Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
 - Owner: unassigned
-- Next: Reuse complete native accounting and stable bare-return sink in evidence/2026-10-27-replay-queue.md. Bound source work to downstream consequences and ownership; distinguish proven bookkeeping cause from the unproven timer/event cause of service ordering. Any runtime revision requires a new reviewed package and disabled control, then original-reference/fixture/full-identity enabled proof with fresh admission.
+- Next: Use evidence/2026-10-27-queue-consequences.md and the exact continuation cut. Bound observation to reachable edges 7103964b9c/7103964ddc; do not repeat queue accounting as a substitute. Any runtime revision requires new frozen/reviewed package and own disabled control before enabled proof with original reference/fixture, fresh admission and full identity.
 - Blocker: none
 
 ## M2 - Controlled simulation
