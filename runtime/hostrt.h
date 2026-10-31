@@ -73,5 +73,6 @@ void r1_queue_dispatch_exit(const Ctx *c,long token);
 void r1_queue_signal(const Ctx *c,int sym);
 void r1_queue_tick(const Ctx *c);
 void r1_queue_init(void);
+#include "audio_continuation.h"
 
 #endif

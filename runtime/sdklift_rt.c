@@ -145,9 +145,18 @@ static const char *sdk_name_of(uint64_t addr, uint64_t *offset) {
     return best;
 }
 
-void sdk_dispatch(Ctx *c, uint64_t addr) {
+void sdk_dispatch_observed(Ctx *c, uint64_t addr,AudioTicket audio) {
     if (addr >= SDK_BASE && addr < SDK_BASE + SDK_IMAGE_SIZE) {
         const SdkFn *f = find_fn(addr);
+        ImportFn selected=f?f->fn:NULL;
+        if(audio) {
+            DWORD error=GetLastError();AudioBinding b={0};
+            b.family=AB_SDK;b.status=selected?AB_RAW:AB_MISSING;b.guest=addr;b.fn=(uintptr_t)(void *)selected;
+            b.owner=(uintptr_t)sdk_fns;b.base=SDK_BASE;b.size=SDK_IMAGE_SIZE;b.loaded=g_ready;
+            if(f){b.index=(uint64_t)(f-sdk_fns);b.sdk_addr=f->addr;b.sdk_matches=1;
+                audio_binding_name(&b,f->name);}
+            r1_audio_binding(c,audio,&b);SetLastError(error);
+        }
         if (!f) {
             uint64_t off;
             const char *n = sdk_name_of(addr, &off);
@@ -156,10 +165,20 @@ void sdk_dispatch(Ctx *c, uint64_t addr) {
                    (unsigned long long)c->fn, (unsigned long long)(addr - SDK_BASE), n, (unsigned long long)off, (unsigned long long)(addr - SDK_BASE));
             guest_trap("indirect call to an SDK function that was not lifted", addr);
         }
-        f->fn(c);
+        selected(c);
         return;
     }
     call_indirect(c, addr);
+}
+
+void sdk_dispatch(Ctx *c,uint64_t addr) { sdk_dispatch_observed(c,addr,0); }
+void sdk_audio_import_binding(AudioBinding *b,ImportFn fn) {
+    if(!g_ready || !fn)return;
+    for(int i=0;i<sdk_fn_count;i++)if(sdk_fns[i].fn==fn) {
+        b->sdk_matches++;b->sdk_addr=sdk_fns[i].addr;b->owner=(uintptr_t)sdk_fns;
+        b->base=SDK_BASE;b->size=SDK_IMAGE_SIZE;b->loaded=g_ready;
+    }
+    if(b->sdk_matches>1)b->status=AB_AMBIGUOUS;
 }
 
 /* Host handlers for SDK-internal callees that are cut (`cut <name>` in sdklift_roots.txt) and are not

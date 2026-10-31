@@ -374,11 +374,13 @@ void icall_dump(FILE *out, uint64_t main_ctx) {
                     (unsigned long long)g_icall[i].x0, (unsigned long long)g_icall[i].x1, (unsigned long long)g_icall[i].x2);
 }
 
-static void call_indirect_body(Ctx *c, uint64_t addr) {
+static void host_import_observed(Ctx *,int,AudioTicket);
+static void call_indirect_body(Ctx *c, uint64_t addr, AudioTicket audio) {
     if (g_icall_mode) icall_record(c, addr);
     if (addr - GUEST_BASE < IMAGE_SIZE) {            /* P3: the common case first (a function of main); the ranges tested below do not overlap it */
         void (*fn)(Ctx *) = lookup_guest(addr);
-        if (!fn) guest_trap("indirect call to an address that is not a known function", addr);
+        r1_audio_selected(c,audio,AB_MAIN,addr,fn,NULL,NULL,0,0,NULL);
+    if (!fn) guest_trap("indirect call to an address that is not a known function", addr);
         fn(c);
         return;
     }
@@ -393,28 +395,36 @@ static void call_indirect_body(Ctx *c, uint64_t addr) {
         uint64_t saved_from = c->import_from;
         c->in_import = g_hostfn[i].name;             /* so thread dumps can name the host function */
         c->import_from = c->x[30] - 4;
-        if (g_hostfn[i].fnu) g_hostfn[i].fnu(c, g_hostfn[i].user); else g_hostfn[i].fn(c);
+        if (audio) {
+            ImportFn fn=g_hostfn[i].fn;
+            void (*fnu)(Ctx *,void *)=g_hostfn[i].fnu;void *user=g_hostfn[i].user;
+            r1_audio_selected(c,audio,AB_HOST,addr,fn,fnu,user,(uint64_t)i,(addr-HOSTFN_BASE)%16,g_hostfn[i].name);
+            if(fnu)fnu(c,user);else fn(c);
+        } else if (g_hostfn[i].fnu) g_hostfn[i].fnu(c, g_hostfn[i].user); else g_hostfn[i].fn(c);
         c->in_import = saved_name;
         c->import_from = saved_from;
         return;
     }
     if (addr >= IMPORT_BASE && addr < IMPORT_BASE + (uint64_t)dyn_sym_count * IMPORT_SLOT) {
-        host_import(c, (int)((addr - IMPORT_BASE) / IMPORT_SLOT));
+        host_import_observed(c, (int)((addr - IMPORT_BASE) / IMPORT_SLOT),audio);
         return;
     }
-    if (nro_call_indirect(c, addr)) return;          /* a function of a run-time module (nnro.c) */
-    if (addr >= 0x7500000000ULL && addr < 0x7500cfb000ULL) { sdk_dispatch(c, addr); return; }   /* lifted SDK code (sdklift_rt.c), e.g. a vtable entry of an SDK object */
+    if (nro_call_indirect_observed(c, addr,audio)) return;          /* a function of a run-time module (nnro.c) */
+    if (addr >= 0x7500000000ULL && addr < 0x7500cfb000ULL) { sdk_dispatch_observed(c, addr,audio); return; }   /* lifted SDK code (sdklift_rt.c), e.g. a vtable entry of an SDK object */
     void (*fn)(Ctx *) = lookup_guest(addr);
+    r1_audio_selected(c,audio,AB_MAIN,addr,fn,NULL,NULL,0,0,NULL);
     if (!fn) guest_trap("indirect call to an address that is not a known function", addr);
     fn(c);
 }
 
 void call_indirect(Ctx *c,uint64_t addr) {
     DWORD error=GetLastError();
+    AudioTicket audio=r1_audio_indirect_enter(c,addr);
     long token=r1_queue_dispatch_enter(c,addr);
     SetLastError(error);
-    call_indirect_body(c,addr);
+    call_indirect_body(c,addr,audio);
     error=GetLastError();
+    r1_audio_indirect_return(c,audio);
     r1_queue_dispatch_exit(c,token);
     SetLastError(error);
 }
@@ -499,6 +509,28 @@ imphk_40, imphk_41, imphk_42, imphk_43, imphk_44, imphk_45, imphk_46, imphk_47,
 imphk_48, imphk_49, imphk_50, imphk_51, imphk_52, imphk_53, imphk_54, imphk_55,
 imphk_56, imphk_57, imphk_58, imphk_59, imphk_60, imphk_61, imphk_62, imphk_63,
 };
+
+void host_audio_require_handlers(void) {
+    static const int indices[]={1401,1884,1887};
+    static const char *names[]={
+        "_ZN2nn2os11SignalEventEPNS0_9EventTypeE",
+        "_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE",
+        "_ZN2nn5audio28GetAudioOutBufferDataPointerEPKNS0_14AudioOutBufferE"};
+    for(unsigned k=0;k<3;k++) {
+        int i=indices[k];
+        if(i>=dyn_sym_count || strcmp(dyn_syms[i].name,names[k]) || !g_handlers[i])
+            guest_trap("audio observer effective checkpoint handler identity",(uint64_t)i);
+    }
+}
+void host_audio_import_binding(AudioBinding *b,int sym) {
+    b->registry=(uint64_t)(uintptr_t)g_handlers;
+    b->index=(uint64_t)sym;
+    for(unsigned i=0;i<IMPHK_N;i++)if(b->fn==(uintptr_t)g_imphk_fn[i]) {
+        b->status=AB_HOOK_UNRESOLVED;b->repl=(uintptr_t)(void *)g_imphk[i].fn;
+        b->hook_user=(uintptr_t)g_imphk[i].user;b->top=i+1;
+    }
+}
+
 static void call_import_fn(Ctx *c, void *fn) { ((ImportFn)fn)(c); }
 typedef struct { void (*fn)(Ctx *, void *); void *user; } HostPrev;
 static void call_host_prev(Ctx *c, void *p) { HostPrev *h = p; h->fn(c, h->user); }
@@ -583,9 +615,9 @@ void guest_freeze_wait(void) { while (g_guest_frozen) Sleep(5); }
  * frame in which they took more than 2 ms a line says how many there were, what they cost, the slowest one (with the text
  * its third argument points at when it is a printable string: the format of a formatting function) and how many different
  * return addresses called it. Off: one compare per import call. */
-static void host_import_real(Ctx *c, int sym);
+static void host_import_real(Ctx *c, int sym,AudioTicket audio,AudioTicket checkpoint);
 static int g_watch_sym = -2;
-void host_import(Ctx *c, int sym) {
+static void host_import_watch(Ctx *c, int sym,AudioTicket audio,AudioTicket checkpoint) {
     DWORD queue_error=GetLastError();
     r1_queue_signal(c,sym);
     SetLastError(queue_error);
@@ -596,7 +628,7 @@ void host_import(Ctx *c, int sym) {
         if (w >= 0) printf("import_watch: watching \"%s\"\n", dyn_syms[w].name);
         g_watch_sym = w;
     }
-    if (sym != g_watch_sym) { host_import_real(c, sym); return; }
+    if (sym != g_watch_sym) { host_import_real(c, sym,audio,checkpoint); return; }
     extern long long nvn_front_frame_next(void);
     static long long cur_frame, n, tks, max_tk, n_all; static char max_txt[72]; static uint64_t max_ra, ras[64]; static int nras; static uint64_t max_x1;
     static volatile LONG lock;
@@ -611,7 +643,7 @@ void host_import(Ctx *c, int sym) {
         }
     }
     QueryPerformanceCounter(&q0);
-    host_import_real(c, sym);
+    host_import_real(c, sym,audio,checkpoint);
     QueryPerformanceCounter(&q1); QueryPerformanceFrequency(&fq);
     long long d = q1.QuadPart - q0.QuadPart, fr = nvn_front_frame_next();
     while (InterlockedExchange(&lock, 1)) YieldProcessor();
@@ -625,7 +657,19 @@ void host_import(Ctx *c, int sym) {
     { int k = 0; for (; k < nras; k++) if (ras[k] == ra) break; if (k == nras && nras < 64) ras[nras++] = ra; }
     InterlockedExchange(&lock, 0);
 }
-static void host_import_real(Ctx *c, int sym) {
+static void host_import_observed(Ctx *c,int sym,AudioTicket audio) {
+    AudioTicket checkpoint=r1_audio_import_enter(c,sym);
+    host_import_watch(c,sym,audio,checkpoint);
+    /* All early/fast/counted/watched returns have restored temporary metadata. */
+    r1_audio_import_return(c,sym,checkpoint);
+}
+void host_import(Ctx *c,int sym) { host_import_observed(c,sym,0); }
+static void host_import_binding(Ctx *c,int sym,ImportFn fn,AudioTicket audio,AudioTicket checkpoint) {
+    uint64_t addr=IMPORT_BASE+(uint64_t)sym*IMPORT_SLOT;
+    r1_audio_selected(c,audio,AB_IMPORT,addr,fn,NULL,NULL,(uint64_t)sym,0,dyn_syms[sym].name);
+    r1_audio_selected(c,checkpoint,AB_IMPORT,addr,fn,NULL,NULL,(uint64_t)sym,0,dyn_syms[sym].name);
+}
+static void host_import_real(Ctx *c, int sym,AudioTicket audio,AudioTicket checkpoint) {
     static volatile LONG order_count;
     if (g_guest_frozen) guest_freeze_wait();
     if (!g_import_count_all && g_import_calls[sym] >= 3 && g_handlers[sym]) {
@@ -633,7 +677,11 @@ static void host_import_real(Ctx *c, int sym) {
         uint64_t saved_from = c->import_from;
         c->in_import = dyn_syms[sym].name;
         c->import_from = c->x[30] - 4;
-        g_handlers[sym](c);
+        if(audio || checkpoint) {
+            ImportFn selected=g_handlers[sym];
+            host_import_binding(c,sym,selected,audio,checkpoint);
+            selected(c);
+        } else g_handlers[sym](c);
         c->in_import = saved_name;
         c->import_from = saved_from;
         if (g_guest_frozen) guest_freeze_wait();
@@ -654,6 +702,7 @@ static void host_import_real(Ctx *c, int sym) {
     uint64_t saved_from = c->import_from;
     c->in_import = dyn_syms[sym].name;
     c->import_from = c->x[30] - 4;
+    host_import_binding(c,sym,fn,audio,checkpoint);
     if (fn) fn(c);
     else {
         /* No handler: the symbol belongs to a module that is not loaded (the script modules bind theirs at nn::ro::LoadModule)

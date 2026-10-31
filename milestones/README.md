@@ -291,15 +291,15 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Blocker: none
 
 ### M1.13 - Identify the reachable audio continuation
-- Status: todo
+- Status: in_progress
 - Depends: M1.12
 - Size: 3
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: none
+- Evidence: evidence/2026-10-31-audio-continuation.md
 - Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
-- Owner: unassigned
-- Next: Use evidence/2026-10-27-queue-consequences.md and the exact continuation cut. Bound observation to reachable edges 7103964b9c/7103964ddc; do not repeat queue accounting as a substitute. Any runtime revision requires new frozen/reviewed package and own disabled control before enabled proof with original reference/fixture, fresh admission and full identity.
-- Blocker: none
+- Owner: Astra integrator / reachable audio continuation, 2026-10-31T15:18:03.2766431Z
+- Next: Correct impossible checkpoint-import Ctx.fn predicate and fixtures using actual thunk semantics; preserve audio-helper checks. New package requires its own disabled/enabled controls. Raw producer x10-x12 inequality at ordinals 7-11 is not callback identity or effect; trace actual continuation to first use/definition.
+- Blocker: Native observer AP_FRAME=16 from thunk-fn assumption; positive region/audio coverage missing. Stopped batch retained; no rerun. Body lifetime and callback pairing remain unresolved.
 
 ## M2 - Controlled simulation
 

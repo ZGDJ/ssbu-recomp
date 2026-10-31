@@ -28,13 +28,16 @@ static DWORD tid=101;
 static int g_nth=2,g_rg_kept,installs,original_calls,callback_calls,signal_calls;
 static struct { HANDLE h; int held; } g_th[2];
 static Ctx producer,consumer,foreign;
-static unsigned char input_stack[4096];
+static unsigned char input_storage[8192];
+#define input_stack (input_storage+64)
 static char signal_name[96]="_ZN2nn2os11SignalEventEPNS0_9EventTypeE";
-const DynSym dyn_syms[1403] = {
-    [42]={"fixture_callback",0,0}, [43]={"fixture_other",0,0}, [1401]={signal_name,0,0}
+const DynSym dyn_syms[1890] = {
+    [42]={"fixture_callback",0,0}, [43]={"fixture_other",0,0}, [1401]={signal_name,0,0},
+    [1884]={"_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE",0,0},
+    [1887]={"_ZN2nn5audio28GetAudioOutBufferDataPointerEPKNS0_14AudioOutBufferE",0,0}
 };
-const int dyn_sym_count=1403;
-static char log_text[1024*1024];
+const int dyn_sym_count=1890;
+static char log_text[2*1024*1024];
 static size_t log_length;
 static int log_count,query_reads;
 static void fixture_producer(Ctx *c);
@@ -56,25 +59,32 @@ static void r1_hold_fatal(const char *s) { fprintf(stderr,"fixture refusal: %s\n
 void hook_install_queue_probe(void (*hook)(Ctx *,void *),ImportFn *orig) {
     installs++; installed_hook=hook; *orig=fixture_producer;
 }
+static void (*log_inject)(void);
 static int fixture_log(const char *fmt,...) {
     assert(!g_rg_kept && !g_th[0].held && !g_th[1].held);
     va_list ap;va_start(ap,fmt);
     int n=vsnprintf(log_text+log_length,sizeof log_text-log_length,fmt,ap);va_end(ap);
     assert(n>=0 && (size_t)n<sizeof log_text-log_length);log_length+=(size_t)n;log_count++;
+    if(log_inject && strstr(fmt,"AUDIO_CONTINUATION_END")){void (*f)(void)=log_inject;log_inject=NULL;f();}
     SetLastError(0xbad);
     return n;
 }
 #define LOG fixture_log
+void hook_require_audio_sites(void) {}
+void hook_audio_binding(AudioBinding *b) { (void)b; }
+void sdk_audio_import_binding(AudioBinding *b,ImportFn fn) { (void)b;(void)fn; }
 /* QUEUE_OBSERVER_SOURCE */
+/* AUDIO_OBSERVER_SOURCE */
 
+static int audio_fixture_regions,audio_fixture_log_identity;
 static int g_icall_mode,g_hostfn_count=2,t_hostfn;
 static LONG64 g_hostfn_seq;
 static struct {char name[72];ImportFn fn;volatile LONG64 calls;LONG64 first;
     void (*fnu)(Ctx *,void *);void *user;} g_hostfn[2];
 static int g_watch_sym=-1,g_guest_frozen,g_import_count_all,g_import_order_count;
-static uint64_t g_import_calls[1403],g_trace_seq;
-static int g_import_order[1403],*g_import_open;
-static ImportFn g_handlers[1403];
+static uint64_t g_import_calls[1890],g_trace_seq;
+static int g_import_order[1890],*g_import_open;
+static ImportFn g_handlers[1890];
 static void icall_record(Ctx *c,uint64_t address) { (void)c;(void)address; }
 static int audit_path_hostfn(const char *name) { (void)name;return 0; }
 static void audit_path_hit(const char *kind,const char *name,uint64_t from) { (void)kind;(void)name;(void)from; }
@@ -84,8 +94,11 @@ void guest_trap(const char *what,uint64_t address) {
     fprintf(stderr,"unexpected trap: %s %llx\n",what,(unsigned long long)address);exit(75);
 }
 static void guest_freeze_wait(void) { assert(0); }
+static void audio_body(Ctx *c);
+static void audio_hook_adapter(Ctx *c) { qp_producer_hook(c,NULL); }
 static ImportFn lookup_guest(uint64_t addr) {
-    if(addr==PRODUCER)return fixture_producer;
+    if(addr==0x7101000100ULL || addr==0x7600009990ULL)return audio_body;
+    if(addr==PRODUCER)return audio_fixture_log_identity?audio_hook_adapter:fixture_producer;
     if(addr==SINK_TARGET || addr==FALLBACK_CALLBACK)return fixture_callback;
     return NULL;
 }
@@ -94,11 +107,19 @@ static int nro_call_indirect(Ctx *c,uint64_t address) {
 }
 static void sdk_dispatch(Ctx *c,uint64_t address) { assert(address==SDK_CALLBACK);fixture_callback(c); }
 long long nvn_front_frame_next(void) { return 119; }
-static void host_import_real(Ctx *c,int sym);
+static void host_import_real(Ctx *c,int sym,AudioTicket,AudioTicket);
+#define IMPHK_N 1
+static ImportFn g_imphk_fn[IMPHK_N];
+static struct {void (*fn)(Ctx *,void *);void *user;} g_imphk[IMPHK_N];
+static void host_import_binding(Ctx *,int,ImportFn,AudioTicket,AudioTicket);
+static void host_import_watch(Ctx *,int,AudioTicket,AudioTicket);
 static BOOL fixture_qpc(LARGE_INTEGER *n) { n->QuadPart=123;return 1; }
 static BOOL fixture_qpf(LARGE_INTEGER *n) { n->QuadPart=1000;SetLastError(444);return 1; }
 #define QueryPerformanceCounter fixture_qpc
 #define QueryPerformanceFrequency fixture_qpf
+static void host_import_observed(Ctx *,int,AudioTicket);
+int nro_call_indirect_observed(Ctx *c,uint64_t a,AudioTicket t) { (void)t;return nro_call_indirect(c,a); }
+void sdk_dispatch_observed(Ctx *c,uint64_t a,AudioTicket t) { (void)t;sdk_dispatch(c,a); }
 /* DISPATCH_SOURCE */
 /* IMPORT_SOURCE */
 static void host_clock_caller(const char *what,uint64_t lr) { (void)what;(void)lr; }
@@ -176,7 +197,8 @@ static void fixture_producer(Ctx *c) {
     if(behavior==DOUBLE_SIGNAL) { r1_queue_signal(c,1401);SetLastError(RESULT_ERROR); }
 }
 static void submit(unsigned seed) {
-    tid=101;prepare_producer(&producer,seed);SetLastError(ENTRY_ERROR);qp_producer_hook(&producer,NULL);
+    tid=101;prepare_producer(&producer,seed);SetLastError(ENTRY_ERROR);
+    if(audio_fixture_log_identity)call_indirect(&producer,PRODUCER);else qp_producer_hook(&producer,NULL);
     assert(GetLastError()==RESULT_ERROR);
 }
 static void consume(int commit,int checkpoint) {
@@ -211,6 +233,9 @@ static void start(void) {
 }
 static void finish(void) { held(1);qp_capture(119);assert(g_qp_stage==2);held(0); }
 
+static void audio_begin(int);
+static void audio_edge(unsigned,uint64_t);
+static void audio_end(void);
 static void complete(void) {
     qp_init();submit(1);consume(1,1);wr32(QP_Q+4,0xfffffffc);wr32(QP_Q+8,0xfffffffc);
     submit(10);submit(11);assert(!g_qp_count && !g_qp_errors);
@@ -219,6 +244,7 @@ static void complete(void) {
     assert(!memcmp(base,(void *)(uintptr_t)QP_Q,sizeof base));held(0);
     for(int pass=0;pass<2;pass++) {
         int stage=pass?3:1;
+        if(audio_fixture_regions)audio_begin(0);
         submit(20);assert_payload(last_event(1),20);assert_payload(last_event(2),20);
         submit(21);assert_payload(last_event(1),21);assert_payload(last_event(2),21);
         submit(22);assert_payload(last_event(1),22);
@@ -232,6 +258,7 @@ static void complete(void) {
         }
         assert(g_qp_consumer.pending && rd32(QP_Q+4)==0 && rd32(QP_Q+8)==0);
         unsigned char end_bytes[0x240];memcpy(end_bytes,(void *)(uintptr_t)QP_Q,sizeof end_bytes);
+        if(audio_fixture_regions){audio_edge(1,HOSTFN_BASE);audio_edge(2,HOSTFN_BASE);audio_end();}
         held(1);qp_capture(119);assert(!memcmp(end_bytes,(void *)(uintptr_t)QP_Q,sizeof end_bytes));
         assert(!g_qp_consumer.pending && events(8,stage)==4 && !g_qp_errors);
         assert(events(9,stage)==2 && events(10,stage)==8);
@@ -244,8 +271,8 @@ static void complete(void) {
     assert(g_qp_stage==4);
     /* Every boundary includes callback/context, pair fields, and all four slots. */
     QpEvent *end=last_event(9);assert(end->value==4 && end->p==0 && end->c==0);
-    assert(end->target==SINK_TARGET && end->arg==0x1234abcd && end->a==0x1111222233334444ULL && end->lr==1);
-    assert(end->b==0x5555666677778888ULL);
+    assert(end->target==SINK_TARGET && end->arg==0x1234abcd && end->a==(audio_fixture_log_identity?PRODUCER:0x1111222233334444ULL) && end->lr==1);
+    assert(end->b==(audio_fixture_log_identity?QP_Q:0x5555666677778888ULL));
     LONG last_original_token=0,first_replay_token=0;unsigned boundary_kind=0;
     for(int i=0;i<g_qp_count;i++) {
         QpEvent *e=&g_qp_events[i];assert(e->ready);
@@ -466,8 +493,10 @@ static void h2_drain(void){
     assert(h2_calls==1 && g_qp_reported && log_count>0 && GetLastError()==RESULT_ERROR);
     assert(!memcmp(&c,&expected,sizeof c));
 }
+/* AUDIO_CASES */
 int main(int argc,char **argv) {
     assert(argc==2);SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);init();const char *mode=argv[1];
+    if(!strncmp(mode,"audio-",6)) {audio_case(mode);printf("QUEUE_SOURCE_PASS %s\n",mode);return 0;}
     if(!strncmp(mode,"bad-",4)) {
         if(!strcmp(mode,"bad-enable"))_putenv("SSBU_RB_QUEUE_PROBE=2");
         else if(!strcmp(mode,"bad-build"))g_game_build=GAME_13_0_4;

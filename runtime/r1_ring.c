@@ -75,6 +75,7 @@ static int g_rgs_on; static long long g_rgv_target; static void rgv_before(int s
 void debug_writer_probe_begin(long long frame, long long target);
 void debug_writer_probe_end(long long frame);
 #include "replay_queue_probe.h"
+#include "replay_audio_probe.h"
 /* costs: capture (all, hold, sweep + queue, copy, fibers / threads / cb), load per k */
 #define RG_NST 65536
 static double *g_rgc[5]; static size_t *g_rgc_pg, *g_rgc_xp; static int g_rgc_n;

@@ -1,5 +1,7 @@
 # Evidence
 
+- [Reachable audio continuation](2026-10-31-audio-continuation.md): new native controls pass; checkpoint fn assumption refuses audio coverage, with bounded producer scratch inequality and exact next proof (M1.13 open).
+
 [Milestones](../milestones/README.md) own status; reports own observations. Use the [template](TEMPLATE.md) and [validation contract](../docs/VALIDATION.md).
 
 Reports should state the engineering decision, the inherited path/invariant examined, the decisive observation and the action it supports. Distinguish source-demonstrated defects, hypotheses, integrated correction results and gameplay qualification. Record why additional instrumentation changes the decision, and preserve original references alongside any explicitly justified fixture treatment.

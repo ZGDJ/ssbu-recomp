@@ -241,10 +241,20 @@ static volatile LONG g_fs_recording, g_fs_replaying;                            
 static int g_fs_hookmode = 0;                                                           /* S3: SSBU_FIGHTER_HOOK=1: source functions are installed as entry hooks (default 0 = the session-2 pointer/import path, until a match has passed with it) */
 
 /* call_indirect: an address in the module area. Returns 0 if the address is not in that area. */
-int nro_call_indirect(Ctx *c, uint64_t addr) {
+int nro_call_indirect_observed(Ctx *c, uint64_t addr,AudioTicket audio) {
     if (addr < NRO_BASE || addr >= NRO_BASE + ((uint64_t)NRO_MAX_SLOTS << NRO_SLOT_SHIFT)) return 0;
     NroModule *m = g_slot[(addr - NRO_BASE) >> NRO_SLOT_SHIFT];
     ImportFn fn = m ? fn_in_table(m->fns, m->fn_count, addr) : NULL;
+    if(audio && ((fn && (g_fs_recording || g_fs_replaying)) ||
+                 (m && m->fighter && (!fn || !g_fs_hookmode)))) {
+        /* The delegated routines select their own bodies internally. Do not
+         * label the nominal lifted entry as the body that actually executes. */
+        DWORD error=GetLastError();AudioBinding b={0};b.family=AB_NRO;b.status=AB_NRO_DELEGATED_UNRESOLVED;
+        b.guest=addr;b.owner=(uintptr_t)m;
+        if(m){b.registry=(uintptr_t)m->fns;b.base=m->info->base;b.size=m->info->image_size;b.loaded=m->loaded;
+            audio_binding_name(&b,m->info->name);memcpy(b.build_id,m->info->build_id,sizeof m->info->build_id);}
+        r1_audio_binding(c,audio,&b);audio=0;SetLastError(error);
+    }
     if (fn && modcov_on()) modcov_mark(m, addr);
     if (fn && (g_fs_recording || g_fs_replaying) && fighter_rec_pointer(c, addr, fn)) return 1;  /* S2: differential test: a call through a function pointer is one event */
     if (fn && m->fighter && !g_fs_hookmode && fighter_dispatch(c, m, addr, fn)) return 1;      /* S1: this script function exists as C++ source (S3: with the hook table the function's own entry does this) */
@@ -252,6 +262,7 @@ int nro_call_indirect(Ctx *c, uint64_t addr) {
      * module (an odd offset: never a function entry); fighter_host.c enters the source function */
     if (!fn && m && m->fighter && fighter_dispatch(c, m, addr, NULL)) return 1;
     if (!fn) {
+        r1_audio_selected(c,audio,AB_NRO,addr,NULL,NULL,NULL,0,0,NULL);
         if (m) {
             printf("\nindirect call to %s+0x%llx, which is not a lifted function entry (called from near 0x%llx, f_%llx)\n",
                    m->info->name, (unsigned long long)(addr - m->info->base), (unsigned long long)c->x[30], (unsigned long long)c->fn);
@@ -259,9 +270,18 @@ int nro_call_indirect(Ctx *c, uint64_t addr) {
         }
         guest_trap("indirect call into a module that is not loaded", addr);
     }
+    if(audio) {
+        DWORD error=GetLastError();AudioBinding b={0};
+        b.family=AB_NRO;b.status=AB_RAW;b.guest=addr;b.fn=(uintptr_t)(void *)fn;
+        b.owner=(uintptr_t)m;b.registry=(uintptr_t)m->fns;b.base=m->info->base;
+        b.size=m->info->image_size;b.loaded=m->loaded;
+        audio_binding_name(&b,m->info->name);memcpy(b.build_id,m->info->build_id,sizeof m->info->build_id);
+        hook_audio_binding(&b);r1_audio_binding(c,audio,&b);SetLastError(error);
+    }
     fn(c);
     return 1;
 }
+int nro_call_indirect(Ctx *c,uint64_t addr) { return nro_call_indirect_observed(c,addr,0); }
 
 /* nnunwind.c: the loaded module that contains pc, with its resume table */
 int nro_unwind_module(uint64_t pc, uint64_t *base, uint64_t *size, const NroResume **tab, int *count, const char **name) {

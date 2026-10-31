@@ -13,7 +13,11 @@ import sys
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("AUDIO_TEST_REPO",str(Path(__file__).resolve().parents[1])))
+SOURCE = Path(os.environ.get("AUDIO_TEST_SOURCE",str(ROOT)))
+def source_path(path):
+    candidate=SOURCE/path
+    return candidate if candidate.is_file() else ROOT/path
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 from run_rollback_tests import resolve_clang
@@ -24,7 +28,7 @@ from test_catch_source import function
 class ReplayQueueSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        parent = ROOT / "artifacts/local/replay-queue-20261026/tests-agent"
+        parent = Path(os.environ.get("AUDIO_TEST_OUTPUT",str(ROOT / "artifacts/local/audio-continuation-tests")))
         parent.mkdir(parents=True, exist_ok=True)
         cls.out = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
         cls.environment = dict(os.environ, TMP=str(cls.out), TEMP=str(cls.out), TMPDIR=str(cls.out))
@@ -32,8 +36,9 @@ class ReplayQueueSourceTests(unittest.TestCase):
         paths = ("runtime/replay_queue_probe.h", "runtime/hostrt.c", "runtime/hostrt.h",
                  "runtime/runtime.h", "runtime/nnsdk.c", "runtime/r1_ring.c",
                  "runtime/r1_state.c", "runtime/boot.c", "runtime/game_data.h",
-                 "tests/replay_queue_source_fixture.c", "tests/test_replay_queue_source.py")
-        source_bytes = {path: (ROOT / path).read_bytes() for path in paths}
+                 "tests/replay_queue_source_fixture.c", "tests/test_replay_queue_source.py",
+                 "runtime/replay_audio_probe.h","runtime/audio_continuation.h","tests/audio_continuation_cases.h")
+        source_bytes = {path: source_path(path).read_bytes() for path in paths}
         cls.sources = {path: body.decode("utf-8").replace("\r\n", "\n") for path, body in source_bytes.items()}
         cls.report = {"started_utc": datetime.now(timezone.utc).isoformat(),
                       "scope": "game-free exact-source observer and wrapper tests; no runtime build or native trial",
@@ -44,10 +49,13 @@ class ReplayQueueSourceTests(unittest.TestCase):
         host = cls.sources["runtime/hostrt.c"]
         replacements = {
             "/* QUEUE_OBSERVER_SOURCE */": cls.sources["runtime/replay_queue_probe.h"],
+            "/* AUDIO_OBSERVER_SOURCE */": cls.sources["runtime/replay_audio_probe.h"],
+            "/* AUDIO_CASES */": cls.sources["tests/audio_continuation_cases.h"],
             "/* DISPATCH_SOURCE */": "\n".join(function(host, name) for name in
                                                   ("call_indirect_body", "call_indirect")),
             "/* IMPORT_SOURCE */": "\n".join(function(host, name) for name in
-                                                ("host_import", "host_import_real")),
+                                                ("host_import_watch", "host_import_observed", "host_import", "host_import_binding", "host_import_real",
+                                                 "host_audio_require_handlers","host_audio_import_binding")),
             "/* TICK_SOURCE */": function(cls.sources["runtime/nnsdk.c"], "os_GetSystemTick"),
             "/* H2_SOURCE */": function(cls.sources["runtime/r1_state.c"], "ra_kick2"),
         }
@@ -57,7 +65,7 @@ class ReplayQueueSourceTests(unittest.TestCase):
                 raise AssertionError(f"missing/ambiguous fixture marker: {marker}")
             fixture = fixture.replace(marker, body)
         # Keep the public ABI headers in the captured snapshot, too.
-        for path in ("runtime/hostrt.h", "runtime/runtime.h", "runtime/game_data.h"):
+        for path in ("runtime/hostrt.h", "runtime/runtime.h", "runtime/game_data.h","runtime/audio_continuation.h"):
             (cls.out / Path(path).name).write_text(cls.sources[path], encoding="utf-8")
         translation = cls.out / "queue.c"
         translation.write_text(fixture, encoding="utf-8")
@@ -74,6 +82,11 @@ class ReplayQueueSourceTests(unittest.TestCase):
             if result.returncode:
                 raise AssertionError(result.stdout + result.stderr)
             cls.executables.append((optimization, executable))
+
+    def test_audio_drain_races(self):
+        for optimization,exe in self.executables:
+            result=self.run_command(optimization+'-audio-drain-races',[str(exe),'audio-drain-races'])
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
     @classmethod
     def write_report(cls):
@@ -99,7 +112,7 @@ class ReplayQueueSourceTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.report["source_changed_during_tests"] = [p for p, s in cls.sources.items()
-            if (ROOT / p).read_text(encoding="utf-8") != s]
+            if source_path(p).read_text(encoding="utf-8") != s]
         cls.report["commands_matched_expected_status"] = all(s.get("status") == "passed" for s in cls.report["steps"])
         cls.write_report()
 
@@ -186,6 +199,16 @@ class ReplayQueueSourceTests(unittest.TestCase):
         for name in ("bad-enable", "bad-build", "bad-sim", "bad-verify", "bad-net",
                      "bad-skip", "bad-lite", "bad-symbol"):
             self.case(name, 74)
+
+    def test_audio_observer_cases(self):
+        for name in ("off","null-zero","chain","masks","stale","generation","bad-frame","orphan","integrated","integrated-complete",
+                     "bad-order","import-paths","bindings","unresolved","capacity","unready","wrap",
+                     "wrong-actor","prewindow","prewindow-import","ticket-capacity","read-failure","sp-overflow",
+                     "wrong-ctx","x8-mismatch","unrelated","overlap","gap-activity","missing-load-ready",
+                     "wrong-boundary","stale-import-begin","stale-import-end","stale-producer","post-seal","main-bindings"):
+            self.case("audio-"+name)
+        for name in ("bad-option","needs-qp","watch-refusal"):
+            self.case("audio-"+name,74)
 
     def test_boundary_and_boot_seams_are_before_release(self):
         ring = self.sources["runtime/r1_ring.c"]

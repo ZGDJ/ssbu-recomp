@@ -384,6 +384,60 @@ void hook_install_queue_probe(HookFn repl,ImportFn *orig) {
     ReleaseSRWLockExclusive(&g_hk_lock);
 }
 
+/* Frozen diagnostic hook inventory. No hot-edge metadata lock or wait.
+ * Mutation coverage remains unknown: this inventory alone cannot prove that
+ * arbitrary plugin/user words or executable entry bytes stayed frozen. */
+static AudioBinding g_ap_hooks[64];
+static unsigned g_ap_hooks_n;
+static int g_ap_hooks_overflow;
+void hook_require_audio_sites(void) {
+    static const uint64_t entries[]={0x7103987e40ULL,0x710398bc70ULL,0x7103964b70ULL,0x7103964db0ULL,0x71039c8390ULL,0x71039c83a0ULL};
+    static const struct { uint64_t address,hash;unsigned size; } ranges[]={
+/* Private proposed validator data; generated from pinned ELF; NOT installed. */
+/* address, FNV-1a-64, byte count; candidate excluded deliberately. */
+{0x7103987e40ULL,0x548b09dbdd14c1e5ULL,14944}, /* caller_all */
+{0x7103964b70ULL,0xdb9c36d7d09bbd86ULL,48}, /* audio_a_prefix */
+{0x7103964db0ULL,0xfc1988c9af533d56ULL,48}, /* audio_b_prefix */
+{0x71039c8390ULL,0x4a90edfccae222e7ULL,16}, /* released_thunk */
+{0x71039c83a0ULL,0xc35e74da7ee9479bULL,16}, /* buffer_data_thunk */
+{0x710398bc70ULL,0x8bb2b7d19f28567fULL,108}, /* producer_existing */
+{0x710398b91cULL,0x879e2040833bce9eULL,728}, /* consumer_existing */
+{0x710398b400ULL,0x865954b2eda26c76ULL,72}, /* submission_existing */
+{0x71039c0ca0ULL,0x64f35b82b4afb823ULL,16}, /* signal_thunk_existing */
+
+    };
+    hk_required_build();
+    AcquireSRWLockShared(&g_hk_lock); /* initialization, before the first worker */
+    for(unsigned i=0;i<sizeof entries/sizeof entries[0];i++)
+        if(!hk_required_entry(fn_table,fn_table_count,entries[i]))hk_required_fatal("audio unique entry identity",entries[i]);
+    for(unsigned i=0;i<sizeof ranges/sizeof ranges[0];i++) {
+        uint64_t h=0xcbf29ce484222325ULL;
+        for(unsigned j=0;j<ranges[i].size;j++)h=(h^rd8(ranges[i].address+j))*0x100000001b3ULL;
+        if(h!=ranges[i].hash)hk_required_fatal("audio instruction identity",ranges[i].address);
+    }
+    for(unsigned i=0;i<HK_HASH;i++)if(g_hk_site[i]) {
+        if(g_ap_hooks_n==64){g_ap_hooks_overflow=1;break;}
+        HkSite *site=g_hk_site[i];HkLayer *l=hk_layer(site->top);
+        AudioBinding *b=&g_ap_hooks[g_ap_hooks_n++];
+        b->guest=site->addr;b->target=(uintptr_t)site->target;
+        b->head=(uintptr_t)site->head;b->top=site->top;b->hook=1;
+        if(l){b->state=l->state;b->repl=(uintptr_t)(void *)l->repl;b->hook_user=(uintptr_t)l->user;b->orig=(uintptr_t)(void *)l->orig;}
+    }
+    ReleaseSRWLockShared(&g_hk_lock);
+    if(g_ap_hooks_overflow)hk_required_fatal("audio hook inventory capacity",0);
+}
+void hook_audio_binding(AudioBinding *b) {
+    /* No live registry claims: startup inventory plus explicit unknown mutation
+     * coverage. A represented site still needs full layer review, so unresolved. */
+    b->hook=0;b->mutation_coverage=0;
+    for(unsigned i=0;i<g_ap_hooks_n;i++)if(g_ap_hooks[i].guest==b->guest || g_ap_hooks[i].target==b->fn) {
+        const AudioBinding *s=&g_ap_hooks[i];
+        b->hook=1;b->target=s->target;b->head=s->head;b->top=s->top;b->state=s->state;
+        b->repl=s->repl;b->hook_user=s->hook_user;b->orig=s->orig;b->status=AB_HOOK_UNRESOLVED;
+    }
+    if(g_ap_hooks_overflow)b->status=AB_AMBIGUOUS;
+}
+
 /* Returns 0 only while the expected module is not loaded. Never use the export
  * hash: it intentionally hides duplicate definitions for generic mod lookup. */
 static int hk_required_named_address(const char *name, uint64_t *addr) {

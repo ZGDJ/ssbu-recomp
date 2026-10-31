@@ -1,3 +1,10 @@
+/* Audio lifecycle is separate; declarations permit inclusion after QP. */
+static void ap_init(void);
+static void ap_capture_held(long long,int);
+static void ap_load_begin(long long,int);
+static void ap_load_ready_held(long long,int);
+static void ap_producer_enter(const Ctx *,long,int);
+static void ap_drain(void);
 /* Bounded 13.0.5 queue observer, included by r1_ring.c. Host-only receipts;
  * no guest writes, scheduling intervention or clock substitution. */
 #define QP_Q 0x710529b840ULL
@@ -93,6 +100,7 @@ static void qp_producer_hook(Ctx *c,void *user) {
             for(int i=0;i<4;i++){e->payload[2*i]=b[i];e->payload[2*i+1]=a[i];}
         qp_publish(e);
     }
+    if(token)ap_producer_enter(c,token,g_qp_producer.stage);
     SetLastError(error);g_qp_original(c);error=GetLastError();
     if(token && qp_matches(&g_qp_producer,token,c)) {
         if(!g_qp_producer.accepted) {
@@ -101,7 +109,9 @@ static void qp_producer_hook(Ctx *c,void *user) {
             if(e){e->value=(uint32_t)c->x[8];e->c=(uint32_t)c->x[9];e->p=e->c+e->value;}
             qp_publish(e);
         }
-        qp_publish(qp_event(4,token,c));InterlockedExchange(&g_qp_producer.active,0);
+        qp_publish(qp_event(4,token,c));
+        r1_audio_producer_return(c,token,g_qp_producer.accepted);
+        InterlockedExchange(&g_qp_producer.active,0);
     }
     SetLastError(error);
 }
@@ -174,12 +184,14 @@ static void qp_capture(long long frame) {
     LONG stage=qp_read(&g_qp_stage);
     if(frame==118 && stage==0) {
         if(qp_quiet())qp_confirm(NULL);
+        ap_capture_held(frame,stage);
         InterlockedExchange(&g_qp_stage,1);qp_boundary(1);
-    } else if(frame==119 && stage==1) {qp_boundary(2);InterlockedExchange(&g_qp_stage,2);}
-    else if(frame==119 && stage==3) {qp_boundary(4);InterlockedExchange(&g_qp_stage,4);}
+    } else if(frame==119 && stage==1) {ap_capture_held(frame,stage);qp_boundary(2);InterlockedExchange(&g_qp_stage,2);}
+    else if(frame==119 && stage==3) {ap_capture_held(frame,stage);qp_boundary(4);InterlockedExchange(&g_qp_stage,4);}
 }
 static void qp_load_begin(long long frame) {
     if(qp_read(&g_qp_on) && frame==118 && qp_read(&g_qp_stage)==2) {
+        ap_load_begin(frame,2);
         /* No queue read: continuation preparation may release/reacquire workers. */
         LONG i=InterlockedIncrement(&g_qp_count)-1;
         if(i>=QP_CAP)qp_fail(QP_OVERFLOW);
@@ -190,6 +202,7 @@ static void qp_load_ready(long long frame) {
     if(!qp_read(&g_qp_on) || frame!=118 || qp_read(&g_qp_stage)!=2)return;
     /* The gap is reported, but cannot carry an operation through rewound memory. */
     if(!qp_quiet() || g_qp_consumer.pending)qp_fail(QP_BOUNDARY);
+    ap_load_ready_held(frame,2);
     InterlockedExchange(&g_qp_stage,3);qp_boundary(3);
 }
 static void qp_init(void) {
@@ -222,4 +235,4 @@ static void qp_drain(void) {
         (long)n,(long)qp_read(&g_qp_errors),(long)qp_read(&g_qp_producer.active),(long)qp_read(&g_qp_consumer.active),
         qp_read(&g_qp_consumer.active)?-1:g_qp_consumer.pending,(long)qp_read(&g_qp_stage));
 }
-void r1_queue_init(void) { qp_init(); }
+void r1_queue_init(void) { qp_init();ap_init(); }
