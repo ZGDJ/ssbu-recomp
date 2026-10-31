@@ -202,9 +202,9 @@ def analyze(text: str, expected_attempts=11):
             require(e['ticket']>0 and e['ticket'] not in entered,'ticket reuse')
             entered.add(e['ticket']);tickets[e['ticket']]=e
             if k==14:
-                purpose=e['purpose'];fn=struct.unpack_from('<Q',e['full'],816)[0]
-                require((purpose,e['target'],e['lr'],fn) in
-                        ((1,1884,0x7103987f94,0x71039c8390),(2,1887,0x710398b68c,0x71039c83a0)),
+                purpose=e['purpose']
+                require((purpose,e['target'],e['lr']) in
+                        ((1,1884,0x7103987f94),(2,1887,0x710398b68c)),
                         'checkpoint import identity')
                 require(e['sp']<=((1<<64)-1)-2336 and e['fp']==e['sp']+2336,'checkpoint caller frame')
             if k==8:

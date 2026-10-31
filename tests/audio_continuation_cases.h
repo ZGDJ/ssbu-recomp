@@ -1,3 +1,4 @@
+/* CHECKPOINT_THUNK_SOURCE */
 static void audio_late_inject(void) { ap_fail(AP_POST_SEAL); }
 /* Synthetic operations call the production observer and edited wrappers above.
  * The guest buffer/stack and service bodies are fixtures, not game execution. */
@@ -19,18 +20,18 @@ static void audio_caller(void) {
     tid=101;producer.x[31]=(uintptr_t)input_stack;producer.x[29]=producer.x[31]+2336;
 }
 static void audio_begin(int null_return) {
-    audio_caller();producer.fn=0x71039c8390;producer.x[30]=0x7103987f94;producer.x[2]=0;
+    audio_caller();producer.fn=0x7500334fa0;producer.x[30]=0x7103987f94;producer.x[2]=0;
     if(null_return) {
         AudioTicket id=r1_audio_import_enter(&producer,1884);
         AudioBinding b={0};b.family=AB_IMPORT;b.status=AB_RAW;b.fn=(uintptr_t)(void *)audio_release;
         r1_audio_binding(&producer,id,&b);producer.x[0]=0;r1_audio_import_return(&producer,1884,id);
     } else {
-        SetLastError(ENTRY_ERROR);host_import(&producer,1884);assert(GetLastError()==(g_watch_sym==1884?444:RESULT_ERROR));
+        SetLastError(ENTRY_ERROR);f_71039c8390(&producer);assert(GetLastError()==(g_watch_sym==1884?444:RESULT_ERROR));
     }
 }
 static void audio_end(void) {
-    audio_caller();producer.fn=0x71039c83a0;producer.x[30]=0x710398b68c;producer.x[0]=0x12345678;
-    SetLastError(ENTRY_ERROR);host_import(&producer,1887);assert(GetLastError()==RESULT_ERROR);
+    audio_caller();producer.fn=0x710398bc70;producer.x[30]=0x710398b68c;producer.x[0]=0x12345678;
+    SetLastError(ENTRY_ERROR);f_71039c83a0(&producer);assert(GetLastError()==RESULT_ERROR);
 }
 static void audio_prepare_edge(unsigned edge,uint64_t target) {
     audio_caller();uint64_t body=producer.x[31];producer.x[31]-=48;producer.x[29]=body-16;
@@ -124,7 +125,7 @@ static void audio_case(const char *mode) {
         assert(g_ap_pending_seal==1 && g_ap_partial==2 && !g_ap_errors);fputs(log_text,stdout);return;
     }
     if(!strcmp(mode,"audio-prewindow-import")) {
-        audio_caller();producer.fn=0x71039c8390;producer.x[30]=0x7103987f94;
+        audio_caller();producer.fn=0x7500334fa0;producer.x[30]=0x7103987f94;
         AudioTicket t=r1_audio_import_enter(&producer,1884);AudioBinding b={0};
         b.family=AB_IMPORT;b.status=AB_RAW;b.fn=(uintptr_t)(void *)audio_release;
         r1_audio_binding(&producer,t,&b);assert(!g_ap_count);
@@ -241,7 +242,7 @@ static void audio_case(const char *mode) {
     } else if(!strcmp(mode,"audio-stale-import-begin") || !strcmp(mode,"audio-stale-import-end")) {
         int sym=!strcmp(mode,"audio-stale-import-begin")?1884:1887;
         if(sym==1887)audio_begin(0);
-        audio_caller();producer.fn=sym==1884?0x71039c8390:0x71039c83a0;
+        audio_caller();producer.fn=sym==1884?0x7500334fa0:0x710398bc70;
         producer.x[30]=sym==1884?0x7103987f94:0x710398b68c;producer.x[0]=0x12345678;
         AudioTicket old=r1_audio_import_enter(&producer,sym);assert(old);audio_gap();
         audio_begin(0);uint64_t region=g_ap_region.id;

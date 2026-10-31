@@ -177,7 +177,8 @@ static AudioTicket ap_import_enter(const Ctx *c,int sym) {
     unsigned purpose=(sym==1884 && c->x[30]==0x7103987f94ULL)?1:
                      (sym==1887 && c->x[30]==0x710398b68cULL)?2:0;
     if(!purpose || !ap_live() || !ap_actor(c))return 0;
-    if(c->fn!=(purpose==1?0x71039c8390ULL:0x71039c83a0ULL) || !ap_body(c->x[31],c->x[29])) {
+    /* Import thunks forward Ctx unchanged; fn names the last lifted entry, not this checkpoint. */
+    if(!ap_body(c->x[31],c->x[29])) {
         ap_fail(AP_FRAME);return 0;
     }
     if(purpose==1 && ap_open()) { ap_fail(AP_OVERLAP);return 0; }

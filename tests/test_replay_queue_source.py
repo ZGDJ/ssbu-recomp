@@ -59,6 +59,15 @@ class ReplayQueueSourceTests(unittest.TestCase):
             "/* TICK_SOURCE */": function(cls.sources["runtime/nnsdk.c"], "os_GetSystemTick"),
             "/* H2_SOURCE */": function(cls.sources["runtime/r1_state.c"], "ra_kick2"),
         }
+        # Execute the actual private generated import thunks when available.
+        # Public fallback preserves their forwarding semantics; it cannot qualify native coverage.
+        thunk_path=ROOT/'build/work/gen_eh_o2/c_04d0.c'
+        thunks=[]
+        for name,sym in (('f_71039c8390',1884),('f_71039c83a0',1887)):
+            body=function(thunk_path.read_text(),name) if thunk_path.exists() else f'void {name}(Ctx *c) {{ host_import(c,{sym}); }}'
+            thunks.append(body)
+        cls.report['checkpoint_thunks']={'actual_generated':thunk_path.exists(),'sha256':hashlib.sha256(thunk_path.read_bytes()).hexdigest() if thunk_path.exists() else None}
+        replacements['/* AUDIO_CASES */']=replacements['/* AUDIO_CASES */'].replace('/* CHECKPOINT_THUNK_SOURCE */','\n'.join(thunks))
         fixture = cls.sources["tests/replay_queue_source_fixture.c"]
         for marker, body in replacements.items():
             if fixture.count(marker) != 1:

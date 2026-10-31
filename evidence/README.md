@@ -1,5 +1,7 @@
 # Evidence
 
+- [Corrected audio checkpoint thunks](2026-10-31-audio-thunk.md): ten complete no-selected-edge regions, actual end accessor identified, scratch first definitions bounded; native convergence remains conditional.
+
 - [Reachable audio continuation](2026-10-31-audio-continuation.md): new native controls pass; checkpoint fn assumption refuses audio coverage, with bounded producer scratch inequality and exact next proof (M1.13 open).
 
 [Milestones](../milestones/README.md) own status; reports own observations. Use the [template](TEMPLATE.md) and [validation contract](../docs/VALIDATION.md).
