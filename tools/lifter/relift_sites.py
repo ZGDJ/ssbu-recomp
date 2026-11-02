@@ -12,7 +12,8 @@ obj_nro_fl23 by default); the re-lifted files get the same transform. Only neede
 Output (nothing of the base set is written): gen_<tag>\\ (the re-lifted bucket files, funcs.h, table.c, sky_sites.c),
 obj_<tag>\\ (their objects, _relift_report.txt) and ssbu_game_<tag>.dll + .lib (+ .map). An exe selects the DLL by its
 import library:  RECOMP_DLL=ssbu_game_sky.dll RECOMP_EXE=ssbu_sky.exe python build.py link
-(the default shim and the re-lifted DLL's shim are the same file; build.py would only relink the DLL if an object were newer).
+Do not run default build.py link on this sparse site object set. Build the host separately with build.py host,
+then install the complete diagnostic DLL under the host's imported name in an isolated trial.
 
 SITE LIST: text, one site per line, `#` starts a comment, addresses are full guest addresses in hex.
   patch    <addr> <orig_word> <new_word>   the instruction word is replaced before lifting. orig is checked against the
@@ -382,6 +383,53 @@ def optnone_names(path):
     if not os.path.exists(path):
         return []
     return re.findall(r'^void (\w+)\((.*?)\) __attribute__\(\(optnone, noinline\)\);', open(path).read(), re.M)
+
+
+def link_main_sites(comp, gen, obj, objs, dll, mapfile):
+    """Complete main DLL, using the existing split game-data content keys/linker.
+
+    build_opt imports build early: set GEN here, and refuse policy drift rather
+    than accidentally compile the data against its default generated headers.
+    The caller still owns the exact plain-generation and line-delta checks.
+    """
+    import build
+    if (os.path.normcase(os.path.abspath(build.CLANG)) != os.path.normcase(os.path.abspath(comp.clang)) or
+            comp.opt != '-O1' or os.environ.get('RECOMP_DATA_CFLAGS', '').split() != comp.extra or
+            os.environ.get('RECOMP_INLINE', '0') not in ('', '0') or build.TARGET_POSIX):
+        raise SystemExit('main site link policy mismatch: pin RECOMP_CLANG, O1, RECOMP_INLINE=0 and '
+                         'RECOMP_DATA_CFLAGS to the base report flags (including -ffp-contract=off)')
+    previous_gen = build.GEN
+    build.GEN = gen
+    try:
+        shim = os.path.join(HERE, os.environ.get('RECOMP_SHIM', 'game_shim_eh.c'))
+        data_dir = obj + '_data'
+        data = build.compile_game_data(data_dir, shim)
+        if data is None:
+            raise SystemExit('main site game-data compilation failed')
+        data_names = {n[:-2] + '.obj' for n in build.GAME_DATA_SOURCES}
+        if len(data) != 5 or {os.path.basename(p) for p in data[1:]} != data_names:
+            raise SystemExit('incomplete main site game-data composition')
+        # Old base directories can contain a shim/data object: only the selected
+        # shim from compile_game_data may define the game/data/EH interfaces.
+        objs = [p for p in objs if os.path.basename(p) not in data_names | {'_sky_sites.obj'} and
+                not os.path.basename(p).startswith('_shim')]
+        site = os.path.join(obj, '_sky_sites.obj')
+        cmd = [comp.clang, '-c', comp.opt] + comp.extra + build.NOCRT_FLAGS + build.PLAT_FLAGS + [
+            '-w', '-fno-strict-aliasing', '-I', HERE, '-I', gen, os.path.join(gen, 'sky_sites.c'), '-o', site]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            return r
+        objs += data + [site]
+        if len({os.path.normcase(os.path.abspath(p)) for p in objs}) != len(objs):
+            raise SystemExit('duplicate main site link object')
+        key = build.dll_key(objs, dll)
+        known = build.read_hashes(data_dir);known.pop('$link', None);build.write_hashes(data_dir, known)
+        r = build.link_dll(objs, dll, dll + '.rsp', mapfile=mapfile)
+        if not r.returncode:
+            known['$link'] = key;build.write_hashes(data_dir, known)
+        return r
+    finally:
+        build.GEN = previous_gen
 
 
 class Compiler:
@@ -912,16 +960,22 @@ def main():
         mine |= {'_shim.obj'}
         cmd_head, cmd_tail = [comp.clang, '-shared'], []
     else:
-        shim = os.path.join(HERE, os.environ.get('RECOMP_SHIM', 'game_shim_eh.c'))
-        cmd_head, cmd_tail = [comp.clang, '-shared', '-O1', '-w', '-I', HERE, '-I', gen, shim, os.path.join(gen, 'sky_sites.c')], []
-    rsp = dll + '.rsp'
-    with open(rsp, 'w') as f:
-        f.write('\n'.join('"%s"' % o.replace('\\', '/') for o in objs))
-    cmd = cmd_head + ['@' + rsp, '-o', dll, '-Wl,/MAP:' + mapfile] + cmd_tail
-    r = subprocess.run(cmd, capture_output=True, text=True)
+        r = link_main_sites(comp, gen, obj, objs, dll, mapfile)
+        report.append('  main link: selected shim + four split data objects; response %s; %s %s %s' %
+                      (dll + '.rsp', comp.clang, comp.opt, ' '.join(comp.extra)))
+    if rl.module:
+        rsp = dll + '.rsp'
+        with open(rsp, 'w') as f:
+            f.write('\n'.join('"%s"' % o.replace('\\', '/') for o in objs))
+        cmd = cmd_head + ['@' + rsp, '-o', dll, '-Wl,/MAP:' + mapfile] + cmd_tail
+        r = subprocess.run(cmd, capture_output=True, text=True)
     t_link = time.time() - t2
+    linked_count = len(objs)
+    if os.path.exists(dll + '.rsp'):
+        with open(dll + '.rsp') as f:
+            linked_count = sum(bool(line.strip()) for line in f)
     log((r.stdout + r.stderr)[-3000:])
-    log('link %s: exit %d, %d objects (%d re-compiled), %.0f MB, %.0fs' % (os.path.basename(dll), r.returncode, len(objs), len(mine & set(base)),
+    log('link %s: exit %d, %d objects (%d re-compiled), %.0f MB, %.0fs' % (os.path.basename(dll), r.returncode, linked_count, len(mine & set(base)),
                                                                      os.path.getsize(dll) / 2.0 ** 20 if os.path.exists(dll) else 0, t_link))
     if r.returncode:
         return r.returncode

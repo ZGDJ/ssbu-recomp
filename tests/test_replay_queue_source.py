@@ -37,7 +37,9 @@ class ReplayQueueSourceTests(unittest.TestCase):
                  "runtime/runtime.h", "runtime/nnsdk.c", "runtime/r1_ring.c",
                  "runtime/r1_state.c", "runtime/boot.c", "runtime/game_data.h",
                  "tests/replay_queue_source_fixture.c", "tests/test_replay_queue_source.py",
-                 "runtime/replay_audio_probe.h","runtime/audio_continuation.h","tests/audio_continuation_cases.h")
+                 "runtime/replay_audio_probe.h","runtime/audio_continuation.h","tests/audio_continuation_cases.h",
+                 "runtime/replay_audio_postload.h","runtime/audio_postload_site.h","runtime/gamedll.c",
+                 "runtime/game_shim.c","tests/audio_postload_cases.h","tests/audio_postload_site_fixture.h")
         source_bytes = {path: source_path(path).read_bytes() for path in paths}
         cls.sources = {path: body.decode("utf-8").replace("\r\n", "\n") for path, body in source_bytes.items()}
         cls.report = {"started_utc": datetime.now(timezone.utc).isoformat(),
@@ -51,6 +53,8 @@ class ReplayQueueSourceTests(unittest.TestCase):
             "/* QUEUE_OBSERVER_SOURCE */": cls.sources["runtime/replay_queue_probe.h"],
             "/* AUDIO_OBSERVER_SOURCE */": cls.sources["runtime/replay_audio_probe.h"],
             "/* AUDIO_CASES */": cls.sources["tests/audio_continuation_cases.h"],
+            "/* POSTLOAD_CASES */": cls.sources["tests/audio_postload_cases.h"],
+            "/* SITE_FIXTURE_BOUNDARIES */": cls.sources["tests/audio_postload_site_fixture.h"],
             "/* DISPATCH_SOURCE */": "\n".join(function(host, name) for name in
                                                   ("call_indirect_body", "call_indirect")),
             "/* IMPORT_SOURCE */": "\n".join(function(host, name) for name in
@@ -59,6 +63,13 @@ class ReplayQueueSourceTests(unittest.TestCase):
             "/* TICK_SOURCE */": function(cls.sources["runtime/nnsdk.c"], "os_GetSystemTick"),
             "/* H2_SOURCE */": function(cls.sources["runtime/r1_state.c"], "ra_kick2"),
         }
+        for marker,body in {
+            '/* SITE_ADMISSION_SOURCE */':cls.sources['runtime/audio_postload_site.h'],
+            '/* HOST_INLINE_SOURCE */':function(cls.sources['runtime/gamedll.c'],'game_site_inline'),
+            '/* SHIM_INLINE_SOURCE */':function(cls.sources['runtime/game_shim.c'],'sky_site_inline').replace(
+                'void sky_site_inline(', 'static void fixture_shim_inline('),
+        }.items():
+            replacements['/* SITE_FIXTURE_BOUNDARIES */']=replacements['/* SITE_FIXTURE_BOUNDARIES */'].replace(marker,body)
         # Execute the actual private generated import thunks when available.
         # Public fallback preserves their forwarding semantics; it cannot qualify native coverage.
         thunk_path=ROOT/'build/work/gen_eh_o2/c_04d0.c'
@@ -67,6 +78,42 @@ class ReplayQueueSourceTests(unittest.TestCase):
             body=function(thunk_path.read_text(),name) if thunk_path.exists() else f'void {name}(Ctx *c) {{ host_import(c,{sym}); }}'
             thunks.append(body)
         cls.report['checkpoint_thunks']={'actual_generated':thunk_path.exists(),'sha256':hashlib.sha256(thunk_path.read_bytes()).hexdigest() if thunk_path.exists() else None}
+        seam_path=Path(os.environ.get('AUDIO_POSTLOAD_SEAM',str(cls.out/'inline-seam.inc')))
+        actual=seam_path.is_file()
+        if not actual and thunk_path.exists():
+            # Default private tests generate only in the disposable output
+            # directory. They never invoke relift build/compile/link or write
+            # the shared EH cache. Exact unmodified base reproduction is required.
+            import collections
+            import shutil
+            sys.path.insert(0,str(ROOT/'tools/lifter'))
+            os.environ['RECOMP_BIN']=str(ROOT/'build/binaries/13.0.5')
+            import recomp_eh
+            cache=cls.out/'eh_main_tables.json';shutil.copyfile(ROOT/'build/work/eh_main_tables.json',cache)
+            recomp_eh.EH_CACHE=str(cache)
+            import relift_sites as rs
+            rl=rs.Relifter(str(ROOT/'build/work/gen_eh_o2'))
+            sites_path=cls.out/'sites.txt';sites_path.write_text('inline 710398b694\n')
+            sites=rs.parse_sites(str(sites_path),rl.recomp);plan,_,refused,table=rs.plan_sites(rl,sites)
+            assert not refused and table==[(0x710398b694,2,0)]
+            entries=rl.entries_holding(0x710398b694);assert entries==[0x7103987e40]
+            b=rl.bucket_of(entries[0]);all_entries=sorted(e for e in rl.func_set if rl.bucket_of(e)==b)
+            plain=rl.bucket_text(b,all_entries,None,None);changed=rl.bucket_text(b,all_entries,plan,None)
+            assert plain==(ROOT/f'build/work/gen_eh_o2/c_{b:04x}.c').read_text(encoding='latin1')
+            before,after=collections.Counter(plain.split('\n')),collections.Counter(changed.split('\n'))
+            assert (sum((before-after).values()),sum((after-before).values()))==(1,2)
+            body=rl.lift_entry(entries[0],plan)
+            seam_path.write_text(body[body.index('L_710398b68c:'):body.index('L_710398b6ac:')]);actual=True
+        if not actual:
+            # Public, dump-free fallback is explicitly a synthetic seam model,
+            # as with the existing thunk fallback; it cannot qualify a native cut.
+            seam_path.write_text('c->x[10]=rd32(c->x[27]+1972);c->x[12]=0x7106dd5000ULL;\n'
+                'sky_site_inline(c,0x710398b694ULL);if(!(uint32_t)c->x[10])goto L_710398b708;\n'
+                'c->x[9]=rd64(0x7106dd5a18ULL);c->x[11]=rd32(c->x[12]+1980);c->x[8]=0;\n'
+                'if(!(uint32_t)c->x[11])goto L_710398b6f4;\n')
+        seam=seam_path.read_text()
+        cls.report['postload_seam']={'actual_generated':actual,'path':str(seam_path),'sha256':hashlib.sha256(seam_path.read_bytes()).hexdigest()}
+        replacements['/* POSTLOAD_CASES */']=replacements['/* POSTLOAD_CASES */'].replace('/* EXACT_POSTLOAD_SEAM */',seam)
         replacements['/* AUDIO_CASES */']=replacements['/* AUDIO_CASES */'].replace('/* CHECKPOINT_THUNK_SOURCE */','\n'.join(thunks))
         fixture = cls.sources["tests/replay_queue_source_fixture.c"]
         for marker, body in replacements.items():
@@ -74,7 +121,8 @@ class ReplayQueueSourceTests(unittest.TestCase):
                 raise AssertionError(f"missing/ambiguous fixture marker: {marker}")
             fixture = fixture.replace(marker, body)
         # Keep the public ABI headers in the captured snapshot, too.
-        for path in ("runtime/hostrt.h", "runtime/runtime.h", "runtime/game_data.h","runtime/audio_continuation.h"):
+        for path in ("runtime/hostrt.h", "runtime/runtime.h", "runtime/game_data.h","runtime/audio_continuation.h",
+                     "runtime/replay_audio_postload.h"):
             (cls.out / Path(path).name).write_text(cls.sources[path], encoding="utf-8")
         translation = cls.out / "queue.c"
         translation.write_text(fixture, encoding="utf-8")
@@ -218,6 +266,18 @@ class ReplayQueueSourceTests(unittest.TestCase):
             self.case("audio-"+name)
         for name in ("bad-option","needs-qp","watch-refusal"):
             self.case("audio-"+name,74)
+
+    def test_postload_observer_cases(self):
+        for name in ('off','wrong-pc','forward','positive','zero','matrix','hold-before','hold-after','duplicate',
+                     'missing','overlap','prewindow','prewindow-outside','restored','interval-cut','seal-cut',
+                     'pending-import','load-refusal','load-ready','capacity','unready','wrap','cas','metadata-read',
+                     'metadata-name','origin-event','origin-binding','drain','late','generation','qp-identity',
+                     'pointer','actor','full848','ten','ten-zero'):
+            self.case('postload-'+name)
+        for name in ('absent','duplicate','kind','word','extra','foreign-table','foreign-count','foreign-caller',
+                     'foreign-entry-table','duplicate-entry','missing-entry','missing-data','missing-eh','unreadable','wrong-build',
+                     'load-word','branch-word'):
+            self.case('postload-site-'+name,9 if name not in ('wrong-build','load-word','branch-word') else 74)
 
     def test_boundary_and_boot_seams_are_before_release(self):
         ring = self.sources["runtime/r1_ring.c"]

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "runtime.h"
 #include "game_data.h"
+#include "hostrt.h"
 
 typedef struct {
     void (*call_indirect)(Ctx *, uint64_t);
@@ -42,6 +43,12 @@ void *sdk_longjmp_target(Ctx *c);
  * (skyline.c, included by nnro.c). */
 void sky_site_inline(Ctx *c, uint64_t addr);
 int sky_site_midhook(Ctx *c, uint64_t addr);
+/* The diagnostic preserves its own last-error. Plugin work keeps its existing
+ * semantics, including last-error, and never runs through sky_run_inline here. */
+static void game_site_inline(Ctx *c,uint64_t pc) {
+    if(pc==AUDIO_POSTLOAD_PC)r1_audio_postload(c,pc);
+    sky_site_inline(c,pc);
+}
 
 #undef fn_table
 #undef fn_table_count
@@ -52,8 +59,10 @@ const int *game_fn_table_count_p;
 const DynSym (*game_dyn_syms_p)[];
 const int *game_dyn_sym_count_p;
 
+#include "audio_postload_site.h"
+
 __attribute__((constructor)) static void bind_game(void) {
-    GameHost h = {call_indirect, host_import, guest_trap, guest_unimpl, guest_svc, stx_diag, sky_site_inline, sky_site_midhook};
+    GameHost h = {call_indirect, host_import, guest_trap, guest_unimpl, guest_svc, stx_diag, game_site_inline, sky_site_midhook};
     GameTables t;
     game_bind(&h, &t);
     game_fn_table_p = (const FnEntry (*)[])t.table;

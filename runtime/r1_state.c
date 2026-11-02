@@ -46,6 +46,7 @@ AudioTicket r1_audio_import_enter(const Ctx *c,int s) { (void)c;(void)s;return 0
 void r1_audio_import_return(const Ctx *c,int s,AudioTicket t) { (void)c;(void)s;(void)t; }
 void r1_audio_binding(const Ctx *c,AudioTicket t,const AudioBinding *b) { (void)c;(void)t;(void)b; }
 void r1_audio_producer_return(const Ctx *c,long t,int a) { (void)c;(void)t;(void)a; }
+void r1_audio_postload(const Ctx *c,uint64_t pc) { (void)c;(void)pc; }
 void r1_audio_selected(const Ctx *c,AudioTicket t,uint64_t f,uint64_t a,ImportFn fn,
     void (*fu)(Ctx *,void *),void *u,uint64_t i,uint64_t o,const char *n) {
     (void)c;(void)t;(void)f;(void)a;(void)fn;(void)fu;(void)u;(void)i;(void)o;(void)n;

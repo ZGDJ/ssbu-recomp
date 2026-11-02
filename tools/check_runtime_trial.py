@@ -31,6 +31,8 @@ def inspect_forward_config(path: Path) -> list:
         # Accept the explicitly reviewed isolated interpreter form as well as
         # historical commands. Other interpreter flags remain unsupported.
         script_index = 2 if command[1] == "-I" else 1
+        if command[1:3] == ["-I", "-B"]:
+            script_index = 3
         if len(command) <= script_index:
             raise ValueError("missing launcher script")
         arguments = command[script_index + 1:]

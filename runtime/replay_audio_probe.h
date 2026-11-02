@@ -35,10 +35,12 @@ typedef struct {
     DWORD actor; const Ctx *ctx;
     Ctx entry_ctx,bind_ctx;
     AudioBinding binding;
+    uint64_t end_event,enter_event,bind_event;
 } ApTicket;
 typedef struct {
     uint64_t id,body_sp,fp,buffer,coverage,attempts,returns,first_qp,last_qp,latest_return;
     unsigned entered,returned; int state,buffer_known;
+    uint64_t end_event;
 } ApRegion;
 static ApEvent g_ap_events[AP_CAP];
 static ApTicket g_ap_tickets[AP_TICKETS];
@@ -162,11 +164,14 @@ static ApTicket *ap_mint(const Ctx *c,unsigned purpose) {
     memcpy(&t->entry_ctx,c,sizeof *c);
     return t;
 }
-static void ap_ticket_event(unsigned kind,const Ctx *c,ApTicket *t) {
+static uint64_t ap_ticket_event(unsigned kind,const Ctx *c,ApTicket *t) {
     ApRecord *r=ap_event(kind,c,0);
     if(r){r->ticket=t->id;r->purpose=t->purpose;r->edge=t->edge;r->target=t->sym;r->region=t->region;}
     ap_publish(r);
+    return r?r->id:0;
 }
+static uint64_t ap_digest(uint64_t,const char *,size_t);
+#include "replay_audio_postload.h"
 static int ap_live(void) {
     if(g_ap_stage==2){ap_next(&g_ap_gap_activity);return 0;}
     /* Normal later execution is outside this bounded window. Only an attempted
@@ -177,6 +182,7 @@ static AudioTicket ap_import_enter(const Ctx *c,int sym) {
     unsigned purpose=(sym==1884 && c->x[30]==0x7103987f94ULL)?1:
                      (sym==1887 && c->x[30]==0x710398b68cULL)?2:0;
     if(!purpose || !ap_live() || !ap_actor(c))return 0;
+    al_conflict(); /* A new source operation cannot overwrite a missed seam. */
     /* Import thunks forward Ctx unchanged; fn names the last lifted entry, not this checkpoint. */
     if(!ap_body(c->x[31],c->x[29])) {
         ap_fail(AP_FRAME);return 0;
@@ -188,20 +194,24 @@ static AudioTicket ap_import_enter(const Ctx *c,int sym) {
         if(g_ap_producer || (ap_pending()&12)) { ap_fail(AP_PENDING);return 0; }
         if(g_ap_region.buffer_known && g_ap_region.buffer!=c->x[0]) { ap_fail(AP_IDENTITY);return 0; }
         g_ap_region.buffer=c->x[0];g_ap_region.buffer_known=1;
-        ap_simple(AP_REGION_END,c,0);
+        ApRecord *end=ap_event(AP_REGION_END,c,0);ap_publish(end);
+        g_ap_region.end_event=end?end->id:0;
         if(ap_recording()) { if(g_ap_region.coverage)ap_next(&g_ap_partial);else ap_next(&g_ap_complete); }
         g_ap_region.state=AP_AFTER_END;
     } else if(ap_pending()&12) { ap_fail(AP_OVERLAP);return 0; }
     ApTicket *t=ap_mint(c,purpose);if(!t)return 0;
-    t->sym=sym;ap_ticket_event(AP_IMPORT_ENTER,c,t);return t->id;
+    t->sym=sym;t->end_event=g_ap_region.end_event;
+    t->enter_event=ap_ticket_event(AP_IMPORT_ENTER,c,t);return t->id;
 }
 static void ap_import_return(const Ctx *c,int sym,AudioTicket id) {
     ApTicket *t=ap_ticket(id,c,sym==1884?1:2);if(!t)return;
     if(t->sym!=(uint64_t)sym || t->sp!=c->x[31] || t->fp!=c->x[29]) { ap_fail(AP_FRAME);return; }
     if(t->binds!=1)ap_fail(AP_BINDING);
-    ap_ticket_event(AP_IMPORT_RETURN,c,t);
+    uint64_t return_event=ap_ticket_event(AP_IMPORT_RETURN,c,t);
+    if(t->purpose==2)al_origin(c,t,return_event); /* exact ticket still live under CAS */
     unsigned purpose=(unsigned)t->purpose;t->id=0;
     if(purpose==1 && c->x[0]) {
+        memset(&g_al_tombstone,0,sizeof g_al_tombstone);
         if(ap_open()) { ap_fail(AP_OVERLAP);return; }
         memset(&g_ap_region,0,sizeof g_ap_region);g_ap_region.id=ap_next(&g_ap_region_id);
         g_ap_region.state=AP_OPEN_POSITIVE;g_ap_region.body_sp=c->x[31];g_ap_region.fp=c->x[29];
@@ -213,6 +223,7 @@ static void ap_producer_enter(const Ctx *c,long token,int stage) {
     DWORD error=GetLastError();
     if(!ap_lock()) { SetLastError(error);return; }
     if(ap_recording()) {
+        al_conflict();
         if(stage!=g_ap_stage || token<=0 || g_ap_producer || (ap_pending()&4) || g_ap_region.entered)ap_fail(AP_CHAIN);
         else if(c->x[30]!=0x710398b444ULL || !ap_member(c,c->x[31],c->x[29]))ap_fail(AP_FRAME);
         else {
@@ -245,6 +256,7 @@ void r1_audio_producer_return(const Ctx *c,long token,int accepted) {
 static AudioTicket ap_indirect_enter(const Ctx *c,uint64_t addr) {
     unsigned edge=c->x[30]==0x7103964ba0ULL?1:c->x[30]==0x7103964de0ULL?2:0;
     if(!edge || !ap_recording()) { if(edge && g_ap_stage>=2)ap_live();return 0; }
+    al_conflict();
     uint64_t sp=c->x[31],body,fp,saved[2]={0};SIZE_T got=0;
     if(sp>UINT64_MAX-48 || sp+48>UINT64_MAX-2336) { ap_fail(AP_FRAME);return 0; }
     body=sp+48;fp=body+2336;
@@ -306,6 +318,7 @@ void r1_audio_binding(const Ctx *c,AudioTicket id,const AudioBinding *b) {
                 }
             }
             ap_publish(r);
+            t->bind_event=r?r->id:0;
             /* Unresolved bindings are retained, analyzer stops semantic claims. */
             if(b->status!=AB_RAW || !b->fn)ap_fail(AP_BINDING);
         }
@@ -348,6 +361,7 @@ static void ap_capture_held(long long frame,int old) {
         ap_next(&g_ap_transitions);
         if(old==0) {
             g_ap_stage=1;g_ap_arm_ordinal=0;
+            al_open_held();
             ap_simple(AP_INTERVAL_BEGIN,NULL,1);
             /* A checkpoint import can span capture118. Retain its actual
              * pre-window entry/bind copies rather than inventing a new entry
@@ -372,6 +386,7 @@ static void ap_capture_held(long long frame,int old) {
                 ap_simple(AP_REGION_RESUME,NULL,1);
             }
         } else {
+            al_end_held(old); /* separate suffix pending, before epoch invalidation */
             ap_archive(AP_SUFFIX_HELD);ap_simple(AP_INTERVAL_END,NULL,1);
             uint64_t pending=ap_pending();
             if(pending&14)ap_fail(AP_PENDING);
@@ -391,12 +406,15 @@ static void ap_capture_held(long long frame,int old) {
 }
 static void ap_load_begin(long long frame,int old) {
     if(!ap_lock())return;
+    al_cancel(AL_LOAD_BEGIN_CUT); /* revoke even when restoration preparation refuses */
     if(frame!=118 || old!=2 || g_ap_stage!=2 || g_ap_region.state!=AP_GAP)ap_fail(AP_BOUNDARY);
-    else { ap_next(&g_ap_transitions);ap_invalidate();ap_simple(AP_GAP_BEGIN,NULL,1);g_ap_region.state=AP_GAP; }
+    else { ap_next(&g_ap_transitions);ap_invalidate();ap_simple(AP_GAP_BEGIN,NULL,1);
+        al_boundary(AL_GAP_BEGIN);g_ap_region.state=AP_GAP; }
     ap_unlock();
 }
 static void ap_load_ready_held(long long frame,int old) {
     if(!ap_lock())return;
+    al_cancel(AL_LOAD_READY_CUT);
     if(frame!=118 || old!=2 || g_ap_stage!=2 || !g_ap_transitions ||
        g_ap_events[g_ap_count?g_ap_count-1:0].r.kind!=AP_GAP_BEGIN)ap_fail(AP_BOUNDARY);
     else {
@@ -404,6 +422,7 @@ static void ap_load_ready_held(long long frame,int old) {
         ap_next(&g_ap_transitions);ap_invalidate();ap_next(&g_ap_generation);
         g_ap_stage=3;g_ap_arm_ordinal=0;g_ap_region.state=AP_AWAIT_PREFIX;
         ap_simple(AP_LOAD_READY,NULL,1);
+        al_boundary(AL_LOAD_READY);
     }ap_unlock();
 }
 static void ap_init(void) {
@@ -416,7 +435,8 @@ static void ap_init(void) {
         const char *v=getenv(blocked[i]);if(v && *v)r1_hold_fatal("audio continuation unvalidated active observer/mutator");
     }
     if(getenv("SSBU_HOOK_SELFTEST"))r1_hold_fatal("audio continuation hook selftest presence is active");
-    host_audio_require_handlers();hook_require_audio_sites();g_ap_region.state=AP_AWAIT_PREFIX;
+    host_audio_require_handlers();hook_require_audio_sites();game_require_audio_postload_site();
+    g_ap_region.state=AP_AWAIT_PREFIX;
     InterlockedExchange(&g_ap_on,1);
 }
 static uint64_t ap_digest(uint64_t h,const char *s,size_t n) {
@@ -427,6 +447,7 @@ static void ap_drain(void) {
     for(int i=0;i<g_nth;i++)if(g_th[i].held)return;
     if(qp_read(&g_ap_owner))return; /* Busy post-seal entry: defer, not lost publication. */
     if(g_ap_reported) {
+        al_drain(0,g_ap_reported_errors); /* late suffix errors do not rewrite either seal */
         LONG errors=qp_read(&g_ap_errors);
         if(errors!=g_ap_reported_errors) {
             /* Deferred invalidation of an already emitted packet. Analyzer
@@ -459,4 +480,5 @@ static void ap_drain(void) {
         (unsigned long long)g_ap_pending_category[2],(unsigned long long)g_ap_pending_category[3],(unsigned long long)g_ap_peak_tickets,
         (unsigned long long)g_ap_gap_activity,(unsigned long long)hash);
     g_ap_reported_errors=serialized_errors;
+    al_drain(hash,serialized_errors);
 }

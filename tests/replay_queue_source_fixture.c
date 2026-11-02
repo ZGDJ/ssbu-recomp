@@ -70,7 +70,8 @@ static int fixture_log(const char *fmt,...) {
     return n;
 }
 #define LOG fixture_log
-void hook_require_audio_sites(void) {}
+static int site_mode;
+/* SITE_FIXTURE_BOUNDARIES */
 void hook_audio_binding(AudioBinding *b) { (void)b; }
 void sdk_audio_import_binding(AudioBinding *b,ImportFn fn) { (void)b;(void)fn; }
 /* QUEUE_OBSERVER_SOURCE */
@@ -494,8 +495,10 @@ static void h2_drain(void){
     assert(!memcmp(&c,&expected,sizeof c));
 }
 /* AUDIO_CASES */
+/* POSTLOAD_CASES */
 int main(int argc,char **argv) {
     assert(argc==2);SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);init();const char *mode=argv[1];
+    if(!strncmp(mode,"postload-",9)) {postload_case(mode+9);printf("QUEUE_SOURCE_PASS %s\n",mode);return 0;}
     if(!strncmp(mode,"audio-",6)) {audio_case(mode);printf("QUEUE_SOURCE_PASS %s\n",mode);return 0;}
     if(!strncmp(mode,"bad-",4)) {
         if(!strcmp(mode,"bad-enable"))_putenv("SSBU_RB_QUEUE_PROBE=2");

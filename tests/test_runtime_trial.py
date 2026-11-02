@@ -195,11 +195,19 @@ class ForwardRuntimeTrialTests(unittest.TestCase):
 
     def test_unreviewed_interpreter_prefixes_are_refused(self):
         original = self.command[:]
-        for prefix in (['-O'], ['-I', '-O'], ['-I', '-I'], ['-c'], ['-m']):
+        for prefix in (['-O'], ['-I', '-O'], ['-I', '-I'], ['-I', '-B', '-O'], ['-I', '-B', '-B'], ['-B'], ['-c'], ['-m']):
             with self.subTest(prefix=prefix):
                 self.command = original[:1] + prefix + original[1:]
                 self.save_evidence()
                 self.forward_verdict("failed")
+
+    def test_isolated_no_bytecode_prefix_preserves_launcher_identity(self):
+        self.command[1:1] = ['-I', '-B']
+        self.save_evidence()
+        self.forward_verdict('passed')
+        self.identity['launcher']['sha256'] = '0' * 64
+        self.save_evidence()
+        self.forward_verdict('failed')
 
     def test_forward_requires_every_artifact(self):
         for name in ("command.json", "prelaunch-identity.json", "launcher.log", "game.log", "result.json"):

@@ -295,11 +295,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.12
 - Size: 3
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: evidence/2026-10-31-audio-thunk.md
+- Evidence: evidence/2026-11-02-audio-postload.md
 - Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
-- Owner: Astra integrator / reachable audio continuation, 2026-10-31T15:18:03.2766431Z
-- Next: Ten complete regions cover neither selected callback; actual end accessor consumes no x10-x12. Establish fresh count and x11 first use/definition on zero-count/later paths before claiming native convergence; independent object ownership (+c30/+d38 on current region1+692000 page) remains a separate proposed proof. Any runtime revision needs new controls.
-- Blocker: No native config-read/b708 receipt or universal x11 def-before-use; other Ctx fields differ. Selected end-body disk mapping is established but live lifetime and cross-arm callback pairing are not. M4.1 remains open.
+- Owner: Astra integrator / post-load continuation, 2026-11-02T18:00:00Z
+- Next: Integrate accepted gate/parser and review-directory handling into a fresh frozen recipe; complete new disabled500R/0S before enabled500R/two depth-one observation. Capture actual b694 x10/fullCtx with exact suffix joins. Positive selects scoped x11 source kill; zero retains unresolved 7103964da0.
+- Blocker: No native postload count. R2 disabled trace/reference/fixture and corrected fatal reanalysis pass, but original postidentity/completion receipts are missing; it cannot unlock enabled. Raw resolved=false; M4.1/integrated controls remain open.
 
 ## M2 - Controlled simulation
 

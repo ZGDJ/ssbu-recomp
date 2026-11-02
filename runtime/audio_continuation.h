@@ -27,6 +27,13 @@ AudioTicket r1_audio_import_enter(const Ctx *,int);
 void r1_audio_import_return(const Ctx *,int,AudioTicket);
 void r1_audio_binding(const Ctx *,AudioTicket,const AudioBinding *);
 void r1_audio_producer_return(const Ctx *,long,int);
+/* Single inline seam; the value is already in x10, never reloaded by the host. */
+#define AUDIO_POSTLOAD_PC 0x710398b694ULL
+#define AUDIO_POSTLOAD_SITE_ID 0x7367c78de95eecf6ULL
+void r1_audio_postload(const Ctx *,uint64_t);
+void game_require_audio_postload_site(void);
+typedef struct { uint64_t module,table,caller,table_module,caller_module; } AudioPostloadIdentity;
+const AudioPostloadIdentity *game_audio_postload_identity(void);
 void hook_require_audio_sites(void);
 void hook_audio_binding(AudioBinding *);
 void host_audio_require_handlers(void);

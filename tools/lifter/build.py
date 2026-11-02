@@ -265,7 +265,7 @@ def nocrt_fltused(libdir):
     return obj
 
 
-def link_dll(objs, dll, rsp, implib=True, fltused=False):
+def link_dll(objs, dll, rsp, implib=True, fltused=False, mapfile=None):
     """Objects -> DLL: with clang's default linker (MSVC link.exe and the static C runtime) or, under RECOMP_NOCRT, with
     lld-link alone against the import libraries of nocrt\\ (ucrtbase.dll, ntdll.dll). fltused: add the _fltused object
     (DLLs whose objects do not define it). Returns the CompletedProcess."""
@@ -280,10 +280,12 @@ def link_dll(objs, dll, rsp, implib=True, fltused=False):
     if TARGET_LINUX:          # a .so: -z now resolves everything at load, as a DLL is
         return subprocess.run([CLANG, '-shared', '@' + rsp, '-o', dll] + PLAT_FLAGS + ['-lm', '-Wl,-soname,' + os.path.basename(dll), '-Wl,-z,now'], capture_output=True, text=True, errors='replace')
     if not NOCRT:
-        return subprocess.run([CLANG, '-shared', '@' + rsp, '-o', dll], capture_output=True, text=True, errors='replace')
+        return subprocess.run([CLANG, '-shared', '@' + rsp, '-o', dll] +
+                              (['-Wl,/MAP:' + mapfile] if mapfile else []), capture_output=True, text=True, errors='replace')
     os.makedirs(libdir, exist_ok=True)
     libs = [lld_def_lib(os.path.join(NOCRT_DIR, n + '.def'), os.path.join(libdir, n + '.lib')) for n in ('ucrtbase_min', 'ntdll_min')]
     argv = [LLD_LINK, '/dll', '/noentry', '/nodefaultlib', '/machine:x64', '/out:' + dll, '@' + rsp] + libs
+    if mapfile: argv.append('/MAP:' + mapfile)
     return subprocess.run(argv + (['/implib:' + dll[:-4] + '.lib'] if implib else []), capture_output=True, text=True, errors='replace')
 
 
