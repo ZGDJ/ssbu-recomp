@@ -295,11 +295,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.12
 - Size: 3
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: evidence/2026-11-02-audio-postload.md
+- Evidence: evidence/2026-11-03-audio-postload-result.md
 - Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
-- Owner: Astra integrator / post-load continuation, 2026-11-02T18:00:00Z
-- Next: Integrate accepted gate/parser and review-directory handling into a fresh frozen recipe; complete new disabled500R/0S before enabled500R/two depth-one observation. Capture actual b694 x10/fullCtx with exact suffix joins. Positive selects scoped x11 source kill; zero retains unresolved 7103964da0.
-- Blocker: No native postload count. R2 disabled trace/reference/fixture and corrected fatal reanalysis pass, but original postidentity/completion receipts are missing; it cannot unlock enabled. Raw resolved=false; M4.1/integrated controls remain open.
+- Owner: Astra integrator / native post-load finding, 2026-11-03T17:20:00Z
+- Next: Trace the upstream caller decision behind eight original versus eleven replay submissions using retained source/receipts. Nine exact native loads512 select scoped source x11 definition-before-use; this sample has no matched x10-x12 inequality. Preserve failed frozen gates and historical evidence.
+- Blocker: Enabled aggregate stopped: unequal counts/decisions, historical eleven-pair/ten-region requirements unmet, semantic binding/mutation unknown. Disabled500R/0S now complete; enabled500R/two depth-one common gates pass. Raw resolved=false; M4.1/integrated controls remain open.
 
 ## M2 - Controlled simulation
 

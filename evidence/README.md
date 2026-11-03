@@ -1,5 +1,7 @@
 # Evidence
 
+- [Native audio post-load finding](2026-11-03-audio-postload-result.md): nine actual loads512; eight/eleven producer counts, no matched scratch inequality; disabled complete, enabled aggregate stopped.
+
 - [Audio post-load observer and stopped controls](2026-11-02-audio-postload.md): reviewed exact-load observer and binaries; launcher/gate corrections accepted, disabled control incomplete, native count still unknown.
 
 - [Corrected audio checkpoint thunks](2026-10-31-audio-thunk.md): ten complete no-selected-edge regions, actual end accessor identified, scratch first definitions bounded; native convergence remains conditional.
