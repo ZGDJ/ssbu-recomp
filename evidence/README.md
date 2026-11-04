@@ -1,5 +1,7 @@
 # Evidence
 
+- [Direction audit](2026-11-04-direction-audit.md): all tracked Markdown reviewed; prioritize bounded changed-input gameplay preparation, preserving audio and formal failures.
+
 - [Audio semantic restore prerequisite](2026-11-04-audio-semantic-boundary.md): joint logical release/wait/work contract and causal presentation identity block a safe correction; concrete falsification packet.
 
 - [Host audio release ownership](2026-11-04-audio-release-ownership.md): original APPEND occurrences survive into replay release inventory; bounded native attribution, aggregate gates still fail.

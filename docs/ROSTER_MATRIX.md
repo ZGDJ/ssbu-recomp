@@ -1,5 +1,7 @@
 # 13.0.5 roster and mechanics qualification matrix
 
+Current experiment selection follows [M1.14 direction](../evidence/2026-11-04-direction-audit.md). Default unchanged-input replay has executed with failed aggregate equivalence. One E01-adjacent bounded research packet may be prepared before all formal dependencies/tapes are complete; it grants no roster-axis or formal fixture acceptance. Preserve the historical debug fixture and its rules separately.
+
 Plan revision `roster-v1`, 2026-10-25. [M6.1](../milestones/README.md) owns planning acceptance; M6.2 owns full-roster gameplay qualification. Requirements: [FSD-003 through FSD-010 and FSD-015](FSD.md), with the [Ultimate fixture contract](ROLLBACK_DESIGN.md#ultimate-specific-fixture-obligations). This is an experiment specification, not evidence that any listed fighter or mechanic works under rollback.
 
 ## Scope and provenance

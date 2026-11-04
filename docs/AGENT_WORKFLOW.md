@@ -1,5 +1,7 @@
 # Autonomous work and Astra sizing
 
+Current priority: [direction audit](../evidence/2026-11-04-direction-audit.md) and ledger M1.14. Prepare one actual changed-input gameplay experiment; do not turn all unresolved qualification work into prerequisites for bounded research. A specific unsafe path still blocks execution. Historical Next statements do not override the current ledger.
+
 Start with [AGENTS.md](../AGENTS.md) and [ledger](../milestones/README.md); load only relevant requirements, ADRs and source. These conventions serve GPT-6 Astra and other agents; they do not configure an API/model.
 
 Read the short [rollback handoff](ROLLBACK_HANDOFF.md) for current continuation context, then the selected ledger entry and only its relevant validation/evidence sections. Recheck the worktree and ownership. Archived checkpoints and upstream guides are historical context, not current task instructions; do not load their full history by default. Update the current summary in place at handoff, putting detailed results in evidence rather than appending another chronological continuation.

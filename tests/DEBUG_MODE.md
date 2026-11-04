@@ -1,5 +1,7 @@
 # Debug / fast mode for scripted test runs (2026-10-12, exe `ssbu_dbg1.exe`, linked from build.py with `debug_mode.c`)
 
+Inherited debug reference only. Presentation/poll counts, uncapped runs and forced endings do not prove authoritative ticks or terminal rollback. Current experiments follow [VALIDATION](../docs/VALIDATION.md) and the [ledger](../milestones/README.md).
+
 TEST ONLY. Everything is behind environment variables; none set = the code paths are not taken (one `getenv` at start
 and, in display.c, one `getenv` per feature). Relink any test exe with `RECOMP_EXE=<name>.exe python build.py link`
 (`debug_mode.c` is in `HOST_SOURCES`; `link_exe.py` of the fighter tools still adds the old `nvn_vk_draw.c` and fails

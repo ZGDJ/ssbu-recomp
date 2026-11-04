@@ -1,5 +1,7 @@
 # Building from a fresh clone
 
+Fork validation note: frozen experiments use identified source-built packages and [VALIDATION](docs/VALIDATION.md), not an updating installer/prebuilt path. Inherited F1 run-ahead instructions below are unsupported by this fork's current legacy-refusal policy; consult the current ledger before experimental modes.
+
 The repository holds only this project's own tools and runtime. Nothing that comes from the game or from the console's
 software is in it, with one stated exception: a list of function names (see "The SDK function list"). Everything else of that kind (the lifted C code, the lifted system-library code, the generated headers and
 tables, the script-module libraries) is **generated on your PC from your own dump**, into `build/` (ignored by git).

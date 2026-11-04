@@ -1,5 +1,7 @@
 # OpenSmash rollback audit and hardening map
 
+Current direction: [November4 audit](../evidence/2026-11-04-direction-audit.md), [handoff](ROLLBACK_HANDOFF.md), and [ledger](../milestones/README.md). Dated defect anchors and Next statements below are historical; M7 source acceptance and later native findings must be read in the current ledger. Prioritize bounded changed-input preparation; audio/full-state failures remain unresolved.
+
 Source inspection on 2026-10-21 at `c7c874977ea7510c291ec8c278a58883a2f4e368`, including independent coordinator/network and native-state reviews. These are source findings, not locally reproduced gameplay failures. [Milestones](../milestones/README.md) alone own status.
 
 - **M7.1 — Complete or refuse restoration.** `r1_ring.c:585-600` can stop waiting with busy fibers; `r1_state.c:523,538-541` skips live/unmatched fibers; `r1_ring.c:651-654` logs incomplete restoration and returns success. Preflight all required continuations before mutation. Inject busy/missing fibers and verify refusal leaves state/history unchanged. Real continuation proof remains M2/M4.

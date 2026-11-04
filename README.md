@@ -1,5 +1,7 @@
 # SmashRollback — OpenSmash hardening fork
 
+Current engineering priority: [prepare a bounded changed-input gameplay experiment](evidence/2026-11-04-direction-audit.md). Existing same-input replay is not wrong-input correction proof. Audio/state failures remain open; full qualification is unchanged.
+
 Native Windows x64 **Ultimate 13.0.5**, full roster, competitive 1v1 rollback with no items. Exact stage/rules and hardware qualification remain explicit decisions. Retain OpenSmash's recompiled battle logic and harden its existing custom rollback.
 
 Fork: [ZGDJ/ssbu-recomp](https://github.com/ZGDJ/ssbu-recomp). Upstream: [Denkishi/ssbu-recomp](https://github.com/Denkishi/ssbu-recomp), audited at `c7c874977ea7510c291ec8c278a58883a2f4e368`. Our WindowSmash planning contract has moved here; its implementation results do not transfer automatically.

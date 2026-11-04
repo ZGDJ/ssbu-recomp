@@ -1,5 +1,7 @@
 # Agent entry point
 
+Current research priority is the ledger's M1.14 changed-input gameplay preparation. Capability qualification dependencies do not prohibit a separately scoped early investigation. Any prerequisite must name the unsafe path or claim it gates; complete audio closure is not a blanket requirement. Preserve safety, identity and failed evidence.
+
 Target Ultimate 13.0.5, Windows x64, full-roster competitive 1v1 rollback.
 Advance the next falsifiable battle proof: a verified fix, a causal finding, a narrowed divergence, or an enabled gameplay experiment.
 OpenSmash rollback exists but is unqualified; distinguish source acceptance, exploratory observations and formal gameplay evidence.
