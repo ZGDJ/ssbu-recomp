@@ -297,9 +297,9 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Requirement: FSD-004, FSD-005, FSD-012
 - Evidence: evidence/2026-11-04-audio-release-ownership.md
 - Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
-- Owner: Astra integrator / host release ownership, 2026-11-04T04:40:00Z
-- Next: Define semantic ownership of host playing/released occurrences and device effects across restore using the observed original-to-replay inventory carryover. Select correction against uninterrupted reference; keep guest consumer progress separate.
-- Blocker: Native release receipts complete: five original APPEND occurrences resident at LOAD_READY, three published in load gap. No safe restoration/device policy established. Current10/10 attempts fail frozen11-per-arm and queue/semantic gates; resolved=false. M1.13/M4.1/integrated controls open.
+- Owner: Astra integrator / audio semantic boundary, 2026-11-04T12:00:00Z
+- Next: Establish the joint logical AudioOut release/wait/guest-work cut and causal effect identity specified in evidence/2026-11-04-audio-semantic-boundary.md; falsify against physical completion permutations and an uninterrupted changed-input oracle before selecting runtime wiring. Keep guest consumer progress separate.
+- Blocker: Native release receipts complete: five original APPEND occurrences resident at LOAD_READY, three published in load gap. Joint logical completion/wait/work ordering and corrected presentation identity remain unproven; no safe restoration/device policy selected. Current10/10 attempts fail frozen11-per-arm and queue/semantic gates; resolved=false. M1.13/M4.1/integrated controls open.
 
 ## M2 - Controlled simulation
 
