@@ -40,6 +40,7 @@ void r1_queue_dispatch_exit(const Ctx *c,long token) { (void)c;(void)token; }
 void r1_queue_signal(const Ctx *c,int sym) { (void)c;(void)sym; }
 void r1_queue_tick(const Ctx *c) { (void)c; }
 void r1_queue_init(void) {}
+int r1_audio_release_stamp(const Ctx *c,ImportFn f,ArStamp *out) { (void)c;(void)f;(void)out;return AR_STAMP_DISABLED; }
 AudioTicket r1_audio_indirect_enter(const Ctx *c,uint64_t a) { (void)c;(void)a;return 0; }
 void r1_audio_indirect_return(const Ctx *c,AudioTicket t) { (void)c;(void)t; }
 AudioTicket r1_audio_import_enter(const Ctx *c,int s) { (void)c;(void)s;return 0; }

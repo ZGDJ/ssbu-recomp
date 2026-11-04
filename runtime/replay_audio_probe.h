@@ -291,7 +291,7 @@ AudioTicket r1_audio_import_enter(const Ctx *c,int sym) {
 }
 void r1_audio_import_return(const Ctx *c,int sym,AudioTicket id) {
     if(!id || !qp_read(&g_ap_on))return;
-    DWORD e=GetLastError();if(ap_lock()){ap_import_return(c,sym,id);ap_unlock();}SetLastError(e);
+    DWORD e=GetLastError();audio_release_probe_late(id);if(ap_lock()){ap_import_return(c,sym,id);ap_unlock();}SetLastError(e);
 }
 AudioTicket r1_audio_indirect_enter(const Ctx *c,uint64_t addr) {
     if(!qp_read(&g_ap_on))return 0;
@@ -353,6 +353,101 @@ static void ap_error_held(void) {
         ap_simple(AP_ERROR,NULL,1);g_ap_enveloped_errors=errors;
     }
 }
+/* AUDIO_RELEASE_AP_BEGIN. Accessor runs once before the original audio Enter. */
+int r1_audio_release_stamp(const Ctx *c,ImportFn actual,ArStamp *out) {
+    if(!audio_release_probe_enabled())return AR_STAMP_DISABLED;
+    DWORD error=GetLastError();memset(out,0,sizeof *out);int result=AR_STAMP_INVALID;
+    if(!ap_lock()){out->status=result;SetLastError(error);return result;}
+    if(g_ap_stage==4)result=AR_STAMP_DISABLED;
+    else if(g_ap_stage==2)result=AR_STAMP_GAP;
+    else if(c->x[30]!=0x7103987f94ULL)result=AR_STAMP_OTHER_CALL;
+    else {
+        DWORD actor=GetCurrentThreadId();ApTicket *found=NULL;unsigned matches=0;
+        for(unsigned i=0;i<AP_TICKETS;i++) {
+            ApTicket *t=&g_ap_tickets[i];
+            if(t->id && t->actor==actor && t->ctx==c && t->purpose==1 && t->sym==1884){found=t;matches++;}
+        }
+        if(matches==1) {
+            ApTicket *t=ap_ticket(found->id,c,1);AudioBinding *b=&found->binding;
+            if(t && !qp_read(&g_ap_errors) && actor==g_ap_actor && c==g_ap_ctx && t->binds==1 &&
+               t->lr==c->x[30] && t->sp==c->x[31] && t->fp==c->x[29] &&
+               t->sp<=UINT64_MAX-2336 && t->fp==t->sp+2336 && t->entry_ctx.x[0]==c->x[0] &&
+               b->family==AB_IMPORT && b->status==AB_RAW && b->index==1884 && b->offset==0 &&
+               b->guest==IMPORT_BASE+1884ULL*IMPORT_SLOT && b->fn==(uintptr_t)(void *)actual &&
+               !b->user && !b->hook && !b->repl && !b->hook_user && !b->top && b->registry) {
+                out->ticket=t->id;out->epoch=t->epoch;out->generation=t->generation;out->stage=g_ap_stage;
+                out->actor=t->actor;out->ctx=(uintptr_t)c;out->lr=t->lr;out->sp=t->sp;out->fp=t->fp;
+                out->audio_out=c->x[0];out->fn=b->fn;out->enter_event=t->enter_event;out->bind_event=t->bind_event;
+                result=(!g_ap_stage || !t->enter_event || !t->bind_event)?AR_STAMP_PREFIX:AR_STAMP_VALID;
+            }
+        }
+        if(result==AR_STAMP_INVALID)ap_fail(AP_BINDING);
+    }
+    /* GAP/OTHER have no invented AP token. Retain contextual stage only. */
+    if(result!=AR_STAMP_VALID && result!=AR_STAMP_PREFIX) {
+        out->stage=g_ap_stage;out->epoch=g_ap_epoch;out->generation=g_ap_generation;
+        if(result!=AR_STAMP_DISABLED){out->actor=GetCurrentThreadId();out->ctx=(uintptr_t)c;out->lr=c->x[30];out->audio_out=c->x[0];}
+    }
+    out->status=result;ap_unlock();SetLastError(error);return result;
+}
+static void ar_ap_boundary(unsigned slot,long long frame,uint64_t event) {
+    if(!audio_release_probe_enabled())return;
+    DWORD error=GetLastError();ArBoundaryStamp s={0};s.slot=slot;s.frame=(uint64_t)frame;
+    s.event=event;s.transition=g_ap_transitions;s.stage=g_ap_stage;s.epoch=g_ap_epoch;s.generation=g_ap_generation;
+    s.actor=GetCurrentThreadId();s.hold=slot==2?AR_DEC_LOAD_MARKER_NOT_QUIET:slot==3?AR_DEC_HELD_LOAD_READY:AR_DEC_HELD_CAPTURE;
+    s.valid=event && !qp_read(&g_ap_errors) && !qp_read(&g_qp_errors);
+    if(slot!=2) {
+        s.valid=s.valid && qp_actor_held((DWORD)qp_read(&g_qp_producer.actor)) &&
+            qp_actor_held((DWORD)qp_read(&g_qp_consumer.actor)) &&
+            !qp_read(&g_qp_producer.active) && !qp_read(&g_qp_consumer.active) &&
+            (!g_ap_actor || qp_actor_held(g_ap_actor));
+    }
+    audio_release_probe_boundary(&s);SetLastError(error);
+}
+static int g_ar_exported;static uint64_t g_ar_exported_late,g_ar_exported_errors;
+static void ar_ap_drain(uint64_t ap_hash) {
+    if(!audio_release_probe_enabled())return;
+    DWORD error=GetLastError();ArView v={0};
+    if(!audio_release_probe_view(&v)){SetLastError(error);return;}
+    if(g_ar_exported) {
+        if(v.late_invalid!=g_ar_exported_late || v.errors!=g_ar_exported_errors) {
+            LOG("r1: AUDIO_RELEASE_QUEUE_LATE_ERROR v=1 late=%llu errors=%llu resolved=0 authoritative=0\n",
+                (unsigned long long)v.late_invalid,(unsigned long long)v.errors);
+            g_ar_exported_late=v.late_invalid;
+            g_ar_exported_errors=v.errors;
+        }
+        SetLastError(error);return;
+    }
+    /* Set before LOG: reentrant drain cannot publish a second envelope. */
+    g_ar_exported=1;g_ar_exported_late=v.late_invalid;g_ar_exported_errors=v.errors;
+    LOG("r1: AUDIO_RELEASE_QUEUE_BEGIN v=1 layout=ar48le-v1 record=384 boundary=5504 capacity=4096 boundaries=8 resolved=0 authoritative=0\n");
+    static const char hex[]="0123456789abcdef";uint64_t hash=0xcbf29ce484222325ULL;
+    char row[2*sizeof(ArBoundary)+1];
+    for(unsigned group=0;group<2;group++) {
+        unsigned count=group?8:v.available?(unsigned)v.footer->record_count:0;
+        for(unsigned i=0;i<count;i++) {
+            const unsigned char *p=group?(const unsigned char *)&v.boundaries[i].b:(const unsigned char *)&v.events[i].r;
+            unsigned ready=(unsigned)qp_read((volatile LONG *)(group?&v.boundaries[i].ready:&v.events[i].ready));
+            size_t bytes=group?sizeof(ArBoundary):sizeof(ArRecord);
+            /* Unready boundary storage may still be mutable: never read it. */
+            if(!ready){LOG("r1: AUDIO_RELEASE_QUEUE_UNREADY group=%u i=%u\n",group,i);continue;}
+            for(size_t j=0;j<bytes;j++){row[2*j]=hex[p[j]>>4];row[2*j+1]=hex[p[j]&15];}row[bytes*2]=0;
+            hash=ap_digest(hash,(const char *)p,bytes);
+            if(group)LOG("r1: AUDIO_RELEASE_QUEUE_BOUNDARY i=%u ready=%u data=%s\n",i,ready,row);
+            else LOG("r1: AUDIO_RELEASE_QUEUE_EVENT i=%u ready=%u data=%s\n",i,ready,row);
+        }
+    }
+    if(v.available) {
+        const unsigned char *p=(const unsigned char *)v.footer;
+        for(size_t j=0;j<sizeof(ArFooter);j++){row[2*j]=hex[p[j]>>4];row[2*j+1]=hex[p[j]&15];}row[2*sizeof(ArFooter)]=0;
+    } else row[0]=0;
+    LOG("r1: AUDIO_RELEASE_QUEUE_END v=1 available=%llu data=%s base_ap_digest=%016llx qp_stage=%ld qp_record_count=%ld qp_errors=%ld payload_digest=%016llx late_invalid=%llu errors=%llu resolved=0 authoritative=0\n",
+        (unsigned long long)v.available,row,(unsigned long long)ap_hash,(long)qp_read(&g_qp_stage),(long)qp_read(&g_qp_count),
+        (long)qp_read(&g_qp_errors),(unsigned long long)hash,(unsigned long long)v.late_invalid,(unsigned long long)v.errors);
+    SetLastError(error);
+}
+/* AUDIO_RELEASE_AP_END */
+
 static void ap_capture_held(long long frame,int old) {
     if(!ap_lock())return;
     if((frame==118 && old==0 && g_ap_stage==0) ||
@@ -363,6 +458,7 @@ static void ap_capture_held(long long frame,int old) {
             g_ap_stage=1;g_ap_arm_ordinal=0;
             al_open_held();
             ap_simple(AP_INTERVAL_BEGIN,NULL,1);
+            ar_ap_boundary(0,frame,g_ap_id);
             /* A checkpoint import can span capture118. Retain its actual
              * pre-window entry/bind copies rather than inventing a new entry
              * at its post-window return or dereferencing the suspended Ctx. */
@@ -388,6 +484,7 @@ static void ap_capture_held(long long frame,int old) {
         } else {
             al_end_held(old); /* separate suffix pending, before epoch invalidation */
             ap_archive(AP_SUFFIX_HELD);ap_simple(AP_INTERVAL_END,NULL,1);
+            ar_ap_boundary(old==1?1:4,frame,g_ap_id);
             uint64_t pending=ap_pending();
             if(pending&14)ap_fail(AP_PENDING);
             if(old==3) {
@@ -409,6 +506,7 @@ static void ap_load_begin(long long frame,int old) {
     al_cancel(AL_LOAD_BEGIN_CUT); /* revoke even when restoration preparation refuses */
     if(frame!=118 || old!=2 || g_ap_stage!=2 || g_ap_region.state!=AP_GAP)ap_fail(AP_BOUNDARY);
     else { ap_next(&g_ap_transitions);ap_invalidate();ap_simple(AP_GAP_BEGIN,NULL,1);
+        ar_ap_boundary(2,frame,g_ap_id);
         al_boundary(AL_GAP_BEGIN);g_ap_region.state=AP_GAP; }
     ap_unlock();
 }
@@ -422,11 +520,16 @@ static void ap_load_ready_held(long long frame,int old) {
         ap_next(&g_ap_transitions);ap_invalidate();ap_next(&g_ap_generation);
         g_ap_stage=3;g_ap_arm_ordinal=0;g_ap_region.state=AP_AWAIT_PREFIX;
         ap_simple(AP_LOAD_READY,NULL,1);
+        ar_ap_boundary(3,frame,g_ap_id);
         al_boundary(AL_LOAD_READY);
     }ap_unlock();
 }
 static void ap_init(void) {
-    const char *e=getenv("SSBU_RB_AUDIO_CONTINUATION");if(!e || !strcmp(e,"0"))return;
+    const char *ar=getenv("SSBU_RB_AUDIO_RELEASE_QUEUE");
+    int ar_requested=ar && strcmp(ar,"0");
+    const char *e=getenv("SSBU_RB_AUDIO_CONTINUATION");
+    if(ar_requested && (strcmp(ar,"1") || !e || strcmp(e,"1")))r1_hold_fatal("audio release requires option=1 and admitted AP/QP");
+    if(!e || !strcmp(e,"0"))return;
     if(strcmp(e,"1") || !qp_read(&g_qp_on) || !g_qp_original)r1_hold_fatal("audio continuation requires queue probe=1");
     const char *sky=getenv("SSBU_SKYLINE");
     if(!sky || strcmp(sky,"0"))r1_hold_fatal("audio continuation requires the admitted base-game Skyline=0 fixture");
@@ -438,6 +541,7 @@ static void ap_init(void) {
     host_audio_require_handlers();hook_require_audio_sites();game_require_audio_postload_site();
     g_ap_region.state=AP_AWAIT_PREFIX;
     InterlockedExchange(&g_ap_on,1);
+    if(ar_requested && !audio_release_probe_configure())r1_hold_fatal("audio release observer initialization refused");
 }
 static uint64_t ap_digest(uint64_t h,const char *s,size_t n) {
     for(size_t i=0;i<n;i++)h=(h^(unsigned char)s[i])*0x100000001b3ULL;return h;
@@ -447,6 +551,7 @@ static void ap_drain(void) {
     for(int i=0;i<g_nth;i++)if(g_th[i].held)return;
     if(qp_read(&g_ap_owner))return; /* Busy post-seal entry: defer, not lost publication. */
     if(g_ap_reported) {
+        ar_ap_drain(0);
         al_drain(0,g_ap_reported_errors); /* late suffix errors do not rewrite either seal */
         LONG errors=qp_read(&g_ap_errors);
         if(errors!=g_ap_reported_errors) {
@@ -481,4 +586,5 @@ static void ap_drain(void) {
         (unsigned long long)g_ap_gap_activity,(unsigned long long)hash);
     g_ap_reported_errors=serialized_errors;
     al_drain(hash,serialized_errors);
+    ar_ap_drain(hash);
 }

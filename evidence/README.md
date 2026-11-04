@@ -1,5 +1,7 @@
 # Evidence
 
+- [Host audio release ownership](2026-11-04-audio-release-ownership.md): original APPEND occurrences survive into replay release inventory; bounded native attribution, aggregate gates still fail.
+
 - [Native audio post-load finding](2026-11-03-audio-postload-result.md): nine actual loads512; eight/eleven producer counts, no matched scratch inequality; disabled complete, enabled aggregate stopped.
 
 - [Audio post-load observer and stopped controls](2026-11-02-audio-postload.md): reviewed exact-load observer and binaries; launcher/gate corrections accepted, disabled control incomplete, native count still unknown.

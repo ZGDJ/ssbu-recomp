@@ -113,6 +113,315 @@ static int g_tone_left, g_heard;
 static unsigned long long g_tone_phase;
 static unsigned long long g_wav_bytes;
 
+/* AUDIO_RELEASE_OBSERVER_BEGIN: all mutable queue metadata is owned by g_lock.
+ * Only on/sealed/frozen, sticky errors/late and H2-owned boundary statuses are
+ * inspected without it. No callback from this owner into AP while locked. */
+#include <limits.h>
+_Static_assert(sizeof(unsigned)==4 && SLOTS==64,"release cursor/slot contract");
+_Static_assert(sizeof(ArRecord)==384 && sizeof(ArEvent)==392,"release wire v1");
+_Static_assert(sizeof(ArBoundary)==5504 && sizeof(ArBoundaryEvent)==5512,"boundary wire v1");
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error Audio release observer requires little endian
+#endif
+typedef struct { uint64_t cursor,id,play,guest; } ArMember;
+typedef struct { uint64_t id,epoch,wave; } ArControl;
+typedef struct {
+    ArEvent events[AR_CAP]; ArBoundaryEvent boundaries[AR_BOUNDARIES]; ArFooter footer;
+    ArMember play[64],rel[64]; ArControl controls[8];
+    uint64_t op,collect,write,record,control,epoch,count,drops,phase;
+    uint64_t current_op,current_collect,caller,actor,pending_getter,pending_collect;
+    ArStamp stamp;
+    volatile LONG on,errors,sealed,frozen,late;
+    int live,view_attempted;
+} ArStore;
+static ArStore g_ar;
+static volatile LONG g_ar_lock_ready;
+static volatile LONG g_ar_configured;
+static __declspec(thread) unsigned t_ar_scope;
+_Static_assert(sizeof(ArStore)+sizeof(t_ar_scope)+sizeof(g_ar_lock_ready)+sizeof(g_ar_configured)<=2097152,"release observer storage bound");
+static LONG ar_read(volatile LONG *p) { return InterlockedCompareExchange(p,0,0); }
+int audio_release_probe_enabled(void) { return ar_read(&g_ar.on)!=0; }
+static void ar_fail(unsigned bit) {
+    /* Post-cut ordinary audio cannot invalidate the earlier immutable packet.
+     * Old AP publications use the independent late marker below. */
+    if(!ar_read(&g_ar.frozen))InterlockedOr(&g_ar.errors,(LONG)bit);
+}
+static uint64_t ar_next(uint64_t *p) {
+    if(*p==UINT64_MAX){ar_fail(AR_E_WRAP);return 0;}return ++*p;
+}
+/* Volatile scalar loops prohibit lazy CRT memset/memcpy in the new try section. */
+static void ar_zero(void *p,size_t n) {
+    volatile uint64_t *w=(volatile uint64_t *)p;for(size_t i=0;i<n/8;i++)w[i]=0;
+}
+static void ar_copy(void *d,const void *s,size_t n) {
+    volatile uint64_t *out=(volatile uint64_t *)d;const volatile uint64_t *in=(const volatile uint64_t *)s;
+    for(size_t i=0;i<n/8;i++)out[i]=in[i];
+}
+static void ar_scope_enter(void) { if(audio_release_probe_enabled())t_ar_scope++; }
+static void ar_scope_leave(void) { if(audio_release_probe_enabled())t_ar_scope--; }
+static unsigned ar_controls(void) {
+    unsigned mask=0;for(unsigned i=0;i<8;i++)if(g_ar.controls[i].id)mask|=1u<<i;return mask;
+}
+static void ar_geometry(void) {
+    unsigned np=g_tail-g_head,nr=g_rel_tail-g_rel_head;
+    if(np>64)ar_fail(AR_E_PLAY_GEOMETRY);
+    if(nr>64)ar_fail(AR_E_RELEASE_OVERRUN);
+    for(unsigned j=0;j<np && j<64;j++) {
+        unsigned c=g_head+j;ArMember *m=&g_ar.play[c%64];
+        if(!m->id || m->cursor!=c || m->guest!=g_slots[c%64].guest)ar_fail(AR_E_OCCURRENCE);
+    }
+    for(unsigned j=0;j<nr && j<64;j++) {
+        unsigned c=g_rel_head+j;ArMember *m=&g_ar.rel[c%64];
+        if(!m->id || !m->play || m->cursor!=c || m->guest!=g_released[c%64])ar_fail(AR_E_OCCURRENCE);
+    }
+}
+static void ar_header(ArRecord *r,unsigned kind) {
+    ar_zero(r,sizeof *r);ar_geometry();
+    r->kind=kind;r->stream_id=1;r->phase=g_ar.phase;r->op_id=g_ar.current_op;
+    r->collect_id=g_ar.current_collect;r->write_seq=g_ar.write;r->device_epoch=g_ar.epoch;
+    r->actor=g_ar.actor;r->caller_kind=g_ar.caller;r->detail=ar_controls();
+    r->audio_out_owner=g_audio_out;r->open=g_open;r->started=g_started;r->wave=(uintptr_t)g_wave;
+    r->play_head=g_head;r->play_tail=g_tail;r->rel_head=g_rel_head;r->rel_tail=g_rel_tail;
+    r->valid_mask=AR_V_QUEUE_FIELDS_READ|AR_V_OWNER_FIELDS_READ|AR_V_HOST_ORDER_VALID;
+    if(g_tail-g_head<=64 && g_rel_tail-g_rel_head<=64)r->valid_mask|=AR_V_QUEUE_GEOMETRY_VALID;
+    else r->valid_mask|=AR_V_DIAGNOSTIC_TRUNCATED;
+    if(g_rel_head!=g_rel_tail) {
+        ArMember *m=&g_ar.rel[g_rel_head%64];r->front_guest=g_released[g_rel_head%64];
+        r->front_release_id=m->id;r->front_play_id=m->play;r->valid_mask|=AR_V_FRONT_READ;
+    }
+    if(g_head!=g_tail) {
+        Slot *s=&g_slots[g_head%64];r->slot=g_head%64;r->play_id=g_ar.play[g_head%64].id;
+        r->guest=s->guest;r->prepared=s->prepared;r->due=(uint64_t)s->due;r->valid_mask|=AR_V_PLAYING_SLOT_READ;
+    }
+    ArStamp *a=&g_ar.stamp;
+    r->ctx=a->ctx;r->ap_ticket=a->ticket;r->ap_epoch=a->epoch;r->ap_generation=a->generation;r->ap_stage=a->stage;
+    r->ap_enter_event=a->enter_event;r->ap_bind_event=a->bind_event;r->lr=a->lr;r->audio_out_arg=a->audio_out;
+    r->stamp_status=a->status;
+    if(a->status==AR_STAMP_VALID || a->status==AR_STAMP_PREFIX)r->valid_mask|=AR_V_AP_STAMP_VALID;
+    if(a->status==AR_STAMP_PREFIX)r->valid_mask|=AR_V_PREFIX;
+    if(a->status==AR_STAMP_GAP)r->valid_mask|=AR_V_GAP;
+    r->errors=(unsigned)ar_read(&g_ar.errors);
+}
+static ArRecord *ar_emit(ArRecord *r) {
+    if(!g_ar.live || ar_read(&g_ar.frozen))return NULL;
+    r->record_id=ar_next(&g_ar.record);
+    if(g_ar.count==AR_CAP || !r->record_id) {
+        ar_next(&g_ar.drops);ar_fail(AR_E_OBSERVER_OVERFLOW);return NULL;
+    }
+    ArEvent *e=&g_ar.events[g_ar.count++];r->errors=(unsigned)ar_read(&g_ar.errors);
+    ar_copy(&e->r,r,sizeof *r);InterlockedExchange((volatile LONG *)&e->ready,1);return &e->r;
+}
+static void ar_note(unsigned kind) {
+    if(!audio_release_probe_enabled())return;
+    ArRecord r;ar_header(&r,kind);if(kind==AR_APPEND_REFUSE)r.decision=AR_DEC_REFUSED;ar_emit(&r);
+}
+static void ar_begin(unsigned caller,const ArStamp *a) {
+    if(!audio_release_probe_enabled())return;
+    if(g_ar.current_op){ar_fail(AR_E_CONTEXT_OVERLAP);return;}
+    DWORD error=GetLastError();g_ar.actor=GetCurrentThreadId();SetLastError(error);
+    g_ar.current_op=ar_next(&g_ar.op);g_ar.caller=caller;ar_zero(&g_ar.stamp,sizeof g_ar.stamp);
+    if(a) {
+        ar_copy(&g_ar.stamp,a,sizeof *a);
+        if(a->status==AR_STAMP_INVALID)ar_fail(AR_E_AP_STAMP);
+        if(ar_read(&g_ar.sealed) && a->ticket)audio_release_probe_late(a->ticket);
+    }
+    g_ar.pending_getter=caller==AR_CALL_GETTER;
+}
+static void ar_end(void) {
+    if(!audio_release_probe_enabled())return;
+    if(t_ar_scope>1){ar_fail(AR_E_CONTEXT_OVERLAP);return;}
+    g_ar.current_op=0;g_ar.current_collect=0;g_ar.caller=0;g_ar.pending_getter=0;
+    ar_zero(&g_ar.stamp,sizeof g_ar.stamp);
+}
+static uint64_t ar_write(void) { return audio_release_probe_enabled()?ar_next(&g_ar.write):0; }
+static void ar_collect_begin(int all,LONGLONG now) {
+    if(!audio_release_probe_enabled())return;
+    if(!g_ar.current_op || g_ar.current_collect)ar_fail(AR_E_CONTEXT_OVERLAP);
+    g_ar.current_collect=ar_next(&g_ar.collect);g_ar.pending_collect++;
+    ArRecord r;ar_header(&r,AR_COLLECT_BEGIN);r.everything=(unsigned)all;r.now=(uint64_t)now;
+    r.valid_mask|=AR_V_ORIGINAL_COLLECT_NOW_READ;ar_emit(&r);
+}
+static void ar_check(int all,LONGLONG now,unsigned decision,unsigned flags,unsigned mask) {
+    if(!audio_release_probe_enabled())return;
+    ArRecord r;ar_header(&r,AR_CHECK);r.everything=(unsigned)all;r.now=(uint64_t)now;
+    r.decision=decision;r.flags=flags;r.valid_mask|=AR_V_ORIGINAL_COLLECT_NOW_READ|mask;ar_emit(&r);
+}
+static void ar_publish(unsigned pc,unsigned rc,uint64_t guest,int all,LONGLONG now) {
+    if(!audio_release_probe_enabled())return;
+    if((unsigned)(rc-g_rel_head)>=64)ar_fail(AR_E_RELEASE_OVERRUN);
+    ArMember p=g_ar.play[pc%64],old=g_ar.rel[rc%64];
+    if(!p.id || p.cursor!=pc || p.guest!=guest || !guest)ar_fail(AR_E_OCCURRENCE);
+    uint64_t id=ar_write();g_ar.rel[rc%64]=(ArMember){rc,id,p.id,guest};
+    g_ar.play[pc%64]=(ArMember){0};
+    ArRecord r;ar_header(&r,AR_PUBLISH);r.play_id=p.id;r.release_id=id;r.guest=guest;r.slot=pc%64;
+    r.everything=(unsigned)all;r.now=(uint64_t)now;r.valid_mask|=AR_V_ORIGINAL_COLLECT_NOW_READ;
+    /* On overrun flags carries the overwritten release id (not a tested flag). */
+    if((unsigned)(rc-g_rel_head)>=64)r.flags=old.id;
+    ar_emit(&r);
+}
+static void ar_collect_end(int all,LONGLONG now,int n) {
+    if(!audio_release_probe_enabled())return;
+    ArRecord r;ar_header(&r,AR_COLLECT_END);r.everything=(unsigned)all;r.now=(uint64_t)now;r.n=(unsigned)n;
+    r.valid_mask|=AR_V_ORIGINAL_COLLECT_NOW_READ;ar_emit(&r);g_ar.current_collect=0;g_ar.pending_collect--;
+}
+static void ar_getter_post(int called,int n) {
+    if(!audio_release_probe_enabled())return;
+    ArRecord r;ar_header(&r,AR_POSTCOLLECT);r.n=(unsigned)n;
+    r.decision=called?AR_DEC_COLLECT_CALLED:AR_DEC_COLLECT_SKIPPED_CLOSED;ar_emit(&r);
+}
+static void ar_pop(unsigned before,int popped,uint64_t value) {
+    if(!audio_release_probe_enabled())return;
+    ArMember m={0};if(popped){m=g_ar.rel[before%64];ar_write();g_ar.rel[before%64]=(ArMember){0};
+        if(!m.id || m.cursor!=before || m.guest!=value || !value)ar_fail(AR_E_OCCURRENCE);}
+    ArRecord r;ar_header(&r,AR_POP);r.popped=(unsigned)popped;r.returned=value;
+    if(popped){r.slot=before%64;r.play_id=m.play;r.release_id=m.id;r.guest=value;r.valid_mask|=AR_V_POP_LOAD_VALID;}
+    ar_emit(&r);
+}
+static void ar_append(unsigned cursor,Slot *s) {
+    if(!audio_release_probe_enabled())return;
+    uint64_t id=ar_write();g_ar.play[cursor%64]=(ArMember){cursor,id,0,s->guest};
+    if(!s->guest)ar_fail(AR_E_OCCURRENCE);
+    ArRecord r;ar_header(&r,AR_APPEND);r.play_id=id;r.guest=s->guest;r.slot=cursor%64;r.n=s->frames;
+    r.prepared=s->prepared;r.due=(uint64_t)s->due;r.detail=(uint64_t)g_clock_due;r.decision=AR_DEC_ACCEPTED;ar_emit(&r);
+}
+static void ar_start(unsigned kind,unsigned cursor) {
+    if(!audio_release_probe_enabled())return;
+    if(kind!=AR_START_COMMIT)ar_write();
+    ArRecord r;ar_header(&r,kind);r.detail=(uint64_t)g_clock_due;
+    if(kind==AR_START_SLOT){Slot *s=&g_slots[cursor%64];r.slot=cursor%64;r.play_id=g_ar.play[cursor%64].id;
+        r.guest=s->guest;r.prepared=s->prepared;r.due=(uint64_t)s->due;r.n=s->frames;}
+    ar_emit(&r);
+}
+static void ar_open_reset(void) {
+    if(!audio_release_probe_enabled())return;
+    if(ar_controls())ar_fail(AR_E_CONTROL_AMBIGUOUS);
+    ar_next(&g_ar.epoch);ar_write();ar_zero(g_ar.play,sizeof g_ar.play);ar_zero(g_ar.rel,sizeof g_ar.rel);
+    ar_note(AR_OPEN_RESET);
+}
+static uint64_t ar_intent(HWAVEOUT w) {
+    if(!audio_release_probe_enabled())return 0;
+    unsigned i=0;while(i<8 && g_ar.controls[i].id)i++;
+    uint64_t id=ar_next(&g_ar.control);
+    if(i==8){ar_fail(AR_E_CONTROL_OVERFLOW);return 0;}
+    if(ar_controls())ar_fail(AR_E_CONTROL_AMBIGUOUS);
+    g_ar.controls[i]=(ArControl){id,g_ar.epoch,(uintptr_t)w};
+    ArRecord r;ar_header(&r,AR_RESET_INTENT);r.control_id=id;r.slot=i;r.valid_mask|=AR_V_CONTROL_VALID;ar_emit(&r);return id;
+}
+static void ar_reset_commit(uint64_t id,HWAVEOUT w,MMRESULT result) {
+    if(!audio_release_probe_enabled())return;
+    unsigned i=0;while(i<8 && g_ar.controls[i].id!=id)i++;
+    if(!id || i==8 || g_ar.controls[i].epoch!=g_ar.epoch || g_ar.controls[i].wave!=(uintptr_t)g_wave || w!=g_wave)
+        ar_fail(AR_E_CONTROL_AMBIGUOUS);
+    ArRecord r;ar_header(&r,AR_RESET_COMMIT);r.control_id=id;r.slot=i;r.detail=w!=NULL;r.n=w?result:0;
+    r.valid_mask|=AR_V_CONTROL_VALID|(w?AR_V_RESET_RETURN_VALID:0);ar_emit(&r);
+}
+static void ar_lifecycle(uint64_t id) {
+    if(!audio_release_probe_enabled())return;
+    ar_write();ArRecord r;ar_header(&r,AR_LIFECYCLE_COMMIT);r.control_id=id;r.valid_mask|=AR_V_CONTROL_VALID;
+    unsigned i=0;while(i<8 && g_ar.controls[i].id!=id)i++;
+    if(!id || i==8)ar_fail(AR_E_CONTROL_AMBIGUOUS);else g_ar.controls[i]=(ArControl){0};
+    ar_emit(&r);
+}
+void audio_release_probe_late(uint64_t ticket) {
+    if(audio_release_probe_enabled() && ticket && ar_read(&g_ar.sealed))InterlockedOr(&g_ar.late,AR_E_LATE_INVALID);
+}
+int audio_release_probe_configure(void) {
+    DWORD error=GetLastError();
+    if(InterlockedCompareExchange(&g_ar_configured,1,0)){SetLastError(error);return 0;}
+    /* Only called after explicit option validation. Pre-touch before any guests. */
+    ar_zero(&g_ar,sizeof g_ar);
+    if(!ar_read(&g_ar_lock_ready)){ar_fail(AR_E_UNINITIALIZED);SetLastError(error);return 0;}
+    if(!TryEnterCriticalSection(&g_lock)){ar_fail(AR_E_INIT_BUSY);SetLastError(error);return 0;}
+    int ok=!g_open && g_head==g_tail && g_rel_head==g_rel_tail;
+    if(!ok)ar_fail(AR_E_INIT_STATE);
+    /* Publish while still owning g_lock: no original owner can enter off-mode
+     * and then observe enablement halfway through that same lock scope. */
+    if(ok)InterlockedExchange(&g_ar.on,1);
+    LeaveCriticalSection(&g_lock);
+    SetLastError(error);return ok;
+}
+static void ar_footer(int sealed) {
+    ArFooter *f=&g_ar.footer;ar_zero(f,sizeof *f);
+    f->version=1;f->layout=1;f->record_bytes=384;f->boundary_bytes=5504;f->capacity=AR_CAP;
+    f->boundary_capacity=8;f->stream_id=1;f->sealed=sealed;f->failed=!sealed;f->record_count=g_ar.count;
+    f->attempted_records=g_ar.record;f->dropped_records=g_ar.drops;f->last_attempted_record_id=g_ar.record;
+    if(g_ar.count){f->first_record_id=g_ar.events[0].r.record_id;f->first_op_id=g_ar.events[0].r.op_id;f->first_write_seq=g_ar.events[0].r.write_seq;}
+    f->last_op_id=g_ar.op;f->last_write_seq=g_ar.write;f->last_collect_id=g_ar.collect;f->device_epoch=g_ar.epoch;f->phase=g_ar.phase;
+    f->pending_getter_count=g_ar.pending_getter;f->pending_collect_count=g_ar.pending_collect;
+    for(unsigned i=0;i<8;i++){
+        f->pending_control_count+=g_ar.controls[i].id!=0;
+        f->boundary_statuses[i]=ar_read((volatile LONG *)&g_ar.boundaries[i].ready)?g_ar.boundaries[i].b.r.stamp_status:AR_B_NOT_REACHED;
+    }
+    for(unsigned i=0;i<g_ar.count;i++){
+        ArEvent *e=&g_ar.events[i];if(ar_read((volatile LONG *)&e->ready))f->ready_count++;else ar_fail(AR_E_UNREADY);
+        if(e->r.kind<23)f->kind_counts[e->r.kind]++;
+    }
+    if(f->pending_control_count)ar_fail(AR_E_CONTROL_AMBIGUOUS);
+    f->errors=(unsigned)ar_read(&g_ar.errors);f->failed|=f->errors!=0;
+}
+static int ar_boundary_failure(ArBoundaryEvent *e,const ArBoundaryStamp *s,unsigned status,unsigned error) {
+    ar_fail(error);ArRecord *r=&e->b.r;ar_zero(&e->b,sizeof e->b);
+    r->kind=AR_BOUNDARY;r->stream_id=1;r->stamp_status=status;
+    if(s){r->valid_mask=AR_V_BOUNDARY_STAMP_VALID;r->guest=s->frame;r->detail=s->event;r->control_id=s->transition;
+        r->n=s->slot;r->ap_stage=s->stage;r->ap_epoch=s->epoch;r->ap_generation=s->generation;r->actor=s->actor;r->decision=s->hold;}
+    r->errors=(unsigned)ar_read(&g_ar.errors);InterlockedExchange((volatile LONG *)&e->ready,1);return (int)status;
+}
+int audio_release_probe_boundary(const ArBoundaryStamp *s) {
+    if(!audio_release_probe_enabled())return AR_B_UNINITIALIZED;
+    DWORD error=GetLastError();
+    if(ar_read(&g_ar.frozen)){audio_release_probe_late(1);SetLastError(error);return AR_B_INVALID;}
+    if(!s || s->slot>=5){ar_fail(AR_E_BOUNDARY_INVALID);SetLastError(error);return AR_B_INVALID;}
+    ArBoundaryEvent *e=&g_ar.boundaries[s->slot];unsigned status=AR_B_OK;
+    if(ar_read((volatile LONG *)&e->ready)) {ar_fail(AR_E_BOUNDARY_INVALID);status=AR_B_INVALID;}
+    else if(!ar_read(&g_ar_lock_ready))status=ar_boundary_failure(e,s,AR_B_UNINITIALIZED,AR_E_UNINITIALIZED);
+    else if(t_ar_scope)status=ar_boundary_failure(e,s,AR_B_REENTRANT,AR_E_REENTRANT);
+    else if(!s->valid)status=ar_boundary_failure(e,s,AR_B_INVALID,AR_E_BOUNDARY_INVALID);
+    else if(!TryEnterCriticalSection(&g_lock))status=ar_boundary_failure(e,s,AR_B_BUSY,AR_E_BOUNDARY_BUSY|(s->slot==4?AR_E_END_BUSY:0));
+    else {
+        /* No OS except the intrinsic ready publication, no callbacks or other
+         * locks, no clock/device/CRT work, and no guest memory in this section. */
+        if(g_ar.phase!=s->slot || ar_read(&g_ar.frozen))status=ar_boundary_failure(e,s,AR_B_INVALID,AR_E_BOUNDARY_INVALID);
+        else if(!s->slot && ar_controls())status=ar_boundary_failure(e,s,AR_B_INFLIGHT,AR_E_BOUNDARY_INFLIGHT);
+        else {
+            if(!s->slot)g_ar.live=1;g_ar.phase=s->slot+1;
+            ar_zero(&e->b,sizeof e->b);ArRecord *r=&e->b.r;ar_header(r,AR_BOUNDARY);
+            r->op_id=g_ar.op;r->collect_id=g_ar.collect;r->actor=s->actor;r->caller_kind=AR_CALL_BOUNDARY;
+            r->ap_stage=s->stage;r->ap_epoch=s->epoch;r->ap_generation=s->generation;
+            r->guest=s->frame;r->detail=s->event;r->control_id=s->transition;r->n=s->slot;r->decision=s->hold;
+            r->stamp_status=AR_B_OK;r->valid_mask|=AR_V_BOUNDARY_STAMP_VALID;
+            unsigned nr=g_rel_tail-g_rel_head,np=g_tail-g_head;r->slot=nr<64?nr:64;r->prepared=np<64?np:64;
+            for(unsigned j=0;j<r->slot;j++){
+                unsigned c=g_rel_head+j;ArMember *m=&g_ar.rel[c%64];ArReleased *d=&e->b.released[j];
+                d->cursor=c;d->release_id=m->id;d->play_id=m->play;d->guest=g_released[c%64];
+            }
+            for(unsigned j=0;j<r->prepared;j++){
+                unsigned c=g_head+j;ArPlaying *d=&e->b.playing[j];Slot *p=&g_slots[c%64];
+                d->cursor=c;d->play_id=g_ar.play[c%64].id;d->guest=p->guest;d->prepared=p->prepared;d->due=(uint64_t)p->due;d->frames=p->frames;
+            }
+            ar_emit(r);InterlockedExchange((volatile LONG *)&e->ready,1);
+            if(s->slot==4){ar_footer(1);InterlockedExchange(&g_ar.sealed,1);InterlockedExchange(&g_ar.frozen,1);}
+        }
+        LeaveCriticalSection(&g_lock);
+    }
+    SetLastError(error);return (int)status;
+}
+int audio_release_probe_view(ArView *out) {
+    if(!audio_release_probe_enabled())return 0;
+    DWORD error=GetLastError();
+    if(!ar_read(&g_ar.frozen) && !g_ar.view_attempted) {
+        g_ar.view_attempted=1;
+        /* Deferred H2 only: this is a failed freeze, never an endpoint retry. */
+        if(!t_ar_scope && TryEnterCriticalSection(&g_lock)) {
+            ar_fail(AR_E_BOUNDARY_INVALID);ar_footer(0);InterlockedExchange(&g_ar.frozen,1);LeaveCriticalSection(&g_lock);
+        }
+    }
+    out->available=ar_read(&g_ar.frozen)!=0;out->events=out->available?g_ar.events:NULL;
+    out->footer=out->available?&g_ar.footer:NULL;out->boundaries=g_ar.boundaries;
+    out->late_invalid=(unsigned)ar_read(&g_ar.late);out->errors=(unsigned)ar_read(&g_ar.errors);
+    SetLastError(error);return 1;
+}
+/* AUDIO_RELEASE_OBSERVER_END */
+
 static LONGLONG now_ticks(void) { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
 
 static void wav_header(void) {
@@ -182,20 +491,34 @@ static unsigned add_tone(int16_t *pcm, unsigned frames, unsigned peak) {
 static int collect_finished(int everything) {
     int n = 0;
     LONGLONG now = now_ticks();
+    ar_collect_begin(everything,now);
     while (g_head != g_tail) {
         Slot *s = &g_slots[g_head % SLOTS];
+        unsigned decision=AR_DEC_FORCED,flags=0,mask=0;
         if (!everything) {
-            if (s->prepared) { if (!(s->hdr.dwFlags & WHDR_DONE)) break; }
-            else if (!g_started || now < s->due) break;
+            if (s->prepared) {
+                flags=s->hdr.dwFlags;mask=AR_V_FLAGS_ACTUALLY_TESTED;
+                decision=(flags & WHDR_DONE)?AR_DEC_PASS_DEVICE:AR_DEC_BLOCK_DEVICE;
+            } else {
+                mask=AR_V_STARTED_ACTUALLY_TESTED;
+                if (!g_started) decision=AR_DEC_BLOCK_STOPPED;
+                else { mask|=AR_V_NOW_USED_IN_FALLBACK_COMPARE|AR_V_DUE_USED_IN_FALLBACK_COMPARE;
+                    decision=now < s->due?AR_DEC_BLOCK_NOT_DUE:AR_DEC_PASS_FALLBACK; }
+            }
         }
+        ar_check(everything,now,decision,flags,mask);
+        if(decision==AR_DEC_BLOCK_DEVICE || decision==AR_DEC_BLOCK_STOPPED || decision==AR_DEC_BLOCK_NOT_DUE)break;
+        unsigned ar_pc=g_head,ar_rc=g_rel_tail;
         if (s->prepared) { waveOutUnprepareHeader(g_wave, &s->hdr, sizeof s->hdr); s->prepared = 0; }
         g_released[g_rel_tail++ % SLOTS] = s->guest;
         g_head++;
         g_total_released++;
         g_sec_released++;
         n++;
+        ar_publish(ar_pc,ar_rc,s->guest,everything,now);
     }
     if (n && !everything && g_head == g_tail && g_started && g_heard && !g_empty_since) { g_underruns++; g_empty_since = now; }
+    ar_collect_end(everything,now,n);
     return n;
 }
 
@@ -208,6 +531,10 @@ static DWORD WINAPI audio_thread(LPVOID arg) {
     for (;;) {
         WaitForSingleObject(g_wake, 2);
         EnterCriticalSection(&g_lock);
+        ar_scope_enter();
+        ar_begin(AR_CALL_AUDIO_THREAD,NULL);
+        if(audio_release_probe_enabled()) {ArRecord r;ar_header(&r,AR_THREAD_POLL);
+            r.decision=g_open?AR_DEC_COLLECT_CALLED:AR_DEC_COLLECT_SKIPPED_CLOSED;ar_emit(&r);}
         int n = g_open ? collect_finished(0) : 0;
         uint64_t ev = g_event;
         LONGLONG now = now_ticks();
@@ -223,6 +550,8 @@ static DWORD WINAPI audio_thread(LPVOID arg) {
             if (g_wav) wav_header();
             report = g_open && (every_second || seconds % 10 == 0);
         }
+        ar_end();
+        ar_scope_leave();
         LeaveCriticalSection(&g_lock);
         if (n && ev) os_signal_event(ev);
         if (report) {
@@ -243,6 +572,8 @@ static void audio_InitializeAudioOutParameter(Ctx *c) {   /* (AudioOutParameter 
 static void audio_OpenDefaultAudioOut(Ctx *c) {       /* (AudioOut *, nn::os::SystemEvent *, const AudioOutParameter &) -> Result */
     unsigned want_rate = rd32(A2), want_channels = rd16(A2 + 4);
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_OPEN,NULL);ar_note(AR_OPEN_BEFORE);
     g_audio_out = A0;
     g_event = A1;
     g_rate = want_rate ? (int)want_rate : 48000;
@@ -297,6 +628,8 @@ static void audio_OpenDefaultAudioOut(Ctx *c) {       /* (AudioOut *, nn::os::Sy
     }
     g_tone_left = getenv("SSBU_AUDIO_TONE") ? g_rate / 512 : 0;
     g_open = 1;
+    ar_open_reset();ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     printf("nn::audio: OpenDefaultAudioOut: game asks %u Hz, %u channels -> %d Hz, %d channels, 16-bit, %s\n",
            want_rate, want_channels, g_rate, g_channels, g_wave ? "waveOut device open" : "no host device");
@@ -321,6 +654,8 @@ static void audio_AppendAudioOutBuffer(Ctx *c) {      /* (AudioOut *, AudioOutBu
     uint64_t buf = A1, data = rd64(buf + BUF_DATA), size = rd64(buf + BUF_SIZE);
     int ok = 0;
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_APPEND,NULL);ar_note(AR_APPEND_BEGIN);
     if (g_open && g_tail - g_head < SLOTS && data && size) {
         Slot *s = &g_slots[g_tail % SLOTS];
         unsigned peak = 0;
@@ -369,7 +704,9 @@ static void audio_AppendAudioOutBuffer(Ctx *c) {      /* (AudioOut *, AudioOutBu
             g_clock_due += (LONGLONG)frames * g_freq.QuadPart / g_rate;
             s->due = g_clock_due;
         }
+        unsigned ar_cursor=g_tail;
         g_tail++;
+        ar_append(ar_cursor,s);
         if (g_empty_since) {
             unsigned long long gap = (unsigned long long)(now_ticks() - g_empty_since);
             g_underrun_ticks += gap; if (gap > g_underrun_longest) g_underrun_longest = gap;
@@ -382,7 +719,10 @@ static void audio_AppendAudioOutBuffer(Ctx *c) {      /* (AudioOut *, AudioOutBu
         ok = 1;
     } else {
         g_total_dropped++;
+        ar_note(AR_APPEND_REFUSE);
     }
+    ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     RET(ok);
 }
@@ -400,43 +740,72 @@ void audio_report(FILE *out) {
 
 static void audio_StartAudioOut(Ctx *c) {             /* (AudioOut *) -> Result */
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_START,NULL);ar_note(AR_START_BEGIN);
     if (g_open && !g_started) {
         g_started = 1;
         g_clock_due = now_ticks();                    /* clock-driven buffers queued before the start begin now */
+        ar_start(AR_START_STATE,0);
         for (unsigned i = g_head; i != g_tail; i++) {
             Slot *s = &g_slots[i % SLOTS];
             g_clock_due += (LONGLONG)s->frames * g_freq.QuadPart / g_rate;
             s->due = g_clock_due;
+            ar_start(AR_START_SLOT,i);
         }
         if (g_wave) waveOutRestart(g_wave);
     }
+    ar_start(AR_START_COMMIT,0);ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     printf("nn::audio: StartAudioOut (%llu buffers queued)\n", g_total_appended - g_total_released);
     RET(0);
 }
 
-static void audio_GetReleasedAudioOutBuffer(Ctx *c) { /* (AudioOut *) -> AudioOutBuffer * or null */
+static void audio_GetReleasedAudioOutBuffer(Ctx *c) { /* original single acquisition */
     uint64_t r = 0;
+    ArStamp ar_stamp={0};
+    if(audio_release_probe_enabled() && !ar_read(&g_ar.sealed)) {
+        /* A recursive inherited caller may already own g_lock. Never add a
+         * g_lock -> AP edge even on that invalid observation path. */
+        if(t_ar_scope){ar_stamp.status=AR_STAMP_INVALID;ar_fail(AR_E_REENTRANT);}
+        else r1_audio_release_stamp(c,audio_GetReleasedAudioOutBuffer,&ar_stamp);
+    }
     EnterCriticalSection(&g_lock);
-    if (g_open) collect_finished(0);
-    if (g_rel_head != g_rel_tail) r = g_released[g_rel_head++ % SLOTS];
+    ar_scope_enter();ar_begin(AR_CALL_GETTER,&ar_stamp);
+    ar_note(AR_PRECOLLECT);
+    int ar_called=g_open,ar_n=0;
+    if (ar_called) ar_n=collect_finished(0);
+    ar_getter_post(ar_called,ar_n);
+    unsigned ar_before=g_rel_head;int ar_popped=0;
+    if (g_rel_head != g_rel_tail) {r = g_released[g_rel_head++ % SLOTS];ar_popped=1;}
+    ar_pop(ar_before,ar_popped,r);
     g_sec_polls++;
     if (!r) g_sec_empty++;
+    ar_end();ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     RET(r);
 }
 
 static void audio_StopAudioOut(Ctx *c) {              /* (AudioOut *): everything queued becomes released */
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_STOP_FORCE,NULL);
     HWAVEOUT w = g_wave;
+    uint64_t ar_control=ar_intent(w);ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
-    if (w) waveOutReset(w);                           /* marks every queued header as done */
+    MMRESULT ar_result=0;
+    if (w) ar_result=waveOutReset(w);                           /* marks every queued header as done */
     g_frames_submitted = 0;                           /* waveOutReset also sets the device position back to 0 */
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_STOP_FORCE,NULL);ar_reset_commit(ar_control,w,ar_result);
     if (g_open) collect_finished(1);
     g_started = 0;
     if (g_wave) waveOutPause(g_wave);
     uint64_t ev = g_event;
+    ar_lifecycle(ar_control);ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     if (ev) os_signal_event(ev);
     printf("nn::audio: StopAudioOut\n");
@@ -444,15 +813,24 @@ static void audio_StopAudioOut(Ctx *c) {              /* (AudioOut *): everythin
 
 static void audio_CloseAudioOut(Ctx *c) {             /* (AudioOut *) */
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_CLOSE_FORCE,NULL);
     HWAVEOUT w = g_wave;
+    uint64_t ar_control=ar_intent(w);ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
-    if (w) waveOutReset(w);
+    MMRESULT ar_result=0;
+    if (w) ar_result=waveOutReset(w);
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
+    ar_begin(AR_CALL_CLOSE_FORCE,NULL);ar_reset_commit(ar_control,w,ar_result);
     if (g_open) collect_finished(1);
     g_open = g_started = 0;
     g_wave = NULL;
     g_event = 0;
     if (g_wav) wav_header();
+    ar_lifecycle(ar_control);ar_end();
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     if (w) waveOutClose(w);
     printf("nn::audio: CloseAudioOut (%llu buffers appended, %llu released)\n", g_total_appended, g_total_released);
@@ -671,6 +1049,7 @@ static void opus_unknown(Ctx *c) {                    /* a virtual function the 
 
 static void opus_constructor(Ctx *c) {                /* HardwareOpusDecoder(int option) */
     EnterCriticalSection(&g_lock);
+    ar_scope_enter();
     if (!g_opus_vtable[0]) {
         for (int i = 0; i < OPUS_SLOTS; i++) {
             ImportFn fn = opus_unknown;
@@ -692,6 +1071,7 @@ static void opus_constructor(Ctx *c) {                /* HardwareOpusDecoder(int
             g_opus_vtable[i] = hostfn_address(g_opus_names[i], fn);
         }
     }
+    ar_scope_leave();
     LeaveCriticalSection(&g_lock);
     wr64(A0 + OBJ_VTABLE, (uint64_t)(uintptr_t)g_opus_vtable);
     wr64(A0 + OBJ_STATE, 0);
@@ -720,7 +1100,12 @@ static const ImportDef audio_imports[] = {
 };
 
 void register_audio_imports(void) {
+#ifndef _WIN32
+    const char *ar_mode=getenv("SSBU_RB_AUDIO_RELEASE_QUEUE");
+    if(ar_mode && strcmp(ar_mode,"0")){fprintf(stderr,"audio release observer requires Windows/offline admitted AP fixture\n");exit(1);}
+#endif
     InitializeCriticalSection(&g_lock);
+    InterlockedExchange(&g_ar_lock_ready,1);
     QueryPerformanceFrequency(&g_freq);
     g_wake = CreateEventA(NULL, FALSE, FALSE, NULL);
     CreateThread(NULL, 0, audio_thread, NULL, 0, NULL);

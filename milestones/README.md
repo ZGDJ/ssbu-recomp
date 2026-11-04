@@ -295,11 +295,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.12
 - Size: 3
 - Requirement: FSD-004, FSD-005, FSD-012
-- Evidence: evidence/2026-11-03-audio-postload-result.md
+- Evidence: evidence/2026-11-04-audio-release-ownership.md
 - Acceptance: Capture actual first reachable audio target/context and full Ctx after LR setup, correlated with producer ordinal/decision, actor and generation; trace surviving scratch to first use or definition. Missing coverage is inconclusive; distinguish scratch inequality from a concrete semantic effect. Preserve all native controls and independent review.
-- Owner: Astra integrator / native post-load finding, 2026-11-03T17:20:00Z
-- Next: Trace the upstream caller decision behind eight original versus eleven replay submissions using retained source/receipts. Nine exact native loads512 select scoped source x11 definition-before-use; this sample has no matched x10-x12 inequality. Preserve failed frozen gates and historical evidence.
-- Blocker: Enabled aggregate stopped: unequal counts/decisions, historical eleven-pair/ten-region requirements unmet, semantic binding/mutation unknown. Disabled500R/0S now complete; enabled500R/two depth-one common gates pass. Raw resolved=false; M4.1/integrated controls remain open.
+- Owner: Astra integrator / host release ownership, 2026-11-04T04:40:00Z
+- Next: Define semantic ownership of host playing/released occurrences and device effects across restore using the observed original-to-replay inventory carryover. Select correction against uninterrupted reference; keep guest consumer progress separate.
+- Blocker: Native release receipts complete: five original APPEND occurrences resident at LOAD_READY, three published in load gap. No safe restoration/device policy established. Current10/10 attempts fail frozen11-per-arm and queue/semantic gates; resolved=false. M1.13/M4.1/integrated controls open.
 
 ## M2 - Controlled simulation
 
