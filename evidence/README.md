@@ -1,10 +1,19 @@
 # Evidence
+
+Start with the [ledger](../milestones/README.md) priorities/selected task and [current handoff](../docs/ROLLBACK_HANDOFF.md). Read this index on demand, not as a requirement to read all evidence. Reports preserve observations at their frozen checkpoints: old next actions, commands, ownership and authorization notes are historical, not the current queue or native admission.
+
+## Current M1.14 evidence route
+
 - [Native loop prerequisites](2026-11-05-loop-native-prerequisites.md): reviewed configuration/parser and speculative hash proof repairs; exact remaining mapping/identity/child-lifetime blockers.
-- [Loop witness preparation](2026-11-05-loop-witness-preparation.md): source witnesses, analyzer and admission repairs; lifecycle integration review and native readiness remain open.
+- [Loop witness preparation](2026-11-05-loop-witness-preparation.md): earlier source checkpoint; lifecycle review accepted, with later analyzer/speculative proof acceptance and remaining native gates in Native loop prerequisites.
 
 - [Loop verifier preparation](2026-11-05-loop-verifier.md): source-tested correction schedule and opt-in raw completion; external oracle/admission and native controls remain open.
 
 - [Direction audit](2026-11-04-direction-audit.md): all tracked Markdown reviewed; prioritize bounded changed-input gameplay preparation, preserving audio and formal failures.
+
+- [Documentation routing audit](2026-11-05-guidance-cleanup.md): complete 167-document coverage and preserved historical evidence.
+
+## Historical reports and supporting context
 
 - [Audio semantic restore prerequisite](2026-11-04-audio-semantic-boundary.md): joint logical release/wait/work contract and causal presentation identity block a safe correction; concrete falsification packet.
 
@@ -125,7 +134,7 @@ Historical WindowSmash evidence remains in its [pinned repository](https://githu
 
 ## 2026-10-23
 
-- [Offline initialization execution](2026-10-23-offline-initialization-execution.md): executed disabled/enabled/+60 arms.
+- [Offline initialization execution](2026-10-23-offline-initialization-execution.md): verified three-arm preparation and capacity refusals; no native execution in this checkpoint. Subsequent controls are in [Menu boundary result](2026-10-23-menu-boundary-result.md).
 - [Menu boundary result](2026-10-23-menu-boundary-result.md): menu-boundary gameplay contrast; +60 fails original reference at frame 2.
 - [Menu consumer implementation](2026-10-23-menu-consumer-implementation.md): bounded menu candidate-consumer observer.
 - [Menu consumer integration](2026-10-23-menu-consumer-integration.md): menu candidate-consumer integration.

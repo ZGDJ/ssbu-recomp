@@ -1,5 +1,7 @@
 # Menu repeat: repeated uninstrumented same-tape agreement, round 1
 
+> Historical refused attempt and retry recipe. [Restore-resource disposition](2026-10-23-restore-resources.md) invalidates blind reuse against changed source. The repeat remains deferred in the ledger; no command below restarts a stopped batch.
+
 2026-10-23 UTC, M3.5 / FSD-004, FSD-013. Root integration on `feat/rollback-validation-audit`, HEAD `11287ff8598c37db8561ff291cb7e85e446942ed`; the worktree is dirty by design and both closed predecessors ([writer integration](2026-10-23-menu-writer-integration.md), [fixture contract](2026-10-23-menu-fixture-contract.md)) stay as they were. Packet `artifacts/local/menu-repeat-20261023/`. Two complementary Claude Fable 5.1 reviewers stayed read-only (`hypothesis-review.md` `81a0cc6f…`, `readiness-review.md` `dd6bf100…`); root owned every edit, the preparation, the deployment, the admission and the single serialized attempt. No build, no runtime source change, no reseed, no reset suppression, no hash weakening, no new reference.
 
 ## Outcome in one paragraph

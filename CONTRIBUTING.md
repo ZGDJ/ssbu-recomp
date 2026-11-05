@@ -1,5 +1,7 @@
 # Contributing
 
+> Inherited contribution guidance remains subject to the fork [AGENTS](AGENTS.md) and [ledger](milestones/README.md). The older Linux-not-started suggestion below is historical; see the existing [Linux guide](BUILDING_LINUX.md) for inherited platform work.
+
 Thanks for wanting to help. This project is a static recompilation of *Super Smash Bros. Ultimate* 13.0.4 / 13.0.5 to
 a native PC program: the tools that translate the game, the runtime that replaces the console, and the
 tooling that turns fighter code back into editable source. It is early, it moves fast, and there is a lot

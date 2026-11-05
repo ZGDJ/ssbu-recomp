@@ -1,5 +1,7 @@
 # Skyline plugins
 
+> Optional upstream reference. Current base-game experiments exclude Skyline/plugin inputs unless separately covered; follow [validation](VALIDATION.md) and the current reviewed recipe.
+
 The runtime can load Skyline plugins, the NRO modules that console mods are made of (ARCropolis, smashline, nro_hook and
 the mods built on them, such as HewDraw Remix). Nothing of any plugin or mod is part of this repository: you install
 them yourself in an SD card folder, as for a modded console, and the tools below lift them on your PC like the game's own

@@ -1,5 +1,7 @@
 # Optional capture-mode resource ownership
 
+> Historical optional-mode results. Current supported/refused modes are governed by the [ledger](../milestones/README.md); these old modes are not alternatives for bypassing native experiment gates.
+
 M7.8 continuation after [fighter/diagnostic resources](2026-10-22-fighter-diagnostics.md). Learned-map and async exclusion append failures now retain owned allocations, publish only complete entries and permanently refuse future captures after lost coverage. Full save refuses before publication and releases holds when failure occurs while held. The unchecked eager async allocation is removed. Fast capture builds its page list and byte buffer as a detached pair before replacing prior storage; either allocation failure preserves the prior owners and bytes. A validity flag is cleared before capture and published only after fiber capture succeeds. Restore without a valid complete snapshot stops execution. Fast-check inventory exhaustion stops before the current missing-page correction instead of silently dropping it.
 
 Learned merge occurs after a full restore has already changed guest state. Its failure therefore permits the current recorded-input replay to finish and refuses subsequent captures; it does not pretend to undo that restore. General native restoration completeness and writer quiescence remain M7.1/M2/M4 work. Optional fast capture itself is not qualified by the standard ring game controls below.

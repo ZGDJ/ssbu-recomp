@@ -1,5 +1,7 @@
 # Frozen pre-match RNG boundary: final finite review
 
+> Historical byte-specific review. Later admission-helper corrections are in [gate integration](2026-10-22-initialization-gate-integration.md) and [v2 review](2026-10-22-initialization-pair-review-v2.md). This GO is not current native admission.
+
 Reviewer, 2026-10-22; M3.5 / FSD-004,FSD-013. Branch `feat/rollback-validation-audit`, base HEAD `38550dda6b0a926366cc37eec0f5c26e4776d043`. Read AGENTS, ledger/handoff, workflow, validation, the [original boundary review](2026-10-22-prematch-boundary-review.md), [implementation evidence](2026-10-22-prematch-boundary-implementation.md), [current timing evidence](2026-10-22-prematch-timing.md), production callers/header, checked-read/origin dependencies, fixtures and local trial helpers. Exclusive writes are this new evidence and `artifacts/local/prematch-boundary-final-review/`. Root retains source, builds, games and ledger/handoff ownership.
 
 **GO for root to build this exact frozen candidate and conduct the gated sequence: new-binary menu-disabled baseline -> menu-enabled baseline -> one enabled +60 arm. No blocking source objection remains from this finite review. Runtime acceptance remains pending.** This is permission to perform the already specified experiment, not a passing runtime verdict. Stop progression on a failed disabled or enabled baseline; a delayed-arm reference mismatch remains a failed reference control.

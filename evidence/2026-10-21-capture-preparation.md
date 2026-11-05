@@ -1,5 +1,7 @@
 # Capture scratch, queue and undo preparation
 
+> Historical partial preparation. Subsequent ownership and results are in [capture-pool preparation](2026-10-21-capture-pool-preparation.md).
+
 2026-10-21, M7.8 partial implementation following [capture reservation audit](2026-10-21-capture-reservation-plan.md). ADR-0007 remains provisional; this is not complete capture atomicity or rollback qualification.
 
 ## Change and remaining boundary

@@ -1,5 +1,7 @@
 # Next offline initialization decision
 
+> Historical proposal, not a current runnable recipe. The snippets precede [gate integration](2026-10-22-initialization-gate-integration.md) and [v2 review](2026-10-22-initialization-pair-review-v2.md). Current execution follows the ledger/handoff.
+
 Research-only packet, 2026-10-22. Inspected clean branch `feat/rollback-validation-audit`, HEAD `11287ff8598c37db8561ff291cb7e85e446942ed`. Exclusive write: this report. Root owns ledger/handoff, helper adoption, builds and all launches. No game, build, runtime edit or commit performed. This is an experiment recommendation, not fresh gameplay acceptance.
 
 Read AGENTS, current continuation/handoff/ledger, workflow and relevant validation requirements; reused [ownership](2026-10-22-battle-seed-ownership.md), [independent boundary challenge](2026-10-22-battle-seed-boundary-challenge.md), [timing result](2026-10-22-prematch-timing.md), [reviewed menu observer](2026-10-22-prematch-boundary.md) and [handshake isolation](2026-10-22-handshake-isolation.md). M3.5 forward-only investigation does not depend on network readiness or blanket completion of M7. Capture/restore retains its separate prerequisites.

@@ -1,5 +1,7 @@
 # Game builds: 13.0.4 and 13.0.5
 
+> Inherited version/address reference. The 13.0.4 address convention and structural checks below do not replace the fork 13.0.5 critical-hook identity and loaded-execution obligations in [validation](VALIDATION.md).
+
 The port runs **13.0.4** and **13.0.5** (update v2031616, released 1 September 2026, which replaced 13.0.4 on consoles;
 Nintendo's notes list one change: "Fixed behavior that occurs when invalid data is sent or received in online battles").
 Both are built from the same sources. 13.0.4 stays the reference: every game address written in the sources is a 13.0.4

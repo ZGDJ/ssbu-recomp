@@ -1,5 +1,7 @@
 > **Paths.** This guide was written for the tools' own single-folder layout (`recomp-study\`, `fighter_sdk\`, `tests\`, `mods_n*_src\`, `characters\`, `ssbu_*.exe`). `python scripts/setup.py` (step `stage`) builds that layout in `build/work/`: read `recomp-study\` as `build/work/`, run the commands from there. In the repository the runtime sources are in `runtime/`, the lifter in `tools/lifter/`, the test mods in `mods/`. Mentions of `plan\...` files refer to the author's private notes, which are not published.
 
+> Inherited 13.0.4 tool/experiment reference, including historical private-note routes; not current 13.0.5 fork qualification. See [validation](VALIDATION.md).
+
 # Modding the native port: fighters as C++ source, and the hook table
 
 State: 2026-10-09, session S3 (details and every number: `plan\phases\S1_fighter_source.md`, sections 7 and 8).

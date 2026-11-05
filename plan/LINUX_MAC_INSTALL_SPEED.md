@@ -1,5 +1,7 @@
 # Linux and macOS install speed (2026-10-20, branch linuxmac-speed)
 
+> Historical branch plan. Done-on-this-branch statements below are inherited checkpoints, not current fork status; consult the [ledger](../milestones/README.md).
+
 ## Where the time went (Steam Deck report: 4.5 hours, 50 minutes of it self-tests)
 
 Linux and macOS install with `scripts/setup.py --target linux|macos`; there is no prebuilt runtime there, but the

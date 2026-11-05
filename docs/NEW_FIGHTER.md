@@ -1,5 +1,7 @@
 > **Paths.** This guide was written for the tools' own single-folder layout (`recomp-study\`, `fighter_sdk\`, `tests\`, `mods_n*_src\`, `characters\`, `ssbu_*.exe`). `python scripts/setup.py` (step `stage`) builds that layout in `build/work/`: read `recomp-study\` as `build/work/`, run the commands from there. In the repository the runtime sources are in `runtime/`, the lifter in `tools/lifter/`, the test mods in `mods/`. Mentions of `plan\...` files refer to the author's private notes, which are not published.
 
+> Chronological upstream session notes. Later session sections supersede earlier today/not-yet statements; none establishes current fork qualification. Use the [ledger](../milestones/README.md).
+
 # A new fighter in the native port: what it consists of today
 
 State: 2026-10-13, sixth version (session N9). This describes OUR runtime and tools; it contains nothing of the

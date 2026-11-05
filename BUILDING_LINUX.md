@@ -1,5 +1,7 @@
 # Building and running on Linux
 
+> Inherited platform reference; not Windows 13.0.5 rollback qualification. Current fork scope/status lives in [the ledger](milestones/README.md).
+
 A native Linux build: the game becomes an ELF executable and shared libraries, with SDL3 for the window, sound and
 controllers, Vulkan for graphics and FFmpeg for the movies. No Wine and no emulator. As on Windows, the repository holds
 no game code: everything is generated on your PC from **your own dump** of Super Smash Bros. Ultimate **13.0.4 or 13.0.5**

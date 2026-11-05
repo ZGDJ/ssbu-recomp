@@ -1,5 +1,7 @@
 # Changed-input witness and analyzer preparation
 
+> Earlier source checkpoint. Later analyzer/configuration and speculative-hash acceptance is recorded in [native prerequisites](2026-11-05-loop-native-prerequisites.md); original counts and remaining-work statements below describe this freeze.
+
 M1.14 remains in progress. This is source preparation, not gameplay qualification: `resolved=false`, `authoritative=0`, `native_ready=false`, mutation coverage unknown.
 
 The opt-in witness records consumed lanes, physical fighter/pass mapping, retained wrong R11, actual mismatch11/load10/replay11, true raw completion, latest finalized projections and a bounded capture seal. Source tests preserve the all-correct comparison across1..64 and keep raw differences diagnostic. Reviewed test defects were repaired: exact completion/end values, latest f/d joins,16/17-read boundary, feasible raw-difference variants, duplicate completion and boolean counter rejection. The214 executable checks comprise52 positives,154 fault rejections and8 named weakening rejections; these categories are distinct.

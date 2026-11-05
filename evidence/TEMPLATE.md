@@ -11,6 +11,7 @@
 - Artifacts, hashes and raw retention:
 - Failures / first divergent tick / reproducer:
 - Exclusions and untested scope:
+- Historical scope / later disposition link (if any); current task status belongs to the ledger:
 - Acceptance verdict / next action:
 - Retro: observed friction, supporting evidence, proposed improvement or none:
 

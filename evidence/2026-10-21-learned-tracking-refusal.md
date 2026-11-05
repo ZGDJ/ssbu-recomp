@@ -1,5 +1,7 @@
 # Refuse known incomplete learned tracking
 
+> Chronological report: the later loading comparison and matrix D below follow the interim handoff. Earlier failures and tallies remain historical.
+
 2026-10-21. M7.8 remains in progress. Follow-up to [detached catch merge](2026-10-21-detached-catch-merge.md). Separate agents own runtime guards, exact-source fixtures and read-only review; root owns integration and isolated game trials.
 
 ## Finding and scope

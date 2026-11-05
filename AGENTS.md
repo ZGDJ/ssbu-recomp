@@ -11,7 +11,7 @@ For rollback milestone implementation, use the project skill [.agents/skills/ope
 
 ## Context and ownership
 
-- Read `milestones/README.md` first; it alone owns task status and dependencies.
+- Read the usage/priorities and selected task plus relevant dependencies in `milestones/README.md` first; it alone owns task status and dependencies. Read evidence on demand, not the entire history by default.
 - Select work from the ledger proof-first queue and current dependencies; build on completed prerequisites and existing tools.
 - Read the current handoff summary, then selected FSD requirements, relevant ADRs and affected source. Historical checkpoints are evidence, not active instructions.
 - `docs/AGENT_WORKFLOW.md` defines packets; `docs/VALIDATION.md` defines evidence.

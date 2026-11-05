@@ -1,5 +1,7 @@
 ﻿# Handshake isolation: independent bounded trial review
 
+> Historical design review. Later [implementation](2026-10-22-handshake-isolation.md) supersedes implementation-next statements, without granting native pair qualification.
+
 2026-10-22. Astra B; exclusive report scope, runtime source read-only. Starting HEAD `38550dda6b0a926366cc37eec0f5c26e4776d043`; inherited dirty observer and documentation preserved. No game, build, or additional delegation. This review continues the [initialization contract](2026-10-22-battle-initialization-contract.md); it does not reopen the already established successful-handshake seed ownership.
 
 ## Decision

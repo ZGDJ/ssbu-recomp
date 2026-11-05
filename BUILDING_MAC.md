@@ -1,5 +1,7 @@
 # Building and running on a Mac (first test)
 
+> Inherited platform reference; not Windows 13.0.5 rollback qualification. Current fork scope/status lives in [the ledger](milestones/README.md).
+
 A native build for Apple Silicon Macs: the game becomes a macOS program, with SDL3 for the window, sound and controllers,
 Vulkan (through MoltenVK, on top of Metal) for graphics and FFmpeg for the movies. No emulator.
 

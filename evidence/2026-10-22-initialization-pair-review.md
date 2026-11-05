@@ -1,5 +1,7 @@
 # Independent initialization pair review — request changes
 
+> This failed review applies to its original freeze. Preserve its findings; the later repaired freeze has a separate [v2 review](2026-10-22-initialization-pair-review-v2.md).
+
 Review date: 2026-10-22. Reviewer owns only this report and ignored `artifacts/local/initialization-pair-review-20261022/`. Reviewed branch `feat/rollback-validation-audit`, HEAD `11287ff8598c37db8561ff291cb7e85e446942ed`. Runtime and implementation files were read-only. No builds, game launches, resource resampling or commits occurred. Single and paired capacity refusals remain binding.
 
 ## Verdict

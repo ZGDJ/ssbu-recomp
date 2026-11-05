@@ -1,5 +1,7 @@
 <div align="center">
 
+> Preserved upstream snapshot; see [provenance and adopted baseline](docs/UPSTREAM.md). Statements below are not current fork status; use [fork README](README.md) and [ledger](milestones/README.md).
+
 <img src="media/og-image.png" alt="OpenSmash-Ultimate" width="100%">
 
 # OpenSmash-Ultimate

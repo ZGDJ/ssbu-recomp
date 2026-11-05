@@ -5,7 +5,7 @@ description: Advance OpenSmash rollback gameplay experiments through cohesive im
 
 # OpenSmash gameplay integration
 
-Locate the OpenSmash repository from the working directory. Read its AGENTS.md, milestones/README.md and docs/ROLLBACK_HANDOFF.md once; follow relevant evidence links only as needed. The ledger owns status; this skill contains no current HEAD, readiness verdict or test totals.
+Locate the OpenSmash repository from the working directory. Read its AGENTS.md, milestones/README.md usage/priorities, selected task and relevant dependencies, and docs/ROLLBACK_HANDOFF.md once; follow relevant evidence links only as needed. The ledger owns status; this skill contains no current HEAD, readiness verdict or test totals.
 
 Use docs/AGENT_WORKFLOW.md, especially "Cohesive delivery and parallel work", for execution. Select a gameplay outcome and complete the related implementation prerequisites as one batch. A small repair or completed delegate is a checkpoint, not an automatic delivery boundary. Continue authorized work until the batch outcome is achieved or a concrete prerequisite cannot be resolved within scope. Known missing implementation is work to perform, not by itself a reason to stop and repeat its inventory.
 

@@ -19,9 +19,9 @@ The nominal rollback constant is seven frames; the existing depth-eight correctn
 
 Event/queue handling is not a complete process snapshot. Private Windows fiber-layout assumptions and learned presentation-memory exclusions need validation across supported Windows versions and full roster. No items does not remove articles, companions or RNG. Presentation/audio suppression must preserve authoritative completions and avoid duplicate effects.
 
-No private game build, two-machine test or roster qualification was performed. The localhost lobby suite passed outside the sandbox. The C toy rollback test was not run because no suitable C compiler was found. Upstream performance/match claims remain unverified here.
+In the original October 21 inspection, no private game build, two-machine test or roster qualification was performed. The localhost lobby suite passed outside the sandbox. The C toy rollback test was not run because no suitable C compiler was found. Upstream performance/match claims remain unverified here.
 
-## Current native evidence (2026-10-27)
+## Historical native evidence (2026-10-27)
 
 The [native queue accounting packet](../evidence/2026-10-27-replay-queue.md) reuses the accepted candidate/package and passes separately admitted disabled 500R/0S and enabled 500R/two depth-one native, fatal/reference, fixture and full identity gates. Complete 133-record accounting shows eleven identical submissions: original six accepts/five rejects, replay five/six, four confirmed dequeues each. Consumer progress ordering explains the different accept/full decisions; actual sink/context remain the source-identified no-op/zero. This is bounded bookkeeping causality, not gameplay impact or a timer/event-policy diagnosis. M1.11 closes this investigation. The [consequence proof](../evidence/2026-10-27-queue-consequences.md) closes M1.12 with scoped no-op sink behavior and conditional scratch survival to unresolved audio callbacks; M1.13 must identify the actual target/full Ctx and first scratch use. Native scratch inequality and gameplay effects remain unproven. Formal M4.1 and integrated controls remain open. The prior capacity refusal remains preserved.
 
@@ -65,7 +65,7 @@ An actual default battle exposed pre-checkpoint registry overflow: 512 occupied 
 
 The [2026-10-22 network audit](../evidence/2026-10-22-private-network-audit.md) finds rollback-specific lobby routing, inferred peer selection and lobby-owner/slot coupling. ADR-0008 and M5.4-M5.8 add private pair isolation, route qualification and later rotation without replacing checkpoint hardening. These are source findings and planned work, not new multiplayer evidence.
 
-## Current anchors (2026-10-22, branch `feat/rollback-validation-audit` at `11287ff`)
+## Historical anchors (2026-10-22, branch `feat/rollback-validation-audit` at `11287ff`)
 
 The line numbers in the M7 list above are pinned to the audited upstream commit and no longer match this branch. Re-inspection on 2026-10-22 confirms each finding is still present; use these anchors until the owning task closes. Runtime line numbers drift with every runtime commit, so cite the commit with any new reference.
 
@@ -88,4 +88,4 @@ Additional source observations not in the original list:
 
 ## Reservation disposition (2026-10-23)
 
-[M7.8 source closure](../evidence/2026-10-23-restore-resources.md) traces and guards the effective SDK override as well as the original release handler. Guest reservation release is serialized against a process-lifetime pin established before snapshot inventory and terminates before cache/OS mutation once pinned. Nonzero MEM_KEEP is explicitly unsupported and its unsafe clearing branch removed. Two independent reviews and O1/O3 production-body injections support the bounded source verdict. The new executable's disabled control was refused before native launch on capacity; restore controls remain unrun. M7.1 is open: the early unpark is inside save before ring validation/publication, and mismatched-but-blocked thread continuations require preflight refusal. No complete-state or battle qualification follows.
+Historical October 23 disposition (later M7.1 source acceptance is in the [ledger](../milestones/README.md)): [M7.8 source closure](../evidence/2026-10-23-restore-resources.md) traces and guards the effective SDK override as well as the original release handler. Guest reservation release is serialized against a process-lifetime pin established before snapshot inventory and terminates before cache/OS mutation once pinned. Nonzero MEM_KEEP is explicitly unsupported and its unsafe clearing branch removed. Two independent reviews and O1/O3 production-body injections support the bounded source verdict. The new executable's disabled control was refused before native launch on capacity; restore controls remain unrun. M7.1 is open: the early unpark is inside save before ring validation/publication, and mismatched-but-blocked thread continuations require preflight refusal. No complete-state or battle qualification follows.

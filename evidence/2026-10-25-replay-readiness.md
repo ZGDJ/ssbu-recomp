@@ -1,5 +1,7 @@
 # Default replay capacity and prepared second attempt
 
+> Historical readiness/consent snapshot. Later [first native replay](2026-10-26-first-native-replay.md) records the subsequent attempt. Old package, capacity and consent notes do not establish current admission.
+
 Bounded preparation toward M4.1 on `feat/rollback-validation-audit`, starting HEAD `bce516f0aaaea70fa8f35c45d3b726e48f4fea31`. Integration owns shared edits and serialized trials. Raw packet: `artifacts/local/replay-readiness-20261025/`. [Prior adapter and refusal](2026-10-25-default-replay.md) remain retained; formal M4.1 dependencies and acceptance are unchanged.
 
 ## Decision and observation

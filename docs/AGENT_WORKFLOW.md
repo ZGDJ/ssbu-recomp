@@ -34,7 +34,7 @@ A reproduced invariant violation can justify a bounded correction before every h
 
 After required validation, exercise the relevant capture, restore, correction or initialization behavior, or identify the exact safety prerequisite preventing that experiment. Conclude with evidence supporting the implementation, a bounded remediation, or architecture reconsideration. An inconclusive result names the remaining uncertainty and the observation that can resolve it. An investigation verdict does not close an unmet capability gate.
 
-Choose complementary delegated roles for the task: disjoint implementations, ownership investigation, or independent challenge/review as appropriate. Integration owns shared edits, frozen candidates and serialized game trials. Task-specific experiment plans belong in the owning ledger entry and linked evidence; see the current handoff for active initialization work.
+Choose complementary delegated roles for the task: disjoint implementations, ownership investigation, or independent challenge/review as appropriate. Integration owns shared edits, frozen candidates and serialized game trials. Task-specific experiment plans belong in the owning ledger entry and linked evidence; see the current handoff for current task/experiment.
 
 ## Work loop
 

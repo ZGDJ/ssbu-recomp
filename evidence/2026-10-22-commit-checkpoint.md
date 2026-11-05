@@ -1,5 +1,7 @@
 # Source checkpoint and continuation
 
+> Historical checkpoint and next-task assignments. Current work is selected by the [ledger](../milestones/README.md) and [handoff](../docs/ROLLBACK_HANDOFF.md).
+
 The owner requested committing all current work and a continuation prompt. This checkpoint includes rollback hardening, diagnostics, production-connected tests, family installer/save/support work, evidence and workflow documentation. Private game inputs, generated binaries, save data and ignored local artifacts are excluded. The fork feature branch is `feat/rollback-validation-audit`; no release, merge or family update-channel change is requested.
 
 [Rollback handoff](../docs/ROLLBACK_HANDOFF.md) gives the next bounded task, source/evidence entry points, local fixture/build commands, protected identities and remaining qualifications. The next packet is copy-worker startup/dispatch/completion failure handling, not a new rollback backend. The milestone ledger remains the sole task-status source.

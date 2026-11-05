@@ -1,5 +1,7 @@
 # Validation contract
 
+> For current changed-input preparation, follow the [ledger](../milestones/README.md) and [native prerequisites](../evidence/2026-11-05-loop-native-prerequisites.md). Separate correction-path execution, selected-state convergence and meaningful gameplay contrast. Accepted source tools do not supply native mapping or the complete admitted driver; a seal or scripts/run.py is not a substitute.
+
 For exploratory changed-input research, use [M1.14 direction/readiness contract](../evidence/2026-11-04-direction-audit.md). Require a separately identified all-correct oracle, two consumed lanes, exact mismatch/load/replay/completion and predeclared coverage. Existing SIM comparisons and NET=0 admission cannot be reused blindly for loop correction. A new frozen recipe may report limited gameplay results alongside known semantic inequalities; it must preserve old aggregate FAIL and all safety/identity/completeness gates. Full audio qualification is not a blanket research prerequisite, and no native readiness is claimed yet.
 
 Distinct proof levels: **source-only**, **game-backed local**, **cross-process/cross-machine/network**. One cannot close another. The adopted upstream is OpenSmash `c7c874977ea7510c291ec8c278a58883a2f4e368`; its source and historical run reports do not count as newly reproduced gameplay evidence.

@@ -1,5 +1,7 @@
 # Detached catch-table merge before restore mutation
 
+> Chronological report: interim pending statements precede the later third-attempt result below. Preserve both failed predecessors; current task status is in the ledger.
+
 2026-10-21. M7.8 remains in progress. This completes the capacity-preparation work identified in [catch preflight evidence](2026-10-21-catch-restore-preflight.md). Separate agents own shared catch helpers, ring integration and exact-source tests; root owns integration and isolated trials. Independent review covers the frozen candidate before building.
 
 ## Transaction change

@@ -1,5 +1,7 @@
 # Bounded changed-input loop verifier preparation
 
+> Earlier verifier checkpoint. Later witnesses, analyzer/admission repairs and remaining native gates are in [native prerequisites](2026-11-05-loop-native-prerequisites.md).
+
 2026-11-05 UTC, integration base d0d65a43ca8153d3b9c98a33e5af05067535be12. M1.14 remains in progress; resolved=false, authoritative=0, native_ready=false. This packet implements raw diagnostic completion, not a gameplay correction or external oracle.
 
 ## Implemented boundary

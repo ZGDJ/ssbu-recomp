@@ -1,5 +1,7 @@
 ﻿# Initialization pair tooling — source-only review candidate
 
+> Original candidate/schema and later v2 amendment are retained below. See [v2 acceptance](2026-10-22-initialization-pair-review-v2.md); the initial schema and review request are historical.
+
 Scope: M3.5's identified NET_INIT_ONLY host/join experiment. Base HEAD `11287ff8598c37db8561ff291cb7e85e446942ed`, branch `feat/rollback-validation-audit`. This packet changes only three new tools, one new offline test module and this evidence. Root owns ledger/handoff, build preparation, admission decisions, all games and independent review. No builds, real game launches, runtime edits or commits were performed here. Other concurrent evidence/ledger changes belong to their owners.
 
 The next discriminating observation remains actual successful host/join initialization: unequal selector entry narrows handshake-to-selector consumption; equal entry but different returned seed/owner narrows original selector branches/ownership; equal owner but different reset narrows reset/lifecycle. Equal observations do not establish complete-state or selector-branch equality. Fatal, identity, agreement or completeness failure stops progression. Original-reference mismatch remains failure even if peers agree.

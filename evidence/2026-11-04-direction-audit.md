@@ -1,5 +1,7 @@
 # Direction audit: prioritize a changed-input gameplay experiment
 
+> Historical direction decision, still governing prioritization. Its initial source blockers have subsequent dispositions in [native prerequisites](2026-11-05-loop-native-prerequisites.md); use the ledger for current work.
+
 2026-11-04. Integration decision at b3eba89b12e4ce6a11a46845a7f6987c8bb5a600. The ledger owns status. This changes research priority, not runtime behavior or formal acceptance.
 
 ## Decision

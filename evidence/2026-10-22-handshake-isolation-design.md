@@ -1,5 +1,7 @@
 # Initialization-only handshake isolation design
 
+> Historical preimplementation design. See [implementation and limits](2026-10-22-handshake-isolation.md) and [candidate review](2026-10-22-handshake-isolation-candidate-review.md); native pair qualification remains separate.
+
 2026-10-22; Astra A, delegated task `/root/handshake_isolation`. Source inspection only; no runtime edit, build or game. Exclusive write scope is this report. Inherited dirty work is preserved. This extends the [initialization contract](2026-10-22-battle-initialization-contract.md), without repeating the seed-ownership audit.
 
 ## Decision and firm activation verdict
