@@ -37,6 +37,7 @@ EXPERIMENT = dict(format=1, interval=[1, 64], mismatch=11, load=10, replay=[11, 
 # Explicit safety/schedule requirements, independent of supplied recipe values.
 SETTINGS = {
     'SSBU_ONLINE': 'off', 'SSBU_RB_LOOP_VERIFY': '1',
+    'SSBU_RB_LOOP_WITNESS': '1',
     'SSBU_RB_NET_PLAYER': '0', 'SSBU_RB_NET_DELAY': '1',
     'SSBU_RB_NET_BOT': '7', 'SSBU_RB_NET_LOOP_BOT2': '19',
     'SSBU_RB_NET_LOOP_LAT2': '11,0', 'SSBU_RB_NET_DETAIL': '1',

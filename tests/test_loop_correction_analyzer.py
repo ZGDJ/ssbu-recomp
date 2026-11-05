@@ -228,6 +228,22 @@ def mutate_json(text, kind, mutate, *, occurrence=0):
 
 
 class LoopCorrectionAnalyzerTests(unittest.TestCase):
+    def test_admission_config_matches_analyzer(self):
+        spec = importlib.util.spec_from_file_location("loop_admission_contract", ROOT / "tools/loop_replay_admission.py")
+        admission = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = admission
+        spec.loader.exec_module(admission)
+        self.assertEqual(A.CONFIG, {key: admission.SETTINGS.get(key) for key in A.CONFIG})
+
+    def test_exact_watchdog_startup_only(self):
+        banner = 'nvn_vk_watchdog: on: a report of every thread (locks, waits, call stacks) is written to the log and to <exe>_freeze.txt when no frame reaches the window for 5 s (SSBU_VK_WATCHDOG=<seconds>, 0 = off; SSBU_MINIDUMP=freeze: also a minidump from 5 s)'
+        self.assertTrue(A.check_summary(banner, "oracle", {"expected_inputs": [None]}))
+        for bad in (banner.replace("for 5 s", "for 1 s"), banner + " failed", "nvn_vk_watchdog: on: failed"):
+            with self.subTest(bad=bad), self.assertRaises(A.Invalid):
+                A.check_summary(bad, "oracle", {"expected_inputs": [None]})
+        self.assertIsNotNone(A.BAD_LOG.search("nvn_vk_watchdog: off"))
+        self.assertIsNotNone(A.BAD_LOG.search("nvn_vk_watchdog: stall"))
+
     @classmethod
     def setUpClass(cls):
         cls.default_recipe = recipe()

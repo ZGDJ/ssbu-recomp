@@ -306,11 +306,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.1, M1.3, M1.4, M7.3
 - Size: 3
 - Requirement: FSD-003, FSD-006, FSD-012
-- Evidence: evidence/2026-11-05-loop-witness-preparation.md
+- Evidence: evidence/2026-11-05-loop-native-prerequisites.md
 - Acceptance: Production-connected tests prove the selected two-lane mismatch/load/replay schedule; correction-aware oracle rejects absent/wrong/incomplete correction evidence; verifier completion and admission recipe receive independent review. Deliver a safely runnable bounded native packet or an exact path-specific blocker. This preparation does not close formal M4.1/M4.2 or certify gameplay.
-- Owner: Astra integrator / direction audit, 2026-11-04T16:00:26.559815+00:00
-- Next: Source schedule and opt-in raw completion are implemented/reviewed within scope. Witness, analyzer and admission candidates are implemented with bounded tests/reviews; lifecycle integration review is accepted; finish analyzer repair integration acceptance, then freeze/build/review the native recipe and its own controls.
-- Blocker: Integrated candidate acceptance, actual native trace/H2/lane mapping and the complete identity/readiness/journal/child/post-gate packet remain missing. No host build/new-package controls yet; native readiness unproven. Full audio equivalence is not a blanket dependency.
+- Owner: Astra integrator / native prerequisites, 2026-11-05T03:59:30.628083+00:00
+- Next: Source schedule and opt-in raw completion are implemented/reviewed within scope. Witness lifecycle and analyzer/configuration repairs have bounded source acceptance. Add independent speculative R11 hash reconstruction and targeted serializer mutation protection, then bind mapping/recipe and complete the native driver/validators before freeze/build/review and its own controls.
+- Blocker: Speculative R11 hash source-test acceptance, actual native trace/H2/lane mapping and the complete identity/readiness/journal/child/post-gate packet remain missing. No host build/new-package controls yet; native readiness unproven. Full audio equivalence is not a blanket dependency.
 
 ## M2 - Controlled simulation
 

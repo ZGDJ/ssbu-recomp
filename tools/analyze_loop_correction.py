@@ -52,8 +52,8 @@ CONFIG = {
     "SSBU_RB_NET_PLAYER": "0", "SSBU_RB_NET_DELAY": "1",
     "SSBU_RB_NET_BOT": "7", "SSBU_RB_NET_LOOP_BOT2": "19",
     "SSBU_RB_NET_LOOP_LAT2": "11,0", "SSBU_RB_NET_KEEP": "1",
-    "SSBU_RB_NET_RECAP": "1", "SSBU_RB_NET_SKIP": "0",
-    "SSBU_RB_NET_LITE": "0", "SSBU_RB_NET_LASTLITE": "0",
+    "SSBU_RB_NET_RECAP": "1", "SSBU_RB_SIM_SKIP": "0",
+    "SSBU_RB_SIM_LITE": "0", "SSBU_RB_NET_LASTLITE": "0",
     "SSBU_RB_NET_PACE": "1", "SSBU_RB_NET_DETAIL": "1",
     "SSBU_RB_NET_CKPADS": "1", "SSBU_TRACE_FRAMES": "500",
 }
@@ -570,6 +570,9 @@ def check_summary(line, arm, recipe):
     a zero, and their presence never repairs missing PASS/END or process proof.
     """
     late, minimum = int(arm == "correction"), len(recipe["expected_inputs"])
+    if line.startswith("nvn_vk_watchdog: on:"):
+        exact(line, 'nvn_vk_watchdog: on: a report of every thread (locks, waits, call stacks) is written to the log and to <exe>_freeze.txt when no frame reaches the window for 5 s (SSBU_VK_WATCHDOG=<seconds>, 0 = off; SSBU_MINIDUMP=freeze: also a minidump from 5 s)', "watchdog startup")
+        return True
     if line.startswith("[rbnet] report: pad check of the final simulations:"):
         exact(line, "[rbnet] report: pad check of the final simulations: 0 pad values differ from the final ones (first frame -1)", "bad-pad summary")
         return True
