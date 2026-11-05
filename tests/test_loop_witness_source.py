@@ -18,6 +18,33 @@ from test_catch_source import function
 from bounded_trace_cmp import read_trace
 
 
+def speculative_r11_hash():
+    """Independent fixture oracle: BOT7 B at2..11, remote prediction neutral.
+
+    Reconstruct full synthetic guest/RNG state, never use emitted hash, rows,
+    folded RNG, or consumed-pad records as expected data.
+    """
+    mask = (1 << 64) - 1
+    prime, basis = 0x100000001b3, 0xcbf29ce484222325
+    state = basis
+    for frame in range(1, 12):
+        for buttons in (0 if frame == 1 else 2, 0):
+            for value in (buttons, 0, 0, 0, 0):
+                state = ((state ^ value) * prime) & mask
+    data = b""
+    for slot in (0, 1):
+        data += struct.pack("<iiQffffQ", -1, (state & 255) + slot,
+                            state ^ (slot << 48), 11.0,
+                            float((state & 65535) + 100 * slot), -0.0, 1.0,
+                            state ^ (slot << 40))
+    for buttons in (2, 0):
+        data += struct.pack("<QhhhhII", buttons, 0, 0, 0, 0, 1, 0)
+    result = basis
+    for value in data:
+        result = ((result ^ value) * prime) & mask
+    return f"{result:016x}"
+
+
 def validate_event_envelope(events, late):
     """Same strict cardinality/type check for production output and mutations."""
     def scalar_types(value):
@@ -330,6 +357,7 @@ static void ra_report(void) {}
                             "weakening_detected": True})
             # Serializer mutations must be caught by independent output joins.
             for name, old, new in (
+                ("speculative-hash", "(unsigned long long)hash, p->valid, g_hlines);", "(unsigned long long)(hash ^ ((frame == 11 && p->trace.kind == 'R') ? 1 : 0)), p->valid, g_hlines);"),
                 ("complete-token", "(unsigned long long)token, from, to, mismatch, p->seq", "(unsigned long long)token + 1, from, to, mismatch, p->seq"),
                 ("final-hash", "(unsigned long long)g_hash[f % HR]);", "(unsigned long long)(g_hash[f % HR] ^ 1));"),
                 ("detail-pad", "g_upad[x][0].lx, g_upad[x][0].ly,", "g_upad[x][0].lx + 1, g_upad[x][0].ly,"),
@@ -350,7 +378,8 @@ static void ra_report(void) {}
                 records = [json.loads(x[2:]) for x in lines if x.startswith("o ")]
                 first = next(e for e in records if e["kind"]=="PASS")
                 with self.assertRaises(AssertionError):
-                    if name=="complete-token": self.assertEqual(next(e for e in records if e["kind"]=="COMPLETE")["token"],1)
+                    if name=="speculative-hash": self.assertEqual(next(e for e in records if e["kind"]=="PASS" and e["f"]==11 and e["phase"]=="R")["h"], speculative_r11_hash())
+                    elif name=="complete-token": self.assertEqual(next(e for e in records if e["kind"]=="COMPLETE")["token"],1)
                     elif name=="final-hash": self.assertEqual(next(x for x in lines if x.startswith("f 1 ")).split()[3],first["h"])
                     else: self.assertEqual(int(next(x for x in lines if x.startswith("d 1 ")).split()[4]),first["lanes"][0]["value"]["lx"])
                 results.append({"label":f"{name}{opt}","exit":result.returncode,"weakening_detected":True})
@@ -372,11 +401,12 @@ static void ra_report(void) {}
                 for a, b in zip(oracle[f]["fighters"], corrected[f]["fighters"]):
                     self.assertEqual({k: v for k, v in a.items() if k != "ordinal"}, {k: v for k, v in b.items() if k != "ordinal"})
             wrong = next(r for r in records if r["kind"] == "PASS" and r["f"] == 11 and r["phase"] == "R")
+            self.assertEqual(wrong["h"], speculative_r11_hash())
             self.assertNotEqual(wrong["h"], oracle[11]["h"])
             self.assertNotEqual(wrong["fighters"][0]["x"], oracle[11]["fighters"][0]["x"])
         self.assertEqual(manifest["sources"], {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths})
         (out / "SUMMARY.json").write_text(json.dumps({"status": "passed", "executions": len(results),
-            "positive": len(good) * 2, "negative": len(bad) * 2, "weakening_rejections": 8, "optimizations": ["O1", "O3"],
+            "positive": len(good) * 2, "negative": len(bad) * 2, "weakening_rejections": 10, "optimizations": ["O1", "O3"],
             "sources_stable": True, "native_launched": False, "host_build": False,
             "resolved": False, "authoritative": 0, "independent_review": "pending"}, indent=2) + "\n")
 
