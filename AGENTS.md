@@ -7,6 +7,8 @@ Advance the next falsifiable battle proof: a verified fix, a causal finding, a n
 OpenSmash rollback exists but is unqualified; distinguish source acceptance, exploratory observations and formal gameplay evidence.
 Read ADR-0007 and docs/ROLLBACK_AUDIT.md before changing the inherited backend.
 
+For rollback milestone implementation, use the project skill [.agents/skills/opensmash-gameplay/SKILL.md](.agents/skills/opensmash-gameplay/SKILL.md). It routes cohesive delivery and parallel ownership; the ledger and validation contracts remain authoritative.
+
 ## Context and ownership
 
 - Read `milestones/README.md` first; it alone owns task status and dependencies.

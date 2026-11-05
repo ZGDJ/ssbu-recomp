@@ -46,6 +46,22 @@ Choose complementary delegated roles for the task: disjoint implementations, own
 6. Done requires acceptance evidence and completed dependencies. Negative research can finish an investigation, not a capability gate: create remediation and rewire dependencies.
 7. Record the brief retrospective described below, then continue with the next evidence-supported action within authorized scope, or hand off the exact blocker and an experiment or prerequisite that can resolve it. Recurring execution requires separate user instruction.
 
+## Cohesive delivery and parallel work
+
+Batch related prerequisites toward one observable gameplay outcome. Avoid ending a delivery after each small repair, review response or test run when the next authorized implementation step is already known. Commit checkpoints when useful, then continue the batch. An exact blocker should identify why progress cannot safely proceed and the resolving action; missing code within the authorized batch should normally be implemented, not repeatedly inventoried.
+
+For the bounded changed-input native package, use three complementary workstreams when delegation helps:
+
+- Driver/process ownership: durable consumed batch journal, actual child creation/wait/exit, exclusive lease and failure-stop lifecycle.
+- Identity/result gates: complete pre/post inventories, fatal scanning, fixture/menu/RNG checks and sealed-trace validation.
+- Recipe/mapping: independently declared input tape and oracle, initialization, fighter/lane/poll mapping and readiness evidence.
+
+Agree on interfaces and exclusive file ownership first. The integrator owns shared edits, merges and serialized native execution. Delegates return concrete code or source-supported decisions with validation and limits. Discover live model/options and verify requested selections. Respect orchestration-required yields; resume the same batch on completion rather than requiring another user continuation. Do not add polling or redundant delegates to work around the tool lifecycle.
+
+Review one frozen integrated candidate for substantive safety changes. Reuse accepted unchanged evidence and focus review on changed behavior plus affected assumptions. Broaden review or testing only for a concrete new risk. Ordinary documentation and low-impact test changes do not automatically require another delegate. Preserve independent review where the existing safety contract requires it.
+
+Update durable documents at integration boundaries rather than after every tool result. Keep the handoff short and actionable; place detailed freezes and failed attempts in evidence/artifacts. This batching changes delivery organization only: full identity, fresh admission, exclusive lease, required controls, separate result gates and stopped-batch rules remain unchanged. No broad audio or exhaustive documentation audit is required without a named dependency or new contradictory evidence.
+
 ## Improving the method
 
 At packet close, briefly record observed friction, supporting evidence and one proposed improvement, or `none`. Use existing timestamps/logs for observed build, trial and review waits when useful; distinguish elapsed wall time from summed parallel work. Label estimates as estimates and leave unavailable measurements unknown. A retrospective is a small learning note, not a requirement to find another task.
