@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdarg.h>
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
@@ -41,6 +42,15 @@ int net_online(void);
 static int g_on = -1, g_loop, g_loop_lat = 4, g_local, g_delay_cfg = -1, g_ahead = 7, g_started, g_peer_started;
 static unsigned g_bot_seed; static int g_bot;
 static FILE *g_hlog;
+static void rbn_log(const char *format, ...);
+static void rbn_log_flush(void);
+static void rbn_witness_pad(int player, long long frame, RbPad pad, int predicted);
+static void rbn_witness_arrival(long long cur, long long frame, RbPad pad);
+static void rbn_witness_mismatch(int mismatch);
+static void rbn_witness_pass(long long frame, uint64_t hash);
+static void rbn_witness_final(long long frame);
+static void rbn_witness_producer(void);
+static void rbn_witness_local(long long frame);
 static volatile LONG64 g_cur;                          /* the frame this game is on (read by the receive thread for PONGs) */
 static LARGE_INTEGER g_qpf;
 static uint64_t now_us(void) { LARGE_INTEGER t; QueryPerformanceCounter(&t); if (!g_qpf.QuadPart) QueryPerformanceFrequency(&g_qpf); return (uint64_t)(t.QuadPart / (double)g_qpf.QuadPart * 1e6); }
@@ -554,6 +564,7 @@ static DWORD WINAPI ping_thread(void *u) {
 }
 void rbn_init(void) {                                   /* r1_state.c ra_init: before the match */
     static int done; if (done++ || rbn_on() <= 0) return;
+    rbn_witness_init();
     if (!g_loop) CloseHandle(CreateThread(NULL, 0, ping_thread, NULL, 0, NULL));
 }
 
@@ -596,7 +607,7 @@ static int auto_delay(void) {
 }
 void rbn_start(long long f0) {
     g_f0 = f0; g_started = 1; g_match_n++;
-    if (g_hlog) { fprintf(g_hlog, "m %d id %08x\n", g_match_n, g_match_id); fflush(g_hlog); }      /* (rbn_cmp.py: frames are per match) */
+    if (g_hlog) { rbn_log("m %d id %08x\n", g_match_n, g_match_id); rbn_log_flush(); }      /* (rbn_cmp.py: frames are per match) */
     g_remote = 1 - g_local;
     if (g_peerdelay < 0) { const char *e = getenv("SSBU_RB_NET_PEERDELAY"); g_peerdelay = !(e && e[0] == '0'); }
     g_my_lockd = lock_delay();                          /* (hs14) announced in every PADS message of this match (frozen here) */
@@ -638,6 +649,7 @@ static void send_pads(void) {
 }
 /* the local player's pad of a real pass (frame f): kept for f + delay and sent */
 void rbn_local_pad(long long f, RbPad now) {
+    rbn_witness_local(f);
     if (g_bot) now = bot_pad(g_bot_seed, f);
     rb_input_local((int)f, now);
     send_pads();
@@ -654,6 +666,7 @@ static uint8_t g_ulines[HR2][4][40]; static int g_unl[HR2];
 static long long g_padcheck_bad, g_padcheck_first = -1;
 RbPad rbn_pad(int player, long long f) {
     int pred = 0; RbPad p = rb_input_get(player, (int)f, &pred);
+    rbn_witness_pad(player, f, p, pred);
     g_stat_padget++; g_stat_pred += pred;
     if (player >= 0 && player < 2) { if (g_acc_n[player] && !rb_pad_equal(&g_acc_pad[player], &p)) g_acc_var[player] = 1; g_acc_pad[player] = p; g_acc_n[player]++; }
     return p;
@@ -686,7 +699,12 @@ void rbn_drain(long long cur) {
         int lat = lat2_from >= 0 && cur >= lat2_from ? lat2 : g_loop_lat;
         if (jit) { uint32_t h = mix32(jseed * 0x9E3779B9u ^ (uint32_t)(cur / (4 + (mix32(jseed) % 17))) * 0x85EBCA6Bu); lat -= (int)(h & 1); }
         long long upto = cur + g_delay - lat;
-        for (long long f = rb_input_remote_latest(g_remote) + 1; f <= upto; f++) rb_input_remote_put(g_remote, (int)f, loop_remote_pad(f));
+        for (long long f = rb_input_remote_latest(g_remote) + 1; f <= upto; f++) {
+            rb_input_remote_put(g_remote, (int)f, loop_remote_pad(f));
+            /* rb_input.c is included above. Observe the accepted actual slot,
+             * without a second get or another evaluation of the generator. */
+            if (rbn_witness_on()) rbn_witness_arrival(cur, f, g_r[g_remote].pad[(int)f & (RB_RING - 1)]);
+        }
         return;
     }
     if (rbn_handshake_wanted()) hs_block_compare();
@@ -709,7 +727,7 @@ void rbn_drain(long long cur) {
         if (m.check_frame > 0) on_check(m.check_frame, m.check);
     }
 }
-int rbn_take_mismatch(void) { int m = rb_input_take_mismatch(); if (m) g_stat_mis++; return m; }
+int rbn_take_mismatch(void) { int m = rb_input_take_mismatch(); if (m) g_stat_mis++; rbn_witness_mismatch(m); return m; }
 void rbn_put_mismatch(int m) { rb_input_put_mismatch(m); if (m) g_stat_mis--; }      /* (R3 pub1) r1_ring_load refused: the wrong guess stays pending */
 long long rbn_confirmed(void) { return rb_input_remote_latest(g_remote); }
 int rbn_peer_gone(void) {
@@ -722,6 +740,7 @@ int rbn_peer_gone(void) {
 static uint8_t g_lacc[4][40]; static int g_lacc_n;
 void rbn_hash_add(const void *p, size_t n) {
     if (g_on <= 0) return;
+    rbn_witness_producer();
     if (g_lacc_n < 4 && n <= 40) { memset(g_lacc[g_lacc_n], 0, 40); memcpy(g_lacc[g_lacc_n], p, n); g_lacc_n++; }
     const uint8_t *b = p; while (n--) { g_hacc ^= *b++; g_hacc *= 0x100000001b3ull; }
     g_hlines++;
@@ -750,7 +769,332 @@ static uint64_t hash_pads(uint64_t h) {
     }
     return h;
 }
+/* M1.14 bounded witness v1. Only the serialized gameplay owner writes this
+ * host storage. No file/trace lock or allocation is taken by these H2 hooks.
+ * All m/o/f/d bytes share one reserved queue, preserving interleave. */
+#define RBW_BYTES (1u << 20)
+#define RBW_RESERVE 32768u
+#define RBW_PASSES 66
+typedef struct {
+    long long frame, seq;
+    uint64_t hash;
+    int valid, n[2], varied[2], predicted[2];
+    RbPad pad[2];
+    RbWitnessTrace trace;
+} RbwPass;
+/* sealed freezes capture at finalized H2; closed follows checked physical I/O. */
+static int g_won = -1, g_winit, g_wbase, g_wsealed, g_wclosed;
+static volatile LONG g_wowner;
+static char g_wbytes[RBW_BYTES]; static size_t g_wused;
+/* A bounded END snapshot, held separately until preceding data is flushed. */
+static char g_wend[1024]; static size_t g_wend_used;
+/* Only this publication is read by shutdown's possibly different caller.
+ * 0 = disabled/unregistered, 1 = incomplete, 2 = checked closed (permanent). */
+static volatile LONG g_wexit;
+static RbWitnessTrace g_wtrace;
+static long long g_wtrace_frame, g_wtrace_poll, g_wprev_trace, g_wseq, g_wevents, g_wfinals, g_wwindow;
+static int g_wtrace_phase, g_wtrace_left, g_wtrace_polls, g_wready, g_wh2;
+static RbwPass g_wlast[HR], g_wpasses[RBW_PASSES]; static int g_wnpass;
+static RbPad g_wactual[HR]; static long long g_wactual_frame[HR];
+static int g_wpred[2], g_wreads[2], g_wvar[2]; static RbPad g_wpad[2];
+static long long g_wread_frame, g_warrival_cur, g_wmismatch, g_wspec, g_wload, g_wtarget;
+static int g_wmismatch_emitted, g_wcomplete, g_widle;
+static long long g_wfinal_seq[HR], g_wsubmits;
+void rbn_witness_fail(const char *why) {
+    /* Fail-stop without acquiring a game lock or flushing the net stream. */
+    fprintf(stderr, "LOOP WITNESS FATAL: %s; incomplete diagnostic, authoritative=0\n", why);
+    abort();
+}
+int rbn_witness_on(void) {
+    if (g_won < 0) {
+        const char *e = getenv("SSBU_RB_LOOP_WITNESS");
+        g_won = e && strcmp(e, "0") != 0;
+        if (g_won && (strcmp(e, "1") || !(e = getenv("SSBU_RB_LOOP_VERIFY")) || strcmp(e, "1")))
+            rbn_witness_fail("requires WITNESS=1 and LOOP_VERIFY=1");
+    }
+    return g_won;
+}
+static void rbw_owner(void) {
+    if (!g_winit) rbn_witness_fail("missing witness initialization");
+    LONG me = (LONG)GetCurrentThreadId();
+    LONG owner = InterlockedCompareExchange(&g_wowner, me, 0);
+    if (owner && owner != me) rbn_witness_fail("concurrent/wrong-thread producer");
+}
+static void rbn_witness_producer(void) {
+    if (rbn_witness_on() && !g_wsealed) rbw_owner();
+}
+static void rbn_witness_local(long long frame) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (frame != g_wsubmits + 1 || (g_wmismatch_emitted && !g_wcomplete))
+        rbn_witness_fail("local resubmission during replay/out of order");
+    g_wsubmits = frame;
+}
+void rbn_witness_shutdown(void) {
+    if (InterlockedCompareExchange(&g_wexit, 0, 0) == 1)
+        rbn_witness_fail("shutdown before safe drained END; no shutdown flush");
+}
+static void rbw_shutdown(void) { rbn_witness_shutdown(); }
+void rbn_witness_exit_init(void) {
+    /* runtime_init calls this before creating guest/display threads. Register
+     * an incomplete requested capture even if net initialization never runs. */
+    if (rbn_witness_on() && InterlockedCompareExchange(&g_wexit, 1, 0) == 0)
+        if (atexit(rbw_shutdown)) rbn_witness_fail("shutdown registration");
+}
+void rbn_witness_init(void) {
+    if (!rbn_witness_on() || g_winit) return;
+    rbn_witness_exit_init();
+    if (!g_loop || !g_hlog || g_local || g_match_n || g_delay_cfg != 1 ||
+        !g_bot || g_bot_seed != 7 || !getenv("SSBU_TRACE_FRAMES") ||
+        strcmp(getenv("SSBU_TRACE_FRAMES"), "500")) rbn_witness_fail("unsupported stream/loop/trace configuration");
+    /* Exit registration precedes guest_main; net initialization may run later.
+     * Bind to the first actual producer, not either registration thread. */
+    g_winit = 1;
+}
+static void rbn_log(const char *format, ...) {
+    va_list args; va_start(args, format);
+    if (!rbn_witness_on()) vfprintf(g_hlog, format, args);
+    else if (!g_wsealed) {
+        rbw_owner();
+        int n = vsnprintf(g_wbytes + g_wused, RBW_BYTES - g_wused, format, args);
+        if (n < 0 || (size_t)n >= RBW_BYTES - g_wused) rbn_witness_fail("writer capacity/format");
+        g_wused += (size_t)n;
+    }
+    va_end(args);
+}
+static void rbn_log_flush(void) { if (!rbn_witness_on()) fflush(g_hlog); }
+static void rbw_event(const char *kind) {
+    rbn_log("o {\"v\":1,\"kind\":\"%s\",\"event\":%lld", kind, ++g_wevents);
+}
+static void rbw_pad(RbPad p) {
+    rbn_log("{\"buttons\":\"%016llx\",\"lx\":%d,\"ly\":%d,\"rx\":%d,\"ry\":%d}",
+        (unsigned long long)p.buttons, p.lx, p.ly, p.rx, p.ry);
+}
+void rbn_witness_trace(const RbWitnessTrace *trace, long long frame, int phase, int left, long long poll, int polls) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (!trace || g_wready || trace->state < 0 || trace->target != 500 || trace->count != 2 ||
+        trace->pass <= 0 || (phase != 0 && phase != 2) || trace->kind != (phase == 2 ? 'S' : 'R'))
+        rbn_witness_fail("missing/overlapping completed trace boundary");
+    g_wtrace = *trace; g_wtrace_frame = frame; g_wtrace_phase = phase; g_wtrace_left = left;
+    g_wtrace_poll = poll; g_wtrace_polls = polls; g_wready = 1;
+}
+void rbn_witness_h2(long long frame, int phase, int left, long long poll, int polls) {
+    (void)polls; /* rgs_step resets its pass poll counter before dispatch. */
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (!g_wready || g_wh2 || frame != g_wtrace_frame || phase != g_wtrace_phase ||
+        left != g_wtrace_left || poll != g_wtrace_poll || (frame > 0 && g_wtrace_polls != 1))
+        rbn_witness_fail("trace/H2 logical phase/poll order");
+    g_wh2 = 1;
+}
+static int rbw_rows(void) {
+    if (g_hlines != 2 || g_lacc_n != 2 || g_wtrace.count != 2) return 0;
+    for (int i = 0; i < 2; i++) {
+        const RbWitnessRow *r = &g_wtrace.row[i];
+        if (r->slot < 0 || r->slot > 1 || r->ordinal != g_wtrace.pass ||
+            g_wtrace.rows[r->slot] != r->ordinal || memcmp(r->net, g_lacc[i], 40)) return 0;
+    }
+    return g_wtrace.row[0].slot != g_wtrace.row[1].slot;
+}
+void rbn_witness_base(long long frame, long long first, int ring, int keep, int recap, int skip, int lite, int lastlite, int pace) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (g_wbase || frame < 0 || frame != first || g_f0 || !g_wh2 || g_wready || g_wtrace_frame ||
+        !ring || keep != 1 || recap != 1 || skip || lite || lastlite || !pace ||
+        g_delay != 1 || g_lockstep || !detail_on() || !g_ckpads || g_match_n != 1 ||
+        !getenv("SSBU_RB_NET_LOOP_BOT2") || strcmp(getenv("SSBU_RB_NET_LOOP_BOT2"), "19") ||
+        !getenv("SSBU_RB_NET_LOOP_LAT2") || strcmp(getenv("SSBU_RB_NET_LOOP_LAT2"), "11,0") ||
+        (g_loop_lat != 0 && g_loop_lat != 1)) rbn_witness_fail("base/recipe not supported");
+    g_wbase = 1; g_wh2 = 0; g_wprev_trace = g_wtrace.pass;
+    rbw_event("BASE");
+    rbn_log(",\"arm\":\"%s\",\"match\":%d,\"base\":0,\"fight_frame\":%lld,\"first_fight_frame\":%lld,\"trace_base\":%lld,\"trace_target\":500,\"local\":0,\"delay\":1,\"ring\":1,\"keep\":%d,\"recap\":%d,\"skip\":%d,\"lite\":%d,\"lastlite\":%d,\"pace\":%d}\n",
+        g_loop_lat ? "correction" : "oracle", g_match_n, frame, first, g_wprev_trace, keep, recap, skip, lite, lastlite, pace);
+}
+static void rbn_witness_pad(int player, long long frame, RbPad pad, int predicted) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (player < 0 || player > 1 || frame < 1 || frame >= HR || g_wready ||
+        (g_wread_frame && frame != g_wread_frame) || g_wreads[player] >= 16)
+        rbn_witness_fail("pad frame/order/read capacity");
+    g_wread_frame = frame;
+    if (g_wreads[player] && !rb_pad_equal(&pad, &g_wpad[player])) g_wvar[player] = 1;
+    g_wpad[player] = pad; g_wreads[player]++; g_wpred[player] += predicted != 0;
+}
+static void rbn_witness_arrival(long long cur, long long frame, RbPad pad) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (frame < 1 || frame >= HR || g_wactual_frame[frame] || rb_input_remote_latest(g_remote) != frame)
+        rbn_witness_fail("arrival range/order/acceptance");
+    g_wactual_frame[frame] = frame; g_wactual[frame] = pad;
+    RbwPass *p = &g_wlast[frame];
+    if (p->frame == frame && p->predicted[g_remote] && !rb_pad_equal(&p->pad[g_remote], &pad)) {
+        if (g_wmismatch || frame > 64 || !p->valid || p->trace.kind != 'R') rbn_witness_fail("mismatch overflow/invalid speculative pass");
+        g_wmismatch = frame; g_wspec = p->seq; g_warrival_cur = cur;
+    }
+}
+static const RbwPass *rbw_speculative(void) {
+    for (int i = 0; i < g_wnpass; i++) if (g_wpasses[i].seq == g_wspec) {
+        const RbwPass *p = &g_wpasses[i];
+        if (p->frame == g_wmismatch && p->valid && p->trace.kind == 'R' && p->predicted[g_remote] &&
+            !rb_pad_equal(&p->pad[g_remote], &g_wactual[g_wmismatch])) return p;
+    }
+    rbn_witness_fail("missing retained speculative pass/actual contrast");
+    return NULL;
+}
+static void rbn_witness_mismatch(int mismatch) {
+    if (!rbn_witness_on() || g_wsealed || !mismatch) return;
+    rbw_owner();
+    if (g_wmismatch_emitted || mismatch != g_wmismatch || g_warrival_cur != mismatch ||
+        mismatch != 11 || !g_loop_lat) rbn_witness_fail("mismatch not linked to retained pass/arrival");
+    const RbwPass *p = rbw_speculative();
+    if (g_wlast[mismatch].seq != p->seq) rbn_witness_fail("stale speculative pass");
+    rbw_event("MISMATCH");
+    rbn_log(",\"source\":\"remote_actual\",\"cur\":%lld,\"f\":%d,\"lane\":%d,\"pass_seq\":%lld,\"predicted\":", g_warrival_cur, mismatch, g_remote, g_wspec);
+    rbw_pad(p->pad[g_remote]); rbn_log(",\"actual\":"); rbw_pad(g_wactual[mismatch]); rbn_log("}\n");
+    g_wmismatch_emitted = 1; g_widle = 0;
+}
+static void rbn_witness_pass(long long frame, uint64_t hash) {
+    if (g_wsealed) return;
+    rbw_owner();
+    if (!g_wh2 || !g_wready || frame != g_wtrace_frame || frame < 0 || frame >= HR)
+        rbn_witness_fail("pass without unique H2/trace");
+    int rows = rbw_rows();
+    g_wready = 0;
+    if (!frame) {
+        if (g_wbase || !rows) rbn_witness_fail("invalid base rows");
+        if (g_ckpads < 0) hash_pads(g_hacc);
+    } else {
+        if (!g_wbase || g_wtrace.pass != g_wprev_trace + 1 || g_wfinal_seq[frame])
+            rbn_witness_fail("missing/stale/after-final pass");
+        if (g_wtrace_phase == 2 && (!g_wmismatch_emitted || g_wcomplete || frame != g_wtarget))
+            rbn_witness_fail("replay without mismatch reservation");
+        RbwPass *p = &g_wlast[frame];
+        memset(p, 0, sizeof *p); /* invalidate even when this pass has no rows/reads */
+        p->frame = frame; p->seq = ++g_wseq; p->hash = hash; p->trace = g_wtrace;
+        p->valid = rows && g_hlines == 2 && g_wread_frame == frame;
+        for (int i = 0; i < 2; i++) {
+            p->n[i] = g_acc_n[i]; p->varied[i] = g_acc_var[i]; p->predicted[i] = g_wpred[i]; p->pad[i] = g_acc_pad[i];
+            p->valid &= p->n[i] > 0 && !p->varied[i] && g_wreads[i] == p->n[i] &&
+                !g_wvar[i] && p->predicted[i] >= 0 && p->predicted[i] <= p->n[i] &&
+                rb_pad_equal(&g_wpad[i], &p->pad[i]);
+        }
+        if (frame <= 64) {
+            if (g_wnpass >= RBW_PASSES) rbn_witness_fail("pass storage overflow");
+            g_wpasses[g_wnpass++] = *p;
+            rbw_event("PASS");
+            rbn_log(",\"seq\":%lld,\"f\":%lld,\"trace_pass\":%lld,\"phase\":\"%c\",\"left\":%d,\"poll\":%lld,\"polls\":%d,\"h\":\"%016llx\",\"hash_valid\":%d,\"fighter_rows\":%d,\"lanes\":[",
+                p->seq, frame, p->trace.pass, p->trace.kind, g_wtrace_left, g_wtrace_poll, g_wtrace_polls,
+                (unsigned long long)hash, p->valid, g_hlines);
+            for (int i = 0; i < 2; i++) {
+                if (i) rbn_log(",");
+                rbn_log("{\"n\":%d,\"varied\":%d,\"predicted_reads\":%d,\"value\":", p->n[i], p->varied[i], p->predicted[i]);
+                rbw_pad(p->pad[i]); rbn_log("}");
+            }
+            rbn_log("],\"fighters\":[");
+            for (int i = 0; i < 2; i++) {
+                RbWitnessRow *r = &p->trace.row[i];
+                rbn_log("%s{\"slot\":%d,\"ordinal\":%lld,\"e\":%d,\"st\":\"%08x\",\"mot\":\"%016llx\",\"mf\":\"%08x\",\"x\":\"%08x\",\"y\":\"%08x\",\"dmg\":\"%08x\",\"rngcalls\":%u,\"rng\":\"%08x\",\"work_on\":%d,\"work\":%d}",
+                    i ? "," : "", r->slot, r->ordinal, r->entry, r->st, (unsigned long long)r->mot, r->mf, r->x, r->y, r->dmg, r->rngcalls, r->rng, r->work_on, r->work);
+            }
+            rbn_log("]}\n");
+        }
+        g_wprev_trace = g_wtrace.pass; g_wh2 = 0; g_widle = 0;
+    }
+    memset(g_wreads, 0, sizeof g_wreads); memset(g_wpred, 0, sizeof g_wpred); memset(g_wvar, 0, sizeof g_wvar); g_wread_frame = 0;
+}
+void rbn_witness_reserve(long long from, long long to, int mismatch) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (!g_wmismatch_emitted || g_wcomplete || g_wtarget || from != 10 || to != 11 || mismatch != 11 ||
+        g_wlast[11].seq != g_wspec || g_wfinals >= mismatch || RBW_BYTES - g_wused < RBW_RESERVE)
+        rbn_witness_fail("pre-restore witness reservation/binding");
+    rbw_speculative();
+    g_wload = from; g_wtarget = to;
+}
+void rbn_witness_complete(uint64_t token, long long from, long long to, long long mismatch,
+    size_t original, size_t replay_only, long long pages, const long long diff[3],
+    unsigned begins, unsigned comparisons, unsigned completions, int load_result) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    RbwPass *p = &g_wlast[11];
+    if (g_wcomplete || !g_wmismatch_emitted || token != 1 || from != g_wload || to != g_wtarget ||
+        mismatch != g_wmismatch || begins != 1 || comparisons != 1 || completions != 1 || load_result <= 0 ||
+        !original || pages < 1 || (uint64_t)pages != original + replay_only ||
+        !p->valid || p->trace.kind != 'S' || p->seq != g_wspec + 1)
+        rbn_witness_fail("missing/early/stale verifier completion");
+    rbw_speculative();
+    rbw_event("COMPLETE");
+    rbn_log(",\"token\":%llu,\"load\":%lld,\"target\":%lld,\"mismatch\":%lld,\"pass_seq\":%lld,\"load_result\":%d,\"original_pages\":%llu,\"replay_only_pages\":%llu,\"pages\":%lld,\"diff\":[%lld,%lld,%lld],\"begins\":%u,\"comparisons\":%u,\"completions\":%u,\"pre_capture_ok\":1,\"post_capture_ok\":1,\"replayed\":1,\"raw_pending\":0,\"diagnostic\":1,\"authoritative\":0}\n",
+        (unsigned long long)token, from, to, mismatch, p->seq, load_result, (unsigned long long)original,
+        (unsigned long long)replay_only, pages, diff[0], diff[1], diff[2], begins, comparisons, completions);
+    g_wcomplete = 1;
+}
+static void rbn_witness_final(long long frame) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (frame < 1 || frame >= HR || frame != g_wfinals + 1 || !g_widle || (g_wmismatch_emitted && !g_wcomplete))
+        rbn_witness_fail("finalization order/pending correction");
+    RbwPass *p = &g_wlast[frame]; RbPad actual;
+    if (p->frame != frame || !p->valid || !p->seq || g_wfinal_seq[frame] ||
+        g_hframe[frame % HR] != frame || g_hash[frame % HR] != p->hash || g_unl[frame % HR2] != 2)
+        rbn_witness_fail("missing/stale latest final pass/hash/rows");
+    for (int q = 0; q < 2; q++) {
+        if (q == g_local) { if (!rb_input_local_get((int)frame, &actual)) rbn_witness_fail("missing local actual"); }
+        else { if (g_wactual_frame[frame] != frame) rbn_witness_fail("missing arrival actual"); actual = g_wactual[frame]; }
+        if (!rb_pad_equal(&actual, &p->pad[q]) || g_un[frame % HR2][q] != p->n[q] ||
+            g_uvar[frame % HR2][q] != p->varied[q] || !rb_pad_equal(&g_upad[frame % HR2][q], &p->pad[q]) ||
+            memcmp(g_ulines[frame % HR2][q], p->trace.row[q].net, 40))
+            rbn_witness_fail("final pad/detail differs from latest pass/actual");
+    }
+    g_wfinal_seq[frame] = p->seq; g_wfinals++; g_wwindow += frame <= 64;
+}
+void rbn_witness_idle(int phase, int left, int mismatch, int verifier) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (phase || left || mismatch || verifier || g_wready || g_wh2) rbn_witness_fail("pending H2/trace/verifier");
+    g_widle = 1;
+}
+/* Called after finalization/checks, independently of post-release drain holds.
+ * Freeze only diagnostic capture; the coordinator and its counters continue. */
+static void rbw_cutoff(void) {
+    if (!rbn_witness_on() || g_wsealed) return;
+    rbw_owner();
+    if (g_wbase && g_wtrace.state == 1) {
+        if (!g_widle || g_wready || g_wh2 || g_wtrace.real != 500 || g_wtrace.pass != 500 + g_loop_lat ||
+            g_wfinals < 64 || g_wwindow != 64 || g_hfinal_upto != g_wfinals || g_padcheck_bad ||
+            g_wcomplete != g_loop_lat || g_wmismatch_emitted != g_loop_lat || g_wnpass != 64 + g_loop_lat ||
+            g_wsubmits != g_wfinals || g_wseq != g_wfinals + g_loop_lat)
+            rbn_witness_fail("incomplete interval/tail/counts at fighter seal");
+        int n = snprintf(g_wend, sizeof g_wend,
+            "o {\"v\":1,\"kind\":\"END\",\"event\":%lld,\"diagnostic\":1,\"authoritative\":0,\"pass_records\":%d,\"mismatches\":%d,\"completions\":%d,\"final_records\":%lld,\"detail_records\":%lld,\"final_first\":1,\"final_last\":%lld,\"window_finals\":%lld,\"window_details\":%lld,\"trace_passes\":%lld,\"trace_real\":%lld,\"rows0\":%lld,\"rows1\":%lld,\"pad_reads\":%lld,\"predicted_reads\":%lld,\"padcheck_bad\":%lld,\"local_submissions\":%lld,\"phase\":0,\"left\":0,\"pending_mismatch\":0,\"verifier_pending\":0,\"write_ok\":1}\n",
+            ++g_wevents, g_wnpass, g_wmismatch_emitted, g_wcomplete, g_wfinals, g_wfinals, g_wfinals, g_wwindow, g_wwindow,
+            g_wtrace.pass, g_wtrace.real, g_wtrace.rows[0], g_wtrace.rows[1], g_stat_padget, g_stat_pred, g_padcheck_bad, g_wsubmits);
+        if (n < 0 || (size_t)n >= sizeof g_wend) rbn_witness_fail("END snapshot capacity/format");
+        g_wend_used = (size_t)n;
+        g_wsealed = 1;
+    }
+}
+static void rbw_write(void) {
+    if (g_wused && (fwrite(g_wbytes, 1, g_wused, g_hlog) != g_wused || fflush(g_hlog) || ferror(g_hlog)))
+        rbn_witness_fail("net write/flush");
+    g_wused = 0;
+}
+void rbn_witness_drain(void) {
+    if (!rbn_witness_on() || g_wclosed) return;
+    rbw_owner();
+    /* No END can reach the stream until all preceding data checks succeed. */
+    rbw_write();
+    if (g_wsealed) {
+        memcpy(g_wbytes, g_wend, g_wend_used + 1); g_wused = g_wend_used;
+        rbw_write();
+        if (fclose(g_hlog)) rbn_witness_fail("net close");
+        g_hlog = NULL; g_wclosed = 1;
+        InterlockedExchange(&g_wexit, 2);
+    }
+}
 void rbn_pass_hash(long long f) {
+    if (rbn_witness_on()) rbn_witness_pass(f, g_hlines ? hash_pads(g_hacc) : 0);
     if (g_hlines && f > 0) { g_hash[f % HR] = hash_pads(g_hacc); g_hframe[f % HR] = f; }
     if (f > 0) { int x = (int)(f % HR2);
         for (int q = 0; q < 2; q++) { g_upad[x][q] = g_acc_pad[q]; g_un[x][q] = g_acc_n[q]; g_uvar[x][q] = g_acc_var[q]; }
@@ -770,12 +1114,12 @@ static void detail_frame(long long f) {              /* frame f is final: the pa
                 (unsigned long long)g_upad[x][q].buttons, g_upad[x][q].lx, g_upad[x][q].ly, g_un[x][q], g_uvar[x][q], (unsigned long long)fin.buttons, fin.lx, fin.ly, pred ? " (NOT received)" : ""); fflush(stdout); } }
     }
     if (g_hlog && detail_on()) {
-        fprintf(g_hlog, "d %lld p1 %llx %d %d %d %d n%d p2 %llx %d %d %d %d n%d", f, (unsigned long long)g_upad[x][0].buttons, g_upad[x][0].lx, g_upad[x][0].ly, g_upad[x][0].rx, g_upad[x][0].ry, g_un[x][0],
+        rbn_log("d %lld p1 %llx %d %d %d %d n%d p2 %llx %d %d %d %d n%d", f, (unsigned long long)g_upad[x][0].buttons, g_upad[x][0].lx, g_upad[x][0].ly, g_upad[x][0].rx, g_upad[x][0].ry, g_un[x][0],
                 (unsigned long long)g_upad[x][1].buttons, g_upad[x][1].lx, g_upad[x][1].ly, g_upad[x][1].rx, g_upad[x][1].ry, g_un[x][1]);
         for (int l = 0; l < g_unl[x]; l++) { const uint8_t *b = g_ulines[x][l]; int k, st; uint64_t mot, rh; float mf, px, py, dmg;
             memcpy(&k, b, 4); memcpy(&st, b + 4, 4); memcpy(&mot, b + 8, 8); memcpy(&mf, b + 16, 4); memcpy(&px, b + 20, 4); memcpy(&py, b + 24, 4); memcpy(&dmg, b + 28, 4); memcpy(&rh, b + 32, 8);
-            fprintf(g_hlog, " | e%d st %x mot %llx mf %.3f x %.4f y %.4f dmg %.3f rng %016llx", k, st, (unsigned long long)mot, mf, px, py, dmg, (unsigned long long)rh); }
-        fputc('\n', g_hlog);
+            rbn_log(" | e%d st %x mot %llx mf %.3f x %.4f y %.4f dmg %.3f rng %016llx", k, st, (unsigned long long)mot, mf, px, py, dmg, (unsigned long long)rh); }
+        rbn_log("\n");
     }
 }
 /* no rollback pending: every frame up to min(cur, newest remote pad) is final */
@@ -783,12 +1127,14 @@ void rbn_finalize(long long cur) {
     long long upto = rb_input_remote_latest(g_remote);
     if (upto > cur) upto = cur;
     for (long long f = g_hfinal_upto + 1; f <= upto; f++) {
-        if (g_hlog && g_hframe[f % HR] == f) fprintf(g_hlog, "f %lld h %016llx\n", f, (unsigned long long)g_hash[f % HR]);
+        rbn_witness_final(f);
+        if (g_hlog && g_hframe[f % HR] == f) rbn_log("f %lld h %016llx\n", f, (unsigned long long)g_hash[f % HR]);
         detail_frame(f);
         g_hfinal_upto = f;
     }
-    if (g_hlog && (upto & 63) == 0) fflush(g_hlog);
+    if (g_hlog && (upto & 63) == 0) rbn_log_flush();
     if (g_peer_check_f > 0 && g_peer_check_f <= g_hfinal_upto) { long long cf = g_peer_check_f; g_peer_check_f = 0; on_check(cf, g_peer_check); }
+    rbw_cutoff();
 }
 
 /* ---------------------------------------------------------------- time sync: extra wait per frame (ms) */
@@ -831,6 +1177,7 @@ double rbn_offset_ms(void) { return rb_ts_offset() / 1000.0; }
  * belongs to one match starts over (input queues and frames at the next rbn_start, checksums, counters, the block check,
  * received messages not drained yet); the round trip, the pings and the transport stay. */
 void rbn_match_reset(void) {
+    if (rbn_witness_on()) rbn_witness_fail("witness recipe forbids reset/rematch");
     g_started = 0; g_peer_started = 0; g_f0 = 0; InterlockedExchange(&g_peer_mode, -1); g_peer_ack = 0; g_sent_newest = 0;
     g_stat_pred = g_stat_padget = g_stat_mis = 0; g_ts_n = 0; g_ts_extra = 0; g_ts_left = 0;
     g_hacc = 0xcbf29ce484222325ull; g_hlines = 0; g_lacc_n = 0;
@@ -849,7 +1196,7 @@ void rbn_match_reset(void) {
 int rbn_match_number(void) { return g_match_n; }
 void rbn_report(FILE *o, long long frames) {
     if (g_on <= 0) return;
-    if (g_hlog) fflush(g_hlog);
+    if (g_hlog) rbn_log_flush();
     fprintf(o, "[rbnet] report (match %d, id %08x): %lld frames; delay %d; round trip mean %.1f ms (best %.1f, %lld samples); clock offset estimate %.1f ms, time-sync corrections %lld\n",
             g_match_n, g_match_id, frames, g_delay, g_rtt_n ? g_rtt_sum / g_rtt_n / 1000.0 : -1.0, g_rtt_min_us > 0 ? g_rtt_min_us / 1000.0 : -1.0, g_rtt_n, rb_ts_offset() / 1000.0, g_ts_n);
     fprintf(o, "[rbnet] report: pads given %lld, predicted %lld (%.1f%%), mispredictions %lld; finalized frames %lld; checksums compared %lld, DESYNCS %lld (first %lld)\n",

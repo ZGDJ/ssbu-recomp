@@ -1,4 +1,5 @@
 # Evidence
+- [Loop witness preparation](2026-11-05-loop-witness-preparation.md): source witnesses, analyzer and admission repairs; lifecycle integration review and native readiness remain open.
 
 - [Loop verifier preparation](2026-11-05-loop-verifier.md): source-tested correction schedule and opt-in raw completion; external oracle/admission and native controls remain open.
 

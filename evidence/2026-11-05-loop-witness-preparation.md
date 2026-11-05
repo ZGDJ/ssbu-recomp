@@ -1,0 +1,17 @@
+# Changed-input witness and analyzer preparation
+
+M1.14 remains in progress. This is source preparation, not gameplay qualification: `resolved=false`, `authoritative=0`, `native_ready=false`, mutation coverage unknown.
+
+The opt-in witness records consumed lanes, physical fighter/pass mapping, retained wrong R11, actual mismatch11/load10/replay11, true raw completion, latest finalized projections and a bounded capture seal. Source tests preserve the all-correct comparison across1..64 and keep raw differences diagnostic. Reviewed test defects were repaired: exact completion/end values, latest f/d joins,16/17-read boundary, feasible raw-difference variants, duplicate completion and boolean counter rejection. The214 executable checks comprise52 positives,154 fault rejections and8 named weakening rejections; these categories are distinct.
+
+Runtime review found final-drain deferral and production ExitProcess integration gaps. The repaired candidate freezes diagnostic cutoff separately from safe physical drain and publishes checked close atomically to the early-registered production exit guard.214 witness checks,224 additional lifecycle/control executions and five legacy suites passed; immediate-cutoff bytes match the prior candidate. Independent lifecycle review accepts runtime R1/R2, the final cardinality/type assertions and integration scaffolds for its frozen source scope. Production mapping/holds/continuations are not established by synthetic tests.
+
+The strict offline analyzer compares all finalized1..64 projections against a separate oracle, retains speculation, checks whole raw tails and required record/log tuples, and separates meaningful selected-field contrast from pad/hash-only evidence. Initial independent review found impossible difference-count and Unicode-counter acceptance plus invalid-verdict/junction issues; integration repaired all four.33 main tests plus two added packet-level tests passed. The otherwise unobservable page split/load magnitude and speculative full RNG remain source-provenance obligations, not invented offline proof. Optional report percentages remain range-checked only.
+
+The admission adapter's verified-source execution and owned Windows lease repairs received bounded independent acceptance:58 tests and an abrupt-exit marker experiment passed. It is not a complete native launcher or readiness validator.
+
+Local receipts: `artifacts/local/loop-witness-test-repair-20261105`, `loop-witness-test-envelope-repair-20261105`, `loop-witness-lifecycle-repair-20261105`, `loop-correction-analyzer-20261105`, `loop-correction-analyzer-review-20261105`, `loop-correction-analyzer-repair-20261105`, and `loop-admission-recheck-20261105`. Original failed reviews and attempts remain retained.
+
+Remaining work is final analyzer repair integration acceptance, full host build/new package, independently bound native mapping/recipe/oracle, complete identity/readiness and one-shot journal/child lifecycle/post gates, own disabled and enabled common controls, and applicable integrated controls. No native trial or actual capacity collection occurred in this preparation.
+
+November4 aggregate remains FAIL/stopped. Frozen11 versus current10/10 attempts, six/four guest accepted/dequeued progress, full-context/queue/semantic inequalities, actual512 source-path-only finding and older8/11/scratch failures remain separate and unresolved. M1.13, formal M4.1/M4.2 remain open. Complete audio closure is not a blanket prerequisite for the bounded gameplay investigation.

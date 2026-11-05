@@ -2494,6 +2494,7 @@ static void r1_protection_observation_drain(void);
 static void rgs_clock_drain(void);
 static void qp_drain(void);
 static void ap_drain(void);
+static void r1_loop_witness_drain(void);
 static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170 (kick of a job group): points BEFORE the call */
     (void)user;
     uint64_t lr = c->x[30];
@@ -2512,6 +2513,7 @@ static void ra_kick2(Ctx *c, void *user) {           /* hook on FUN 0x7103549170
         r1_protection_observation_drain();
         rgs_clock_drain();
         { DWORD error=GetLastError(); qp_drain(); ap_drain(); SetLastError(error); }
+        r1_loop_witness_drain();
     }      /* H2 (R3: rb_rollback.c pauses the watchdog while it runs here, and keeps the long limit during the match) */
     if ((g_ra_phase == 1 && g_ra_skip) || rgs_skip_now()) {      /* SSBU_RUNAHEAD_SKIP (experiment): job groups of the speculative pass whose result is thrown away (R2: SSBU_RB_SIM_SKIP, re-run passes but the last) */
         int prep = c->x[30] == GA(0x7103749b24ull) || c->x[30] == GA(0x710374b4f8ull) || c->x[30] == GA(0x710374b528ull) || c->x[30] == GA(0x710374b558ull), rend = c->x[30] == GA(0x710374c0d8ull);
@@ -2588,6 +2590,26 @@ static void r1_protection_observation_drain(void) {
     if (!g_rg_kept) r1_protection_observation_flush();
 }
 #include "rb_rollback.c"                              /* R3: online rollback on the ring (SSBU_RB_NET) */
+static int r1_loop_witness_held(void) {
+    if (g_rg_kept || g_ra_wh_on) return 1;
+    for (int i = 0; i < g_nth; i++) if (g_th[i].held) return 1;
+    return 0;
+}
+static void r1_loop_witness_drain(void) {
+    if (rbn_witness_on() && !r1_loop_witness_held()) {
+        DWORD error = GetLastError(); rbn_witness_drain(); SetLastError(error);
+    }
+}
+/* Existing frame-end closes TRACE_PASS before H2 closes the net accumulator.
+ * Take the locked copy here, never at parked H2. The net owner later compares
+ * exact ordered row bytes and the explicit logical/phase/poll stamp. */
+static void r1_loop_witness_trace(void) {
+    if (!rbn_witness_on()) return;
+    if (r1_loop_witness_held()) rbn_witness_fail("trace accessor while holds retained");
+    RbWitnessTrace trace;
+    if (!fight_trace_completed(&trace)) rbn_witness_fail("no locked completed fighter trace");
+    rbn_witness_trace(&trace, g_rgs_next, g_ra_phase, g_rgs_left, g_ff, g_rgs_polls_cur);
+}
 static void ra_init(void) {
     if (!ra_watchdog_prepare()) r1_hold_fatal("watchdog startup");
     g_ra = 1;
@@ -2685,6 +2707,7 @@ static void r1_frame_end(Ctx *c, void *user) {
         fls_index_find(); ra_frame_end(te);
         fight_trace_boundary(g_ra_nkind == before + 1 ? g_ra_kind[before] : 0,
                              g_ra_phase != 0 || g_rgs_left > 0 || g_rgv_target >= 0 || g_rbg_pend > 0 || rgv_loop_pending());
+        if (g_ra_nkind == before + 1) r1_loop_witness_trace();
         return;
     }         /* run-ahead (round 5): the save / restore is at the kick after the submission, not here */
     fight_trace_boundary(rerun ? 'S' : '?', g_phase == 1 || g_phase == 2);

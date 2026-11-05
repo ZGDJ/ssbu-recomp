@@ -33,7 +33,7 @@ class LoopCorrectionSourceTests(unittest.TestCase):
                  "runtime/r1_state.c", "runtime/rb_input.c", "runtime/rb.h",
                  "runtime/rb_timesync.c", "tests/test_loop_correction_source.py",
                  "tests/test_catch_source.py", "tools/run_rollback_tests.py",
-                 "tests/loop_correction_source_fixture.c")
+                 "runtime/loop_witness.h", "tests/loop_correction_source_fixture.c")
         raw_sources = {p: (ROOT / p).read_bytes() for p in paths}
         sources = {p: data.decode("utf-8").replace("\r\n", "\n") for p, data in raw_sources.items()}
         # Compile the saved include bodies, so a concurrent runtime edit cannot

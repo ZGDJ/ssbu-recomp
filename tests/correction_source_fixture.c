@@ -36,6 +36,32 @@ static void rgv_loop_require_idle(const char *site) { (void)site; }
 static uint64_t rgv_loop_install(long long f,long long t,int m) { (void)f;(void)t;(void)m;_Exit(99); }
 static int rgv_loop_load_result(uint64_t token,int result) { (void)token;(void)result;return 1; }
 static int rgv_loop_after_pass(uint64_t token,long long f,int ok,int left) { (void)token;(void)f;(void)ok;(void)left;_Exit(99); }
+
+int rbn_witness_on(void) { return 0; }
+void rbn_witness_init(void) {  }
+void rbn_witness_trace(const RbWitnessTrace *trace, long long frame, int phase, int left, long long poll, int polls) { _Exit(99); }
+void rbn_witness_base(long long frame, long long first, int ring, int keep, int recap, int skip, int lite, int lastlite, int pace) {  }
+void rbn_witness_h2(long long frame, int phase, int left, long long poll, int polls) {  }
+void rbn_witness_reserve(long long from, long long to, int mismatch) {  }
+void rbn_witness_complete(uint64_t token, long long from, long long to, long long mismatch,
+    size_t original, size_t replay_only, long long pages, const long long diff[3],
+    unsigned begins, unsigned comparisons, unsigned completions, int load_result) { _Exit(99); }
+void rbn_witness_idle(int phase, int left, int mismatch, int verifier) {  }
+void rbn_witness_drain(void) { _Exit(99); }
+void rbn_witness_fail(const char *why) { _Exit(99); }
+enum { RGV_LOOP_IDLE, RGV_LOOP_INSTALLED, RGV_LOOP_ARMED, RGV_LOOP_LOADED, RGV_LOOP_COMPLETE, RGV_LOOP_FAILED };
+typedef struct {
+    uint64_t token;
+    long long from, to, mismatch;
+    size_t original_pages, replay_only_pages;
+    long long pages, diff[3];
+    unsigned begins, comparisons, completions;
+    int state, load_result;
+} RgvLoopResult;
+
+static const RgvLoopResult *rgv_loop_result(void) { _Exit(99);return NULL; }
+static int rgv_loop_pending(void) { return 0; }
+static int g_rgv_target;
 /* GLOBALS */
 #define HR 32
 static int g_remote=1;static long long g_hfinal_upto=4,g_peer_check_f;
@@ -70,6 +96,12 @@ int rbn_match_cancelled(void){return 0;}void rbn_match_reset(void){}int rbn_matc
 void rbn_set_lockstep(int n){(void)n;}int rbn_loop(void){return 0;}void input_mark(const char*s){(void)s;}
 static void rbg_wait_until(double t){(void)t;assert(!expected_fatal||(mode==12&&!loads));}
 long nnunwind_events(void){static long calls;return mode==18?calls++:0;}
+
+#include <stdarg.h>
+static void rbn_witness_final(long long f) { (void)f; }
+static void rbn_log(const char *fmt,...) { va_list ap;va_start(ap,fmt);vfprintf(g_hlog,fmt,ap);va_end(ap); }
+static void rbn_log_flush(void) { fflush(g_hlog); }
+static void rbw_cutoff(void) {} /* disabled witness extraction boundary */
 /* SOURCE */
 int main(int argc,char**argv){
  assert(argc==2);mode=atoi(argv[1]);

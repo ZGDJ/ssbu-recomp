@@ -148,3 +148,11 @@ jobs:
         run: python -I -B -m unittest discover -s tests -p test_loop_correction_source.py -v
       - name: Loop verifier completion source tests
         run: python -I -B -m unittest discover -s tests -p test_loop_verifier_source.py -v
+      - name: Loop gameplay witness source tests
+        run: python -I -B -m unittest discover -s tests -p test_loop_witness_source.py -v
+      - name: Loop witness lifecycle source tests
+        run: python -I -B tests/test_loop_witness_lifecycle.py
+      - name: Loop correction analyzer tests
+        run: python -I -B -m unittest discover -s tests -p test_loop_correction_analyzer.py -v
+      - name: Loop admission ownership tests
+        run: python -I -B -m unittest discover -s tests -p test_loop_replay_admission.py -v

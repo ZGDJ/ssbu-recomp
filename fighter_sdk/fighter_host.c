@@ -1167,6 +1167,11 @@ static int g_fh_n, g_fh_det, g_fh_detoff;
 static int g_fh_rng_probe; /* opt-in early RNG observations; not a state or quiescence oracle */
 static FILE *g_fh_out;
 #include "bounded_trace.h"
+#include "loop_witness.h"
+int rbn_witness_on(void);
+static RbWitnessTrace g_fh_completed;
+static RbWitnessRow g_fh_wrow[2];
+static int g_fh_wn;
 static BoundedTrace g_fh_trace;
 static int g_fh_trace_enabled;
 static int g_fh_trace_hash_enabled; /* immutable after startup, unlike the FILE during exit */
@@ -1182,7 +1187,18 @@ void fight_trace_boundary(char kind, int pending) {
     if (!g_fh_trace_enabled) return;
     AcquireSRWLockExclusive(&g_fh_trace_lock);
     int before = g_fh_trace.state;
+    long long pass_before = g_fh_trace.passes;
     bt_boundary(&g_fh_trace, g_fh_out, kind, pending);
+    if (rbn_witness_on() && g_fh_trace.passes == pass_before + 1) {
+        memset(&g_fh_completed, 0, sizeof g_fh_completed);
+        g_fh_completed.target = g_fh_trace.target;
+        g_fh_completed.pass = g_fh_trace.passes; g_fh_completed.real = g_fh_trace.real;
+        g_fh_completed.state = g_fh_trace.state; g_fh_completed.kind = kind;
+        memcpy(g_fh_completed.rows, g_fh_trace.rows, sizeof g_fh_completed.rows);
+        g_fh_completed.count = g_fh_wn;
+        memcpy(g_fh_completed.row, g_fh_wrow, sizeof g_fh_wrow);
+        g_fh_wn = 0;
+    }
     if (!before && g_fh_trace.state) {
         printf("[trace] diagnostic interval %s: real %lld/%lld passes %lld reason %s\n",
                g_fh_trace.state == 1 ? "sealed" : "FAILED", g_fh_trace.real, g_fh_trace.target,
@@ -1190,6 +1206,22 @@ void fight_trace_boundary(char kind, int pending) {
         fflush(stdout);
     }
     ReleaseSRWLockExclusive(&g_fh_trace_lock);
+}
+int fight_trace_completed(RbWitnessTrace *out) {
+    int ok;
+    AcquireSRWLockExclusive(&g_fh_trace_lock);
+    ok = out && g_fh_trace_enabled && g_fh_out && g_fh_trace.state >= 0 && !g_fh_trace.active &&
+        !g_fh_wn && g_fh_completed.count == 2 && g_fh_completed.pass == g_fh_trace.passes &&
+        g_fh_completed.pass > 0 && g_fh_trace.previous[0] == g_fh_trace.rows[0] &&
+        g_fh_trace.previous[1] == g_fh_trace.rows[1] &&
+        g_fh_completed.row[0].slot >= 0 && g_fh_completed.row[0].slot < 2 &&
+        g_fh_completed.row[1].slot == 1 - g_fh_completed.row[0].slot;
+    for (int i = 0; ok && i < 2; i++)
+        ok = g_fh_completed.row[i].ordinal == g_fh_trace.rows[g_fh_completed.row[i].slot] &&
+             g_fh_trace.rows[i] == g_fh_completed.pass;
+    if (ok) { *out = g_fh_completed; out->state = g_fh_trace.state; }
+    ReleaseSRWLockExclusive(&g_fh_trace_lock);
+    return ok;
 }
 static uint64_t g_fh_run = 0xcbf29ce484222325ull;
 static long long g_fh_poll_hist[4]; static unsigned long g_fh_poll_tid;
@@ -1374,6 +1406,23 @@ static void fh_hook(Ctx *c, void *user) {
             int wrote = fprintf(g_fh_out, "F %lld e %d st %x mot %llx mf %08x x %08x y %08x dmg %08x rngcalls %u rng %08x H %016llx  (%.3f %.3f frame %.2f %.2f%%)%s%s\n",
                     f, g_fh_f[k].entry, st, (unsigned long long)mot, bm, bx, by, bd, rc, (unsigned)(rh ^ (rh >> 32)), (unsigned long long)g_fh_run, (double)x, (double)y, (double)mf, (double)dmg, wtxt, slottext);
             if (g_fh_trace_enabled) bt_row(&g_fh_trace, k, f, wrote >= 0);
+            if (g_fh_trace_enabled && rbn_witness_on()) {
+                if (g_fh_wn >= 2) bt_fail(&g_fh_trace, "witness_row_overflow");
+                else {
+                    RbWitnessRow *row = &g_fh_wrow[g_fh_wn++];
+                    memset(row, 0, sizeof *row);
+                    row->slot = k; row->ordinal = f; row->entry = rec.k; row->st = (uint32_t)st;
+                    row->mot = mot; row->mf = bm; row->x = bx; row->y = by; row->dmg = bd;
+                    row->rngcalls = rc; row->rng = (uint32_t)(rh ^ (rh >> 32));
+                    row->work_on = wk_on;
+                    if (wk_on) sscanf(wtxt, " w %d", &row->work);
+                    /* The exact 40 bytes sent above, in the actual row order. */
+                    memcpy(row->net, &rec.k, 4); memcpy(row->net + 4, &rec.st, 4);
+                    memcpy(row->net + 8, &rec.mot, 8); memcpy(row->net + 16, &rec.mf, 4);
+                    memcpy(row->net + 20, &rec.x, 4); memcpy(row->net + 24, &rec.y, 4);
+                    memcpy(row->net + 28, &rec.dmg, 4); memcpy(row->net + 32, &rec.rh, 8);
+                }
+            }
             if ((f & 63) == 0 && fflush(g_fh_out) && g_fh_trace_enabled) bt_fail(&g_fh_trace, "flush");
             }
             if (g_fh_trace_enabled) ReleaseSRWLockExclusive(&g_fh_trace_lock);

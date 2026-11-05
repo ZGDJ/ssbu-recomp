@@ -61,4 +61,21 @@ void rb_ts_sample(int32_t offset_us);
 RbSyncAction rb_ts_decide(int frame);
 int32_t rb_ts_offset(void);                        /* the current estimate */
 
+#include "loop_witness.h"
+int rbn_witness_on(void);
+void rbn_witness_init(void);
+void rbn_witness_exit_init(void); /* startup before guest/display threads */
+/* Any exit thread: reads only atomic checked-close status; never drains. */
+void rbn_witness_shutdown(void);
+void rbn_witness_trace(const RbWitnessTrace *trace, long long frame, int phase, int left, long long poll, int polls);
+void rbn_witness_base(long long frame, long long first, int ring, int keep, int recap, int skip, int lite, int lastlite, int pace);
+void rbn_witness_h2(long long frame, int phase, int left, long long poll, int polls);
+void rbn_witness_reserve(long long from, long long to, int mismatch);
+void rbn_witness_complete(uint64_t token, long long from, long long to, long long mismatch,
+    size_t original, size_t replay_only, long long pages, const long long diff[3],
+    unsigned begins, unsigned comparisons, unsigned completions, int load_result);
+void rbn_witness_idle(int phase, int left, int mismatch, int verifier);
+void rbn_witness_drain(void); /* caller proves worker/native/capture holds released */
+void rbn_witness_fail(const char *why);
+
 #endif

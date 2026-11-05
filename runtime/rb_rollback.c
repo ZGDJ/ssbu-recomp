@@ -134,6 +134,7 @@ static int rbg_rollback(Ctx *c, long long i, int m) {
             rbg_correction_fatal(i, m, "loop verifier requires KEEP1/RECAP1 and a successful original capture");
         g_rbg_loop_token = rgv_loop_install(best, i, m);
     }
+    rbn_witness_reserve(best, i, m);
     double t0 = now_ms();
     if (!g_ra_wh_on) { g_rbg_rb_unheld++; if (g_rbg_rb_unheld <= 10) LOG("r1: RB NET: rollback at frame %lld while the task workers are NOT held (watchdog releases so far %lld): the load may leave the job system waiting\n", i, g_ra_wd_fired); }
     int lr = r1_ring_load(best, c);
@@ -160,6 +161,7 @@ static int rbg_sched(long long i, int m) {
 /* at the safe point (H2) of every pass while the fight runs (r1_ring.c rgs_step) */
 static void rbg_step_body(Ctx *c) {
     long long i = g_rgs_next;
+    rbn_witness_h2(i, g_ra_phase, g_rgs_left, g_ff, -1);
     if (g_rbg_wdfix < 0) { const char *e = getenv("SSBU_RB_NET_WDFIX"); g_rbg_wdfix = !e || atoi(e) != 0; e = getenv("SSBU_RB_NET_DETAIL"); g_rbg_detail = e && atoi(e) > 0;
         e = getenv("SSBU_RB_NET_RECAP"); g_rbg_recap = e ? atoi(e) : 5; e = getenv("SSBU_RB_NET_KEEP"); g_rbg_keep = e ? atoi(e) : 2; }
     if (rgv_loop_on() && (!rbn_loop() || g_rbg_noring || g_rbg_keep != 1 || g_rbg_recap != 1 || g_ra_off || !getenv("SSBU_RB_SIM_VERIFY")))
@@ -225,6 +227,8 @@ static void rbg_step_body(Ctx *c) {
             double tw = now_ms(); while (rbn_confirmed() < 1 && now_ms() - tw < 5000) { rbn_drain(i); rbg_wait_until(now_ms() + 0.5); }
         }
         g_rbg_tick0 = now_ms(); g_rbg_next = 0; g_rbg_cyc_go = rgs_cyc_now();
+        rbn_witness_base(g_ff, g_rbg_ff_first, g_rg_ready && !g_rbg_noring, g_rbg_keep, g_rbg_recap,
+            g_rgs_skip, g_rgs_lite, g_rgs_lastlite, g_rbg_pace);
         return;
     }
     rbn_pass_hash(i);
@@ -248,6 +252,15 @@ static void rbg_step_body(Ctx *c) {
         if (want) { double tc = now_ms(); capture_ok = rbg_capture(i, c); if (!capture_ok) g_rbg_capfail++; g_rbg_t_recap += now_ms() - tc; g_rbg_n_recap++; } else g_rbg_capskip++;
         if (rgv_loop_on() && !rgv_loop_after_pass(g_rbg_loop_token, i, capture_ok, g_rgs_left))
             rbg_correction_fatal(i, 0, "loop verifier endpoint incomplete");
+        if (rbn_witness_on()) {
+            /* Copy only the H2-owned result, after the real comparison completed. */
+            const RgvLoopResult *result = rgv_loop_result();
+            if (result->state != RGV_LOOP_COMPLETE || rgv_loop_pending() || g_rgv_target >= 0)
+                rbg_correction_fatal(i, 0, "witness before verifier completion");
+            rbn_witness_complete(result->token, result->from, result->to, result->mismatch,
+                result->original_pages, result->replay_only_pages, result->pages, result->diff,
+                result->begins, result->comparisons, result->completions, result->load_result);
+        }
         g_rgs_next = i + 1;
         if (--g_rgs_left > 0) { g_rbg_t_pass0 = now_ms(); return; }
         g_ra_phase = 0; g_ra_after_quiet = 1; g_rgs_left = 0;
@@ -327,6 +340,7 @@ static void rbg_step_body(Ctx *c) {
         if (g_ra_phase || g_rgs_left || g_rbg_pend) rbg_correction_fatal(i, 0, "finalization with pending correction");
     }
     r1_ring_let_go();
+    rbn_witness_idle(g_ra_phase, g_rgs_left, g_rbg_pend, rgv_loop_pending() || g_rgv_target >= 0);
     rbn_finalize(g_rbg_pend > 0 && g_rbg_pend - 1 < i ? g_rbg_pend - 1 : i);      /* Pending corrections never authorize finalization beyond their boundary. */
     if (rgv_loop_on()) g_rbg_loop_finalized = rbn_confirmed() < i ? rbn_confirmed() : i;
     if (g_rbg_pace) {

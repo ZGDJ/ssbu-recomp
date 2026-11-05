@@ -65,6 +65,21 @@ static void slot_probe(int i) {
     if (mode==13 && g_rgv_loop.state==RGV_LOOP_INSTALLED) g_rgv_n=RGV_MAX/2;
     if (mode==66 && g_rgv_loop.state==RGV_LOOP_LOADED && g_ra_phase==2) g_rgv_n=RGV_MAX;
 }
+
+int rbn_witness_on(void) { return 0; }
+void rbn_witness_init(void) {  }
+void rbn_witness_trace(const RbWitnessTrace *trace, long long frame, int phase, int left, long long poll, int polls) { _Exit(99); }
+void rbn_witness_base(long long frame, long long first, int ring, int keep, int recap, int skip, int lite, int lastlite, int pace) {  }
+void rbn_witness_h2(long long frame, int phase, int left, long long poll, int polls) {  }
+void rbn_witness_reserve(long long from, long long to, int mismatch) {  }
+void rbn_witness_complete(uint64_t token, long long from, long long to, long long mismatch,
+    size_t original, size_t replay_only, long long pages, const long long diff[3],
+    unsigned begins, unsigned comparisons, unsigned completions, int load_result) { _Exit(99); }
+void rbn_witness_idle(int phase, int left, int mismatch, int verifier) {  }
+void rbn_witness_drain(void) { _Exit(99); }
+void rbn_witness_fail(const char *why) { _Exit(99); }
+
+static void r1_loop_witness_trace(void) {} /* exact disabled contract */
 /* COORD_GLOBALS */
 
 /* Dispatcher state and boundaries, shared with terminal source acceptance. */

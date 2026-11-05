@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include "rb.h"
 #include "rb_input.c"
 #undef M
@@ -86,6 +87,19 @@ static int rgv_loop_after_pass(uint64_t token, long long frame, int capture_ok, 
 }
 static void rgv_loop_require_idle(const char *site) { (void)site; unreachable(); }
 static void debug_writer_probe_end(long long frame) { (void)frame; unreachable(); }
+enum { RGV_LOOP_IDLE, RGV_LOOP_INSTALLED, RGV_LOOP_ARMED, RGV_LOOP_LOADED, RGV_LOOP_COMPLETE, RGV_LOOP_FAILED };
+typedef struct {
+    uint64_t token;
+    long long from, to, mismatch;
+    size_t original_pages, replay_only_pages;
+    long long pages, diff[3];
+    unsigned begins, comparisons, completions;
+    int state, load_result;
+} RgvLoopResult;
+
+static const RgvLoopResult *rgv_loop_result(void) { _Exit(99);return NULL; }
+static int rgv_loop_pending(void) { return 0; }
+static int g_rgv_target;
 /* COORD_GLOBALS */
 
 /* Observe actual input storage, not a scripted stand-in for network history. */
