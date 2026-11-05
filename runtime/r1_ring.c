@@ -72,6 +72,8 @@ static int g_rg_keep, g_rg_kept, g_rg_keep_on = -1; static long long g_rg_kept_n
 static long long g_rg_caps, g_rg_cap_fail, g_rg_loads, g_rg_overflow;
 static double g_rg_last[2];
 static int g_rgs_on; static long long g_rgv_target; static void rgv_before(int si, long long target); static void rgv_after(void);   /* (simulation / verify, below) */
+static int rgv_loop_on(void), rgv_loop_pending(void);
+static void rgv_loop_require_idle(const char *site);
 void debug_writer_probe_begin(long long frame, long long target);
 void debug_writer_probe_end(long long frame);
 #include "replay_queue_probe.h"
@@ -464,6 +466,7 @@ long long r1_ring_oldest(void) { return g_rg_count ? rg_slot(0)->frame : -1; }
 long long r1_ring_newest(void) { return g_rg_count ? rg_slot(g_rg_count - 1)->frame : -1; }
 double r1_ring_last_ms(int load) { return g_rg_last[load ? 1 : 0]; }
 void r1_ring_release(void) {                              /* every slot dropped: the newest values stay (g_rg_idx), the logs' old values go back to the pool */
+    rgv_loop_require_idle("ring release");
     for (int i = 0; i < g_rg_count; i++) rg_slot_drop(rg_slot(i), 1);
     g_rg_count = 0; g_rg_head = 0;
 }
@@ -1490,6 +1493,7 @@ static ULONG64 g_rgs_cyc0; static double g_rgs_cyc[2];
 static ULONG64 rgs_cyc_now(void) { ULONG64 v = 0; QueryThreadCycleTime(GetCurrentThread(), &v); return v; }
 /* at the safe point (H2) of every pass while the fight runs */
 static void rgs_step(Ctx *c) {
+    if (rgv_loop_on() && !rbg_on()) { LOG("r1: LOOP VERIFY FATAL: loop coordinator required\n"); abort(); }
     if (InterlockedCompareExchange(&g_rgs_clock_on,0,0))
         InterlockedCompareExchange(&g_rgs_clock_owner,(LONG)GetCurrentThreadId(),0);
     double t = now_ms(); ULONG64 cy = rgs_cyc_now();
@@ -1759,6 +1763,64 @@ static void rgs_lite_report(void) {
 static int g_rgv_on = -1; static uint8_t *g_rgv_in; static uint32_t *g_rgv_id; static uint64_t *g_rgv_h; static size_t g_rgv_n;
 #define RGV_MAX (8u << 20)
 static long long g_rgv_target = -1, g_rgv_from, g_rgv_runs, g_rgv_bad_runs, g_rgv_pages, g_rgv_diff[3];
+/* One nonterminal, depth-one diagnostic transaction per process. All storage is
+ * host-side, outside rewind. This is not an external-oracle verdict or a net
+ * witness schema. Consumers on the H2 owner may copy rgv_loop_result(). */
+enum { RGV_LOOP_IDLE, RGV_LOOP_INSTALLED, RGV_LOOP_ARMED, RGV_LOOP_LOADED, RGV_LOOP_COMPLETE, RGV_LOOP_FAILED };
+typedef struct {
+    uint64_t token;
+    long long from, to, mismatch;
+    size_t original_pages, replay_only_pages;
+    long long pages, diff[3];
+    unsigned begins, comparisons, completions;
+    int state, load_result;
+} RgvLoopResult;
+static RgvLoopResult g_rgv_loop;
+static int g_rgv_loop_on = -1, g_rgv_capped;
+static void rgv_loop_fail(const char *site) {
+    g_rgv_loop.state = RGV_LOOP_FAILED;
+    LOG("r1: LOOP VERIFY FATAL: %s; diagnostic transaction incomplete, external oracle required\n", site);
+    abort();
+}
+static int rgv_loop_on(void) {
+    if (g_rgv_loop_on < 0) {
+        const char *e = getenv("SSBU_RB_LOOP_VERIFY");
+        g_rgv_loop_on = e && strcmp(e, "0") != 0;
+        if (g_rgv_loop_on && strcmp(e, "1") != 0) rgv_loop_fail("expected SSBU_RB_LOOP_VERIFY=0 or 1");
+    }
+    return g_rgv_loop_on;
+}
+static const RgvLoopResult *rgv_loop_result(void) { return &g_rgv_loop; }
+static int rgv_loop_pending(void) {
+    return g_rgv_loop.state != RGV_LOOP_IDLE && g_rgv_loop.state != RGV_LOOP_COMPLETE;
+}
+static void rgv_loop_require_idle(const char *site) {
+    if (rgv_loop_on() && (rgv_loop_pending() || g_rgv_target >= 0 ||
+        g_rgv_loop.begins != g_rgv_loop.completions || g_rgv_loop.comparisons != g_rgv_loop.completions)) rgv_loop_fail(site);
+}
+/* Bind the actual original capture before common load/restore mutation. The
+ * sparse page union, rather than the reserved guest address space, is bounded. */
+static uint64_t rgv_loop_install(long long from, long long to, int mismatch) {
+    if (!rgv_loop_on()) return 0;
+    if (g_rgv_loop.state != RGV_LOOP_IDLE || g_rgv_loop.begins || g_rgv_target >= 0 || g_rgv_runs ||
+        from < 0 || from == LLONG_MAX || to != from + 1 || mismatch != to ||
+        r1_ring_newest() != to)
+        rgv_loop_fail("invalid or repeated endpoint binding");
+    g_rgv_loop.token = 1; g_rgv_loop.from = from; g_rgv_loop.to = to; g_rgv_loop.mismatch = mismatch;
+    g_rgv_loop.begins = 1; g_rgv_loop.state = RGV_LOOP_INSTALLED;
+    return g_rgv_loop.token;
+}
+/* Record refusals without replacing the coordinator's correction-fatal path. */
+static int rgv_loop_load_result(uint64_t token, int result) {
+    if (!rgv_loop_on()) return 1;
+    g_rgv_loop.load_result = result;
+    if (result <= 0) { g_rgv_loop.state = RGV_LOOP_FAILED; return 0; }
+    if (token != g_rgv_loop.token || g_rgv_loop.state != RGV_LOOP_ARMED ||
+        g_rgv_from != g_rgv_loop.from || g_rgv_target != g_rgv_loop.to || r1_ring_newest() != g_rgv_loop.from)
+        rgv_loop_fail("load did not arm the bound endpoint");
+    g_rgv_loop.state = RGV_LOOP_LOADED;
+    return 1;
+}
 static uint64_t rgv_hash(const uint8_t *p) {
     if (!p) return 0x9e3779b97f4a7c15ull;
     if (p == (uint8_t *)1) return 1;
@@ -1786,16 +1848,28 @@ static int rgv_prepare(void) {
     return g_rgv_in && g_rgv_id && g_rgv_h && (g_rgv_on<2 || g_rgvd);
 }
 static void rgv_before(int si, long long target) {        /* in r1_ring_load, before the undo logs are applied */
+    if (rgv_loop_on()) {
+        if (!g_rgv_on || g_rgv_loop.state != RGV_LOOP_INSTALLED ||
+            rg_slot(si)->frame != g_rgv_loop.from || target != g_rgv_loop.to || r1_ring_newest() != target ||
+            g_rg_n1 + g_rg_n2 + g_rg_nx > g_rgv_in_capacity) rgv_loop_fail("stale or missing load binding");
+        for (size_t id = 0; id < g_rg_n1 + g_rg_n2 + g_rg_nx; id++)
+            if (g_rgv_in[id]) rgv_loop_fail("stale verifier membership");
+    }
     if (!g_rgv_on) return;
-    g_rgv_n = 0;
+    g_rgv_n = 0; g_rgv_capped = 0;
     for (int i = g_rg_count - 1; i > si; i--) {
         RgSlot *s = rg_slot(i);
         for (size_t n = 0; n < s->nent; n++) {
-            uint32_t id = s->ent[2 * n]; if (g_rgv_in[id] || g_rgv_n >= RGV_MAX / 2) continue;
+            uint32_t id = s->ent[2 * n]; if (g_rgv_in[id]) continue;
+            if (g_rgv_n >= RGV_MAX / 2) { g_rgv_capped = 1; if (rgv_loop_on()) rgv_loop_fail("capped original coverage"); continue; }
             g_rgv_in[id] = 1; g_rgv_id[g_rgv_n] = id; g_rgv_h[g_rgv_n] = rgv_hash(rg_src(id)); rgvd_keep(g_rgv_n, rg_src(id)); g_rgv_n++;
         }
     }
     g_rgv_target = target; g_rgv_from = rg_slot(si)->frame;
+    if (rgv_loop_on()) {
+        if (!g_rgv_n || g_rgv_capped) rgv_loop_fail("empty or capped original coverage");
+        g_rgv_loop.original_pages = g_rgv_n; g_rgv_loop.state = RGV_LOOP_ARMED;
+    }
 }
 /* (R2 round 3) SSBU_RB_SIM_VERIFY=2: for the first 12 rollbacks the original bytes of the compared pages are kept and every
  * differing page is printed: its address (where()), the number of differing 8-byte words, the first 4 (offset, original, re-run). */
@@ -1831,6 +1905,8 @@ static void rgv_blocks_report(void) {
     LOG("r1: RB VERIFY differing 64 KB blocks (%d, the 40 largest):%s\n", g_rgv_nb, b);
 }
 static void rgv_after(void) {                               /* right after the capture of the re-run pass that reached the target */
+    if (rgv_loop_on() && (g_rgv_loop.state != RGV_LOOP_LOADED || g_rgv_from != g_rgv_loop.from ||
+        g_rgv_target != g_rgv_loop.to || r1_ring_newest() != g_rgv_loop.to)) rgv_loop_fail("unbound raw comparison");
     long long d[3] = {0, 0, 0}, pages = (long long)g_rgv_n; char first[400]; int o = 0; first[0] = 0;
     for (size_t n = 0; n < g_rgv_n; n++) {
         uint32_t id = g_rgv_id[n];
@@ -1841,7 +1917,7 @@ static void rgv_after(void) {                               /* right after the c
         RgSlot *s = rg_slot(i); if (s->frame <= g_rgv_from || s->frame > g_rgv_target) continue;
         for (size_t n = 0; n < s->nent; n++) {
             uint32_t id = s->ent[2 * n]; if (g_rgv_in[id]) continue;
-            if (g_rgv_n + extra >= RGV_MAX) continue;
+            if (g_rgv_n + extra >= RGV_MAX) { g_rgv_capped = 1; if (rgv_loop_on()) rgv_loop_fail("capped replay coverage"); continue; }
             g_rgv_in[id] = 2; g_rgv_id[g_rgv_n + extra++] = id;
             pages++;
             if (rgv_hash(rg_src(id)) != rgv_hash(rg_src_v(id, s->ent[2 * n + 1]))) { int k = rgv_kind(id); d[k]++; rgv_note(id); if (o < 330 && d[k] <= 3) o += snprintf(first + o, sizeof first - o, " %s(re-run only)", where(rg_addr(id))); }
@@ -1852,6 +1928,30 @@ static void rgv_after(void) {                               /* right after the c
     if (d[0] || d[1]) g_rgv_bad_runs++;
     if (d[0] || d[1] || d[2] || g_rgv_runs <= 5) LOG("r1: RB VERIFY rollback to %lld, back at %lld: %lld pages compared; differ: window 1 %lld, window 2 %lld, extras %lld;%s\n", g_rgv_from, g_rgv_target, pages, d[0], d[1], d[2], first);
     g_rgv_target = -1;
+}
+/* Called after the existing replay capture, before left/phase can be cleared.
+ * Return 1 means a nonempty raw comparison finished, even when bytes differ. */
+static int rgv_loop_after_pass(uint64_t token, long long frame, int capture_ok, int left) {
+    if (!rgv_loop_on()) return 0;
+    if (g_rgv_loop.state != RGV_LOOP_LOADED || token != g_rgv_loop.token ||
+        frame != g_rgv_loop.to || left != 1 || capture_ok != 1 || r1_ring_newest() != frame ||
+        g_rgv_target != frame || g_rgv_from != g_rgv_loop.from || g_rgv_runs != 0 ||
+        !g_rgv_n || g_rgv_n != g_rgv_loop.original_pages || g_rgv_capped ||
+        g_rg_n1 + g_rg_n2 + g_rg_nx > g_rgv_in_capacity) rgv_loop_fail("missing or early replay endpoint");
+    long long pages = g_rgv_pages, diff[3];
+    for (int k = 0; k < 3; k++) diff[k] = g_rgv_diff[k];
+    rgv_after();
+    if (g_rgv_runs != 1 || g_rgv_target != -1 || g_rgv_capped || g_rgv_pages <= pages)
+        rgv_loop_fail("raw comparison did not complete exactly once");
+    for (size_t id = 0; id < g_rg_n1 + g_rg_n2 + g_rg_nx; id++)
+        if (g_rgv_in[id]) rgv_loop_fail("raw comparison left pending membership");
+    g_rgv_loop.pages = g_rgv_pages - pages;
+    g_rgv_loop.replay_only_pages = (size_t)g_rgv_loop.pages - g_rgv_loop.original_pages;
+    for (int k = 0; k < 3; k++) g_rgv_loop.diff[k] = g_rgv_diff[k] - diff[k];
+    g_rgv_loop.comparisons = 1; g_rgv_loop.completions = 1; g_rgv_loop.state = RGV_LOOP_COMPLETE;
+    LOG("r1: LOOP VERIFY COMPLETE: token %llu from %lld to %lld pages %lld; diagnostic only, external oracle required\n",
+        (unsigned long long)token, g_rgv_loop.from, frame, g_rgv_loop.pages);
+    return 1;
 }
 static int rgs_skip_now(void) { return g_rgs_on > 0 && g_ra_phase == 2 && (g_rgs_left > 1 || g_rgs_lastlite) ? g_rgs_skip : 0; }
 static int rgs_poll(void) { g_rgs_polls_cur++; return g_ra_phase == 2; }    /* a re-run pass: the input sequence waits */

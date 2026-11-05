@@ -1,8 +1,8 @@
 # Rollback continuation handoff
 
-Updated 2026-11-04 UTC. Direction audit base b3eba89; recheck current tree. [Ledger](../milestones/README.md) owns status; [decision and evidence](../evidence/2026-11-04-direction-audit.md).
+Updated 2026-11-05 UTC. Runtime candidate base d0d65a4; recheck current tree. [Ledger](../milestones/README.md) owns status; [decision and evidence](../evidence/2026-11-04-direction-audit.md).
 
-Immediate priority: M1.14 prepares a bounded actual changed-input correction against an all-correct gameplay oracle. Existing SIM trials replay unchanged inputs. Verify the production loop schedule, correct verifier completion semantics, build a correction-aware evidence adapter and a separately admitted loop recipe before native execution. Current package is not ready for that recipe; do not bypass admission or disable verification to obtain a seal.
+Immediate priority: M1.14 prepares a bounded actual changed-input correction against an all-correct gameplay oracle. Existing SIM trials replay unchanged inputs. The production loop schedule and opt-in raw completion now have reviewed source evidence in [loop verifier preparation](../evidence/2026-11-05-loop-verifier.md). Next compose consumed-input/pass/fighter witnesses, correction-aware external oracle and a separately admitted loop recipe before native execution. Current package is not ready for that recipe; do not bypass admission or disable verification to obtain a seal.
 
 M1.13 remains open. Audio is a real logical release/wait/guest-work ownership problem; complete audio equivalence is not a blanket prerequisite to exploratory gameplay preparation. Return to its bounded falsification packet if a concrete audio lock/wait/storage hazard blocks the selected path. No queue copy/device reset/event/clock/page policy is selected.
 

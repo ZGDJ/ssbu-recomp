@@ -65,6 +65,8 @@ static void release(void){holds=0;}
 static void pad_history_complete(void){successes++;}
 static void verify(void){successes++;}
 static void fast_report(void){}static void mark_report(void){}static void prot_report(void){}static void r1_stats_report(void){}
+/* Disabled loop verifier; enabled pending is tested by its own exact-body suite. */
+static int rgv_loop_pending(void){return 0;}
 /* SOURCE */
 int main(int argc,char**argv){
  assert(argc==2);int m=atoi(argv[1]);memset(&guest,0x23,sizeof guest);before=guest;memset(pages,0x35,sizeof pages);memset(history,0x72,sizeof history);

@@ -10,7 +10,7 @@ class CorrectionTests(unittest.TestCase):
  def test_full_coordinator(self):
   paths=['runtime/rb_rollback.c','runtime/rb_net.c','runtime/r1_ring.c']
   sources={p:(ROOT/p).read_text() for p in paths};s=sources[paths[0]]
-  prefix=s[:s.index('static double rbg_pace_now')]
+  prefix='static int g_ra_off;\nstatic void debug_writer_probe_end(long long f){(void)f;_Exit(99); }\n'+s[:s.index('static double rbg_pace_now')]
   names=['rbg_correction_pending','rbg_correction_fatal','rbg_rollback','rbg_sched','rbg_step_body']
   body=function(sources[paths[1]],'rbn_finalize')+'\n'+'\n'.join(function(s,n) for n in names)
   template=(ROOT/'tests/correction_source_fixture.c').read_text().replace('/* GLOBALS */',prefix).replace('/* CONSTANT */',re.search(r'^#define RG_MAXSLOT[^\n]+',sources[paths[2]],re.M)[0])
@@ -25,7 +25,7 @@ class CorrectionTests(unittest.TestCase):
   for name,b,modes in variants:
    src=out/(name+'.c');src.write_text(template.replace('/* SOURCE */',b))
    for opt in ('-O1','-O3'):
-    exe=out/(name+opt+'.exe');cmd=[resolve_clang(None),'-std=c11',opt,'-I',str(ROOT/'runtime'),str(src),'-o',str(exe)]
+    exe=out/(name+opt+'.exe');cmd=[resolve_clang(None),'-std=c11','-Werror=implicit-function-declaration',opt,'-I',str(ROOT/'runtime'),str(src),'-o',str(exe)]
     p=subprocess.run(cmd,capture_output=True,text=True,timeout=60);(out/(exe.stem+'-build.log')).write_text(p.stdout+p.stderr);(out/(exe.stem+'-command.json')).write_text(json.dumps(cmd));self.assertEqual(p.returncode,0,p.stderr)
     for mode in modes:
      p=subprocess.run([str(exe),str(mode)],capture_output=True,text=True,timeout=15,env={k:v for k,v in os.environ.items() if not k.startswith(("SSBU_","RECOMP_"))});log=p.stdout+p.stderr;(out/(exe.stem+f'-{mode}.log')).write_text(f'exit={p.returncode}\n'+log)

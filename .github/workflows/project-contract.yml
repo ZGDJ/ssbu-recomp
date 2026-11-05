@@ -143,3 +143,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_correction_source.py -v
       - name: Confirmation-safe terminal caller regressions
         run: python -m unittest discover -s tests -p test_terminal_source.py -v
+
+      - name: Loop correction schedule source tests
+        run: python -I -B -m unittest discover -s tests -p test_loop_correction_source.py -v
+      - name: Loop verifier completion source tests
+        run: python -I -B -m unittest discover -s tests -p test_loop_verifier_source.py -v

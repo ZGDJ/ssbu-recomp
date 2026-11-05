@@ -30,6 +30,12 @@ static long long r1_ring_oldest(void){return g_rg_count?slots[0].frame:-1;}
 static int r1_ring_capture(long long i,Ctx*c);
 static void fatal_sink(void);
 #define abort fatal_sink
+/* Disabled-only boundary: enabled lifecycle is tested in loop_verifier_source_fixture.c. */
+static int rgv_loop_on(void) { return 0; }
+static void rgv_loop_require_idle(const char *site) { (void)site; }
+static uint64_t rgv_loop_install(long long f,long long t,int m) { (void)f;(void)t;(void)m;_Exit(99); }
+static int rgv_loop_load_result(uint64_t token,int result) { (void)token;(void)result;return 1; }
+static int rgv_loop_after_pass(uint64_t token,long long f,int ok,int left) { (void)token;(void)f;(void)ok;(void)left;_Exit(99); }
 /* GLOBALS */
 #define HR 32
 static int g_remote=1;static long long g_hfinal_upto=4,g_peer_check_f;

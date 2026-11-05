@@ -82,8 +82,17 @@ static long long g_rbg_short_waits;
 /* Earliest correction owned by this coordinator. It is cleared only after a
  * successful load; any unavailable/refused load terminates this session. */
 static int g_rbg_pend;
+static uint64_t g_rbg_loop_token;
+static long long g_rbg_loop_capture_frame = -1;
+static long long g_rbg_loop_finalized;
+static int g_rbg_loop_capture_ok;
 void rbn_put_mismatch(int m);
-static int rbg_capture(long long i, Ctx *c) { g_rg_need = rbn_confirmed(); if (g_rbg_pend > 0 && g_rbg_pend - 1 < g_rg_need) g_rg_need = g_rbg_pend - 1; return r1_ring_capture(i, c); }
+static int rbg_capture(long long i, Ctx *c) {
+    g_rg_need = rbn_confirmed(); if (g_rbg_pend > 0 && g_rbg_pend - 1 < g_rg_need) g_rg_need = g_rbg_pend - 1;
+    int ok = r1_ring_capture(i, c);
+    if (rgv_loop_on()) { g_rbg_loop_capture_frame = i; g_rbg_loop_capture_ok = ok; }
+    return ok;
+}
 void rbn_stats(int *delay, int *last, int *maxk) { *delay = rbn_delay(); *last = (int)g_rbg_last_k; *maxk = (int)g_rbg_max_k; }   /* net_relay.c net_stats_get (F2) */
 
 static double rbg_pace_now(void *context) { (void)context; return now_ms(); }
@@ -118,10 +127,19 @@ static int rbg_rollback(Ctx *c, long long i, int m) {
     for (int s = 0; s < g_rg_count; s++) { long long f = rg_slot(s)->frame; if (f <= target && f > best) best = f; }
     if (best < 0) { g_rbg_miss++; rbg_correction_fatal(i, m, "no retained snapshot"); }
     if (i - best > INT_MAX) rbg_correction_fatal(i, m, "replay depth out of range");
+    if (rgv_loop_on()) {
+        if (!rbn_loop() || g_rbg_noring || g_rbg_keep != 1 || g_rbg_recap != 1 ||
+            g_ra_phase != 0 || g_rgs_left || m <= g_rbg_loop_finalized ||
+            g_rbg_loop_capture_frame != i || g_rbg_loop_capture_ok != 1)
+            rbg_correction_fatal(i, m, "loop verifier requires KEEP1/RECAP1 and a successful original capture");
+        g_rbg_loop_token = rgv_loop_install(best, i, m);
+    }
     double t0 = now_ms();
     if (!g_ra_wh_on) { g_rbg_rb_unheld++; if (g_rbg_rb_unheld <= 10) LOG("r1: RB NET: rollback at frame %lld while the task workers are NOT held (watchdog releases so far %lld): the load may leave the job system waiting\n", i, g_ra_wd_fired); }
     int lr = r1_ring_load(best, c);
+    int verified_load = rgv_loop_load_result(g_rbg_loop_token, lr);
     if (lr <= 0) rbg_correction_fatal(i, m, lr < 0 ? "restore refused" : "snapshot unavailable");
+    if (!verified_load) rbg_correction_fatal(i, m, "loop verifier load incomplete");
     g_rbg_pend = 0;
     g_rbg_load_ms += now_ms() - t0; g_rbg_t_load += now_ms() - t0; g_rbg_recap_first = -1; g_rbg_t_pass0 = now_ms();
     int k = (int)(i - best);
@@ -144,6 +162,9 @@ static void rbg_step_body(Ctx *c) {
     long long i = g_rgs_next;
     if (g_rbg_wdfix < 0) { const char *e = getenv("SSBU_RB_NET_WDFIX"); g_rbg_wdfix = !e || atoi(e) != 0; e = getenv("SSBU_RB_NET_DETAIL"); g_rbg_detail = e && atoi(e) > 0;
         e = getenv("SSBU_RB_NET_RECAP"); g_rbg_recap = e ? atoi(e) : 5; e = getenv("SSBU_RB_NET_KEEP"); g_rbg_keep = e ? atoi(e) : 2; }
+    if (rgv_loop_on() && (!rbn_loop() || g_rbg_noring || g_rbg_keep != 1 || g_rbg_recap != 1 || g_ra_off || !getenv("SSBU_RB_SIM_VERIFY")))
+        rbg_correction_fatal(i, 0, "unsupported loop verifier configuration");
+    if (rgv_loop_on() && g_ra_phase != 2) rgv_loop_require_idle("forward pass with pending verification");
     if (g_rbg_wdfix) g_ra_wd_pause = 1;                 /* (until H2 lets the workers go: r1_state.c ra_kick2) */
     if (g_rbg_wd_before != g_ra_wd_fired) { if (g_rg_ready) LOG("r1: RB NET: the task-worker watchdog let them go before the safe point of frame %lld (%lld times so far)\n", i, g_ra_wd_fired); g_rbg_wd_before = g_ra_wd_fired; }
     if (rbn_match_cancelled() == 2) {                   /* (R3 pub2) a Local Wireless room fight: the game's own netcode, no ring, pads untouched */
@@ -163,6 +184,8 @@ static void rbg_step_body(Ctx *c) {
         if (g_rbg_rebase) { if (!g_rbg_basefix) g_rgs_next = i = 0; if (!r1_ring_rebase(i, c) && !g_rg_nomem) return; }
         else { r1_ring_capture(i, c); if (g_rbg_wdfix) g_ra_wd_pause = 1; if (!g_rg_ready && !g_rg_nomem) return; }   /* (the full save sets the pause back to 0) */
         g_rbg_noring = g_rg_nomem != 0;
+        if (rgv_loop_on() && (g_rbg_noring || i != 0 || g_rbg_rebase))
+            rbg_correction_fatal(i, 0, "loop verifier requires the first base at zero and a snapshot ring");
         rbn_set_lockstep(g_rbg_noring);
         if (g_rbg_noring) {
             g_rbg_noring_matches++;
@@ -220,7 +243,11 @@ static void rbg_step_body(Ctx *c) {
         else if (g_rbg_recap == 3) want = 0;                                  /* (3: the last one only; a later rollback may load the state this one loaded) */
         else if (r4) want = i == g_rbg_recap_first;
         else want = i == g_rbg_recap_first;
-        if (want) { double tc = now_ms(); if (!rbg_capture(i, c)) g_rbg_capfail++; g_rbg_t_recap += now_ms() - tc; g_rbg_n_recap++; } else g_rbg_capskip++;
+        int capture_ok = 0;
+        if (rgv_loop_on() && g_rgs_left == 1) debug_writer_probe_end(i);
+        if (want) { double tc = now_ms(); capture_ok = rbg_capture(i, c); if (!capture_ok) g_rbg_capfail++; g_rbg_t_recap += now_ms() - tc; g_rbg_n_recap++; } else g_rbg_capskip++;
+        if (rgv_loop_on() && !rgv_loop_after_pass(g_rbg_loop_token, i, capture_ok, g_rgs_left))
+            rbg_correction_fatal(i, 0, "loop verifier endpoint incomplete");
         g_rgs_next = i + 1;
         if (--g_rgs_left > 0) { g_rbg_t_pass0 = now_ms(); return; }
         g_ra_phase = 0; g_ra_after_quiet = 1; g_rgs_left = 0;
@@ -295,8 +322,13 @@ static void rbg_step_body(Ctx *c) {
         rbg_wait_until(now_ms() + 0.5);
     }
     if (stalled) g_rbg_stall_ms += now_ms() - ts;
+    if (rgv_loop_on()) {
+        rgv_loop_require_idle("finalization");
+        if (g_ra_phase || g_rgs_left || g_rbg_pend) rbg_correction_fatal(i, 0, "finalization with pending correction");
+    }
     r1_ring_let_go();
     rbn_finalize(g_rbg_pend > 0 && g_rbg_pend - 1 < i ? g_rbg_pend - 1 : i);      /* Pending corrections never authorize finalization beyond their boundary. */
+    if (rgv_loop_on()) g_rbg_loop_finalized = rbn_confirmed() < i ? rbn_confirmed() : i;
     if (g_rbg_pace) {
         double period = 1000.0 / 60.0 + rbn_pace_extra(g_rgs_next), now = now_ms();
         if (g_rbg_next <= 0 || now - g_rbg_next > 3 * period) g_rbg_next = now;      /* (far behind: no catching up in a burst) */
@@ -391,6 +423,7 @@ static void rbg_report(void);
  * teardown before H2 and complete-state coverage still require battle proof. */
 static int rbg_terminal(Ctx *c) {
     if (g_rbg_in_match != 1) return 0;
+    if (rgv_loop_on()) rbg_correction_fatal(g_rgs_next, 0, "loop verifier recipe is nonterminal");
     long long i = g_rgs_next;
     g_ra_wd_pause = 1;
     for (;;) {
@@ -415,6 +448,7 @@ static int rbg_terminal(Ctx *c) {
 /* (hs12) r1_ring.c rgs_step, every safe point while no fight is on: the end of a match (once): its report, the ring
  * emptied, the session reset for the next match (whose first safe point makes the ring's base again: r1_ring_rebase) */
 static void rbg_fight_off(void) {
+    rgv_loop_require_idle("match cleanup/reset");
     if (!g_rbg_in_match) return;
     if (g_rbg_in_match == 1 && !g_rbg_terminal_commit)
         rbg_correction_fatal(g_rgs_next, 0, "unconfirmed terminal cleanup");

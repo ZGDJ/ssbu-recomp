@@ -2684,7 +2684,7 @@ static void r1_frame_end(Ctx *c, void *user) {
         long long before = g_ra_nkind;
         fls_index_find(); ra_frame_end(te);
         fight_trace_boundary(g_ra_nkind == before + 1 ? g_ra_kind[before] : 0,
-                             g_ra_phase != 0 || g_rgs_left > 0 || g_rgv_target >= 0 || g_rbg_pend > 0);
+                             g_ra_phase != 0 || g_rgs_left > 0 || g_rgv_target >= 0 || g_rbg_pend > 0 || rgv_loop_pending());
         return;
     }         /* run-ahead (round 5): the save / restore is at the kick after the submission, not here */
     fight_trace_boundary(rerun ? 'S' : '?', g_phase == 1 || g_phase == 2);

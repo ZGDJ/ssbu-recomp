@@ -1,5 +1,7 @@
 # Evidence
 
+- [Loop verifier preparation](2026-11-05-loop-verifier.md): source-tested correction schedule and opt-in raw completion; external oracle/admission and native controls remain open.
+
 - [Direction audit](2026-11-04-direction-audit.md): all tracked Markdown reviewed; prioritize bounded changed-input gameplay preparation, preserving audio and formal failures.
 
 - [Audio semantic restore prerequisite](2026-11-04-audio-semantic-boundary.md): joint logical release/wait/work contract and causal presentation identity block a safe correction; concrete falsification packet.

@@ -306,11 +306,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.1, M1.3, M1.4, M7.3
 - Size: 3
 - Requirement: FSD-003, FSD-006, FSD-012
-- Evidence: evidence/2026-11-04-direction-audit.md
+- Evidence: evidence/2026-11-05-loop-verifier.md
 - Acceptance: Production-connected tests prove the selected two-lane mismatch/load/replay schedule; correction-aware oracle rejects absent/wrong/incomplete correction evidence; verifier completion and admission recipe receive independent review. Deliver a safely runnable bounded native packet or an exact path-specific blocker. This preparation does not close formal M4.1/M4.2 or certify gameplay.
 - Owner: Astra integrator / direction audit, 2026-11-04T16:00:26.559815+00:00
-- Next: Verify loop bot/delay schedule, address correction-verifier completion, implement limited all-correct oracle and loop admission adapter. Preserve existing controls; select native execution only after frozen readiness review.
-- Blocker: Existing SIM comparator is not a changed-input oracle; loop verifier target lacks completion cleanup and current admission requires NET=0. Native readiness unproven; full audio equivalence is not an assumed blanket dependency.
+- Next: Source schedule and opt-in raw completion are implemented/reviewed within scope. Compose actual lane/pass/fighter witnesses, corrected external oracle and loop admission adapter, then freeze/build/review the native recipe and its own controls.
+- Blocker: External correction-aware oracle, actual trace/H2/lane mapping, sealed witnesses and separately reviewed loop admission remain missing. No host build/new-package controls yet; native readiness unproven. Full audio equivalence is not a blanket dependency.
 
 ## M2 - Controlled simulation
 
