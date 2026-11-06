@@ -344,6 +344,9 @@ class Boundaries:
     monotonic: object
     sleep: object
     fs: object
+    # Optional trusted constructor for an owned native boundary. The supplied
+    # callback closes over this admission's actual lease/samples, not receipts.
+    native_factory: object = None
 
 
 class NativeNotCreated(Exception):
@@ -608,11 +611,23 @@ def run_admitted(cmd, *, cwd, env, stdout, stderr, identity_path, runtime, build
         require(fs.screen(validation.files, validation.directories) == before, 'inputs changed at native boundary')
         check_outputs()
         fs.assert_owned(lock, owner, lease)
+        def final_creation_check():
+            # Native preparation and durable receipt I/O may consume the five
+            # second budget after entry into native(). Recheck the ORIGINAL
+            # samples and owned lease at the actual OS creation boundary.
+            fs.assert_owned(lock, owner, lease)
+            fresh(capacity)
+
+        native = boundaries.native
+        if boundaries.native_factory is not None:
+            require(callable(boundaries.native_factory), 'invalid native factory')
+            native = boundaries.native_factory(final_creation_check)
+            require(callable(native), 'native factory must return owned boundary')
         launch_utc = fresh(capacity)  # Last operation before the one native call.
         attempted, no_child = True, False
         record.update(native_launch_attempted=True, native_call_utc=launch_utc)
         try:
-            result = boundaries.native(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr)
+            result = native(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr)
         except NativeNotCreated:
             no_child = True
             raise

@@ -1,0 +1,31 @@
+# Native loop packet components and calibration prerequisite
+
+Integration base 4276db6191186f1ec27e0369e9186a33743934a7. M1.14 remains in progress. resolved=false, authoritative=0, native_ready=false. This delivers source components and a specific prerequisite, not a safely runnable native packet.
+
+## Implemented components
+
+The owned Windows process boundary creates and waits for the direct child, restricts inherited handles, writes durable creation/exit receipts, and retains exclusion on unknown lifetime or receipt failure. The consumed append-only journal orders disabled control, enabled SIM control, oracle and correction, rehashes accepted evidence before advancement and has no resume. Admission now injects its actual lease and original-sample freshness closure into that boundary immediately before OS creation, covering preparation/receipt latency after entry to native(). The small owned-boundary adapter preserves the exact no-child exception class.
+
+Packet identity callbacks bind complete immutable source/package/deployment/content/config/save/tape inventories and independently pinned readiness evidence. Mutable userdata/cache postinventories remain distinct. Post-run immutable mismatches retain observed inventories and errors before refusing. A hash authenticates supplied bytes relative to trusted pins; it does not authenticate authorship or turn fabricated receipts into genuine approval.
+
+The independent recipe module generates the full BOT7/BOT19 delay1 actual tape through500-B, retains wrong R11, selects S11 for final11 and checks the declared pass/count/mapping relations. SSBU_SEQ is expanded comment-filtered tape text, while sequence remains the pinned file path. Fighter lookup uses the slot field rather than write-array position. Mapping/read counts are explicit, never defaulted from synthetic B1/P0 or guessed from correction output.
+
+## Reviews and repair disposition
+
+Original implementation receipts are under artifacts/local/loop-packet-20261105/{process,identity,recipe}. Independent gpt-6.1-sol/max reviews are under review-process/ and review-identity-recipe/. Preserve their frozen hashes and changes-required verdicts: concurrent later repairs do not retroactively pass those freezes. Review found the tape path/text mismatch, child-local handle-number test ambiguity, slot-versus-write-order lookup, lost postidentity failure inventories, and circular native-mapping bootstrap.
+
+Integration repaired tape semantics, added pathname/tape-mutation rejection, changed the handle test to named kernel-object identity with direct child PID and intentionally inherited negative control, fixed slot lookup with distinct reversed entries, and retained postidentity failure observations. These are integration repairs, not claimed independently re-reviewed. The first admission regression attempt used a fixture sleep that allowed only15 seconds; explicit elapsed-clock adjustment corrected that test. The first new handle assertion imported CompareObjectHandles from kernel32 instead of kernelbase; corrected, with final process suite passing. Earlier failed attempts/reviews remain evidence.
+
+## Exact native blocker and next implementation
+
+The final PacketIdentity contract requires authentic native-mapping evidence before BOTH final arms. bind_oracle_mapping validates a predeclared mapping; it cannot discover constants and retroactively predeclare them. Therefore the final oracle cannot bootstrap its own prerequisite. Keep that requirement: implement a separately reviewed/admitted calibration-only phase and consumed journal, incapable of launching correction, then freeze the final declaration from accepted calibration evidence before either final arm. Existing final four-step journal is not a calibration journal.
+
+Calibration must establish actual trace base B, poll base P, one-poll/+1 cadence, exact lane read counts, and independently prove lane/port/profile -> fighter BOMA/slot association. Existing fighter discovery slots are not pad IDs; existing e=-1 rows cannot establish the association. The review found no retained native observation satisfying this obligation. A source-supported association observer and calibration readiness/identity policy are still needed; do not substitute arbitrary entry numbers, synthetic mappings, filename hashes or caller booleans. This specific missing observable proof prevents safe final-arm admission even with the new components.
+
+The complete packet driver and separate fatal/original-reference/fixture-menu-RNG/sealed-trace/postidentity acceptance gates still require integration. A known-exit process receipt failure retains the lease and skips admission's normal postidentity callback; the driver must preserve independent failure collection without converting that exception into CompletedProcess or releasing exclusion. Direct-child waiting does not prove arbitrary descendants exited: the real frozen game executable must be the direct child.
+
+Fresh host package and its own disabled500R/0S then enabled500R/exactly two depth-one SIM controls remain unbuilt/unrun. Preserve original reference/save/tape, SIM120,1,60, LS1, verify2, restore verification, skip/lite0 and Skyline0. Full identity before two fresh samples 15-45 seconds apart, >=10GiB commit, >=10240MiB physical, <=512MiB committed drift, <=5-second creation age, process exclusion and lease through proven exit remain mandatory. Fresh labels/userdata; failure stops, restarts user-owned. No native game/build/capacity collection occurred in this packet. Harmless disposable OS child tests are not game evidence.
+
+Historical aggregate FAIL/stopped, eleven-versus-ten attempt coverage, separate six/four guest consumer progress and raw/audio/context inequalities remain. M1.13, formal M4.1/M4.2 and applicable integrated controls remain open. Complete audio equivalence is not the blocker selected here.
+
+Validation at integration: 45 process tests, 25 recipe tests and 45 admission tests passed under private Python -I -B. Nine Python files compile, project-document validation and whitespace checks pass. All 33 identity tests also pass after retention repairs (176.559 seconds); prior independent identity33 pass remains tied to its original freeze. Integration source hashes are retained in artifacts/local/loop-packet-20261105/integration-freeze.json.

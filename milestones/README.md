@@ -306,11 +306,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.1, M1.3, M1.4, M7.3
 - Size: 3
 - Requirement: FSD-003, FSD-006, FSD-012
-- Evidence: evidence/2026-11-05-loop-native-prerequisites.md
+- Evidence: evidence/2026-11-05-loop-packet-components.md
 - Acceptance: Production-connected tests prove the selected two-lane mismatch/load/replay schedule; correction-aware oracle rejects absent/wrong/incomplete correction evidence; verifier completion and admission recipe receive independent review. Deliver a safely runnable bounded native packet or an exact path-specific blocker. This preparation does not close formal M4.1/M4.2 or certify gameplay.
 - Owner: Astra integrator / native prerequisites, 2026-11-05T03:59:30.628083+00:00
-- Next: Source schedule and opt-in raw completion are implemented/reviewed within scope. Witness lifecycle and analyzer/configuration repairs have bounded source acceptance. Independent speculative R11 reconstruction and targeted serializer mutation protection are now accepted with216 witness executions; bind mapping/recipe and complete the native driver/validators before freeze/review/build and its own controls.
-- Blocker: Actual native trace/H2/lane mapping and the complete identity/readiness/journal/child/post-gate packet remain missing. No host build/new-package controls yet; native readiness unproven. Full audio equivalence is not a blanket dependency.
+- Next: Integrate the implemented process/journal, identity and recipe components. Implement a separately admitted calibration-only policy and lane/profile-to-fighter association observation; freeze accepted mapping before either final arm. Complete driver/post gates, freeze/review/build and run new-package controls only when readiness holds.
+- Blocker: Final arms require independent native mapping first; the oracle cannot bootstrap its own prerequisite. Existing e=-1 witnesses do not establish lane/profile-to-fighter BOMA/slot association. Calibration observer/policy, complete driver/post gates and fresh package/controls remain missing; no native readiness or audio-closure prerequisite is claimed.
 
 ## M2 - Controlled simulation
 

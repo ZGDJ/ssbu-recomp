@@ -189,6 +189,30 @@ class Fixture:
 
 
 class LoopAdmissionTests(unittest.TestCase):
+    def test_owned_creation_rechecks_original_sample_after_preparation(self):
+        for delay in (0, 6):
+            with self.subTest(delay=delay):
+                f = Fixture(self)
+                created = []
+                def factory(check):
+                    def native(cmd, **kwargs):
+                        f.clock.wall += delay
+                        f.clock.mono += delay
+                        check()
+                        created.append(True)
+                        return f.native(cmd, **kwargs)
+                    return native
+                f.boundaries = replace(f.boundaries, native_factory=factory)
+                if delay:
+                    with self.assertRaises(ValueError):
+                        f.invoke()
+                    self.assertEqual(created, [])
+                    self.assertTrue(f.lock.exists())
+                else:
+                    self.assertEqual(f.invoke().returncode, 0)
+                    self.assertEqual(created, [True])
+
+
     def setUp(self):
         # A regression must fail before any real subprocess, even the query.
         for name in ('run', 'Popen'):

@@ -4,6 +4,8 @@ Start with the [ledger](../milestones/README.md) priorities/selected task and [c
 
 ## Current M1.14 evidence route
 
+- [Native packet components](2026-11-05-loop-packet-components.md): owned process/journal, identity and recipe components; separate calibration and lane-to-fighter proof required before final arms.
+
 - [Native loop prerequisites](2026-11-05-loop-native-prerequisites.md): reviewed configuration/parser and speculative hash proof repairs; exact remaining mapping/identity/child-lifetime blockers.
 - [Loop witness preparation](2026-11-05-loop-witness-preparation.md): earlier source checkpoint; lifecycle review accepted, with later analyzer/speculative proof acceptance and remaining native gates in Native loop prerequisites.
 
