@@ -51,8 +51,8 @@ SOURCE_PINS = {
     'runtime/debug_mode.c': '8b7d44e4e34f1e29cb37613e1aea1f0ca8cf2750d8f5a44604d82366769410f6',
     'runtime/os_threads.c': '11140b08c4b8ad5a347d844c6a6bcb944b9b25303a2798307c454a5af9793b49',
     'runtime/nnsdk.c': '0fee73e77f1067011dd1c87eae69819893a6af62d0c06ebea0cce442d1273e68',
-    'tools/analyze_loop_correction.py': '81c7d85bf450d6c9344c659179240cef6635481017a6cc82546231ac150b72bf',
-    'tools/loop_replay_admission.py': '97427a759d00e5e47a1f0892d31b276ac597ea6db84b0c9a87beb00bbf4d89c7',
+    'tools/analyze_loop_correction.py': 'f049462344ec12eeacf3e38c558a8e9b981c6ef46f7a877df9471338cc1e5535',
+    'tools/loop_replay_admission.py': '64e000d796156d6b7a823f6f77a956d7f2bd384132e675d8ec12034d50634246',
     'tests/bounded_trace_cmp.py': '355b1db086712315f0cd3a774a7913267db2e39db75af3e321428593beb4cddf',
 }
 ANALYZER_CONFIG = {
@@ -275,9 +275,9 @@ def expected_counts(mapping, reads_per_lane, arm):
                 predicted_reads=reads_per_lane[1] * (11 if replay else 1))
 
 
-def evidence_requirements():
+def evidence_requirements(comparison=None):
     """Machine-readable obligations for the parent; declarations aren't proof."""
-    return dict(
+    result = dict(
         source_bound=[
             'rb_net.c bot_pad + rb_input.c delay1/rest and LOOP_BOT2=19 generate the whole tape',
             'rbg_pad port id is input lane id; fighter slots are discovery order, not pad ids',
@@ -303,6 +303,27 @@ def evidence_requirements():
                         outcomes=['correction path execution', 'selected-state convergence',
                                   'meaningful gameplay-field contrast; pad/hash change alone is insufficient']),
         native_ready=False, authoritative=0, resolved=False)
+    if comparison is not None:
+        exact(comparison, 'unordered-selected-fighters-v1', 'comparison')
+        result['admitted_observation'][3] = (
+            'separate calibration of B/P/cadence/reads before BOTH final arms; '
+            'independently reviewed unordered whole-fighter-record policy; no lane/player attribution')
+        result['comparison']['identity'] = 'per-frame multiset only; no cross-arm fighter trajectories or lane association'
+    return result
+
+
+def analysis_recipe(mapping, reads_per_lane, comparison=None):
+    """Explicit observed mapping/counts; no native defaults or readiness claim."""
+    validate_mapping(mapping)
+    validate_reads(reads_per_lane)
+    need(comparison in (None, 'unordered-selected-fighters-v1'), 'unsupported comparison')
+    recipe = dict(v=1, schema_sha256=SCHEMA_SHA256, interval=[1, 64], trace_target=500,
+                  mapping=deepcopy(mapping), config=dict(ANALYZER_CONFIG), reads_per_lane=list(reads_per_lane),
+                  work_on=0, effect_fields=list(EFFECT_FIELDS), require_effect=1,
+                  expected_inputs=expected_inputs(mapping['trace_base']), files=deepcopy(FILES))
+    if comparison is not None:
+        recipe.update(v=2, comparison=comparison)
+    return recipe
 
 
 def _validate_fixture(fixture):
@@ -319,7 +340,7 @@ def _validate_fixture(fixture):
     exact(fixture['native_seconds'], 900, 'fixture native bound')
 
 
-def prepare_recipe(*, mapping, reads_per_lane, fixture, admission_recipe, root=ROOT):
+def prepare_recipe(*, mapping, reads_per_lane, fixture, admission_recipe, root=ROOT, comparison=None):
     """Generate a source-only declaration; no default B/P/reads or native claims.
 
     fixture.identities requires {sha256,size} for IDENTITIES. Settings are exactly
@@ -348,14 +369,11 @@ def prepare_recipe(*, mapping, reads_per_lane, fixture, admission_recipe, root=R
                             if line.strip() and not line.startswith('#'))
         exact(row['env']['SSBU_SEQ'], expanded, 'expanded sequence binding')
         exact(row['cmd'][2], str(fixture['native_seconds']), 'command duration binding')
-    recipe = dict(v=1, schema_sha256=SCHEMA_SHA256, interval=[1, 64], trace_target=500,
-                  mapping=mapping, config=dict(ANALYZER_CONFIG), reads_per_lane=reads_per_lane,
-                  work_on=0, effect_fields=list(EFFECT_FIELDS), require_effect=1,
-                  expected_inputs=expected_inputs(mapping['trace_base']), files=deepcopy(FILES))
+    recipe = analysis_recipe(mapping, reads_per_lane, comparison)
     analyzer.validate_recipe(recipe)
     return dict(format=1, kind='source-bound-declaration', native_ready=False, authoritative=0, resolved=False,
                 sources=sources, tool=dict(sha256=hashlib.sha256(read_regular(__file__)).hexdigest()),
-                fixture=fixture, admission=admission_recipe, analyzer=recipe, requirements=evidence_requirements())
+                fixture=fixture, admission=admission_recipe, analyzer=recipe, requirements=evidence_requirements(comparison))
 
 
 def validate_recipe(value, root=ROOT):
@@ -364,7 +382,7 @@ def validate_recipe(value, root=ROOT):
     a = value['analyzer']
     need({'mapping', 'reads_per_lane'} <= set(a) and {'fixture', 'admission'} <= set(value), 'incomplete declaration')
     wanted = prepare_recipe(mapping=a['mapping'], reads_per_lane=a['reads_per_lane'], fixture=value['fixture'],
-                            admission_recipe=value['admission'], root=root)
+                            admission_recipe=value['admission'], root=root, comparison=a.get('comparison'))
     exact(value, wanted, 'source-bound declaration')
 
 

@@ -206,9 +206,12 @@ class Inputs:
 
 
 def validate_recipe(recipe):
+    unordered = type(recipe) is dict and recipe.get('v') == 2
     keys(recipe, "v schema_sha256 interval trace_target mapping config reads_per_lane work_on "
-         "effect_fields require_effect expected_inputs files", "recipe")
-    exact(recipe["v"], 1, "recipe.v")
+         "effect_fields require_effect expected_inputs files" + (" comparison" if unordered else ""), "recipe")
+    exact(recipe["v"], 2 if unordered else 1, "recipe.v")
+    if unordered:
+        exact(recipe['comparison'], 'unordered-selected-fighters-v1', 'comparison policy')
     exact(recipe["schema_sha256"], SCHEMA_SHA256, "recipe.schema")
     exact(recipe["interval"], [1, 64], "recipe.interval")
     for x, expected in zip(recipe["interval"], (1, 64)):
@@ -691,9 +694,38 @@ def compare_correction(oracle, correction, recipe):
             if wrong_rows[slot][field] != reference_rows[slot][field]:
                 effects.append({"slot": slot, "field": field, "speculative": wrong_rows[slot][field],
                                 "oracle": reference_rows[slot][field]})
+    ordered_divergences = divergences
+    unordered = recipe.get('comparison') == 'unordered-selected-fighters-v1'
+    if unordered:
+        # Sort WHOLE fighter records, never each field independently. This is a
+        # multiset at each frame, not a fighter trajectory or player attribution.
+        # e/slot/ordinal are process-local labels. Full RNG remains joined to its
+        # raw row. Pads and order-sensitive hashes are validated within each arm.
+        def records(arm, sample, frame, fields=None):
+            rows = []
+            for index, value in enumerate(sample['fighters']):
+                row = witness_row(value)
+                if fields is None:
+                    row = {k: v for k, v in row.items() if k not in ('ordinal', 'slot', 'e')}
+                    row['rng64'] = arm['details'][frame]['fighters'][index]['rng']
+                else:
+                    row = {k: row[k] for k in fields}
+                rows.append(tuple(sorted(row.items())))
+            return sorted(rows)
+        divergences = [{'frame': f, 'fields': ['unordered_fighter_records']} for f in range(1, 65)
+                       if records(oracle, oracle['latest'][f], f) !=
+                       records(correction, correction['latest'][f], f)]
+        effect = (records(oracle, reference, 11, recipe['effect_fields']) !=
+                  records(correction, wrong, 11, recipe['effect_fields']))
+        effects = [{'fields': list(recipe['effect_fields']), 'comparison': 'whole-record-multiset',
+                    'oracle': records(oracle, reference, 11, recipe['effect_fields']),
+                    'speculative': records(correction, wrong, 11, recipe['effect_fields'])}] if effect else []
     equal = not divergences
     limited_pass = equal and (bool(effects) or not recipe["require_effect"])
     return {"projection_equal": equal, "projection_interval": [1, 64], "frames_compared": 64,
+            "comparison_policy": recipe.get('comparison', 'ordered-discovery-slots-v1'),
+            "player_attribution": False, "cross_arm_fighter_identity": False,
+            "ordered_divergences": ordered_divergences,
             "divergences": divergences, "earliest_divergence": divergences[0] if divergences else None,
             "meaningful_input_effect": bool(effects), "effect_contrast": effects,
             "correction_witness": True, "speculative_branch": wrong,

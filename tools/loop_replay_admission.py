@@ -34,6 +34,9 @@ CAPACITY_PATH = Path(__file__).with_name('replay_admission.py')
 CAPACITY_SHA256 = '1f863ed3c33e0f309d47642ad037f4dd9c6fd6910e3939f44f4bf92f1232bcbc'
 ARMS = ('loop-oracle', 'loop-correction')
 EXPERIMENT = dict(format=1, interval=[1, 64], mismatch=11, load=10, replay=[11, 11])
+CALIBRATION_EXPERIMENT = dict(format=1, purpose='loop-calibration', interval=[1, 64],
+                              mismatch=0, load=None, replay=[])
+CALIBRATION_ARMS = ('loop-calibration',)
 # Explicit safety/schedule requirements, independent of supplied recipe values.
 SETTINGS = {
     'SSBU_ONLINE': 'off', 'SSBU_RB_LOOP_VERIFY': '1',
@@ -377,14 +380,17 @@ def sample():
 
 def validate_loop_configuration(env, identity_path, *, recipe, arm):
     """Pure recipe policy check. Matching a recipe alone does not admit a child."""
-    require(type(recipe) is dict and set(recipe) == {*EXPERIMENT, 'arms'}, 'explicit frozen recipe required')
-    require(digest({k: recipe[k] for k in EXPERIMENT}) == digest(EXPERIMENT),
+    calibration = type(recipe) is dict and recipe.get('purpose') == 'loop-calibration'
+    experiment = CALIBRATION_EXPERIMENT if calibration else EXPERIMENT
+    arms = CALIBRATION_ARMS if calibration else ARMS
+    require(type(recipe) is dict and set(recipe) == {*experiment, 'arms'}, 'explicit frozen recipe required')
+    require(digest({k: recipe[k] for k in experiment}) == digest(experiment),
             'unsupported experiment interval/schedule')
-    require(type(recipe['arms']) is dict and set(recipe['arms']) == set(ARMS) and arm in ARMS,
+    require(type(recipe['arms']) is dict and set(recipe['arms']) == set(arms) and arm in arms,
             'fixed loop arm required')
     trials = []
     arm_keys = {'identity_path', 'runtime', 'build', 'sequence', 'cwd', 'cmd', 'env', 'launcher', 'identity_tool'}
-    for label in ARMS:
+    for label in arms:
         row = recipe['arms'][label]
         require(type(row) is dict and set(row) == arm_keys, 'incomplete frozen arm')
         paths = {k: _path(row[k]) for k in arm_keys - {'cmd', 'env'}}
@@ -406,7 +412,7 @@ def validate_loop_configuration(env, identity_path, *, recipe, arm):
         allowed = {*SETTINGS, *RECIPE_SETTINGS, *PATH_ENV, 'SSBU_RB_NET'}
         require(set(relevant) <= allowed, 'unknown/unsupported environment setting')
         require(all(settings.get(k) == v for k, v in SETTINGS.items()), 'loop safety recipe differs')
-        require(settings.get('SSBU_RB_NET') == ('loop,0' if label == ARMS[0] else 'loop,1'), 'wrong loop arm setting')
+        require(settings.get('SSBU_RB_NET') == ('loop,0' if label == arms[0] else 'loop,1'), 'wrong loop arm setting')
         require(all(settings.get(k) == str(trial / name) for k, name in PATH_ENV.items()), 'wrong output/userdata path')
         require(all(settings.get(k, '').strip() for k in ('SSBU_ROMFS', 'SSBU_SEQ')),
                 'unfrozen content/sequence setting')
@@ -414,7 +420,7 @@ def validate_loop_configuration(env, identity_path, *, recipe, arm):
                     'SSBU_NRO_BIN', 'SSBU_CONFIG', 'SSBU_GRAPHICS_CONFIG'):
             if key in settings:
                 _path(settings[key])
-    require(not trials[0].is_relative_to(trials[1]) and not trials[1].is_relative_to(trials[0]), 'overlapping trial roots')
+    require(all(not a.is_relative_to(b) for a in trials for b in trials if a != b), 'overlapping trial roots')
     for row in recipe['arms'].values():
         protected = [row[k] for k in ('runtime', 'build', 'sequence', 'cwd', 'launcher', 'identity_tool')]
         protected += row['cmd'][:2]
@@ -423,11 +429,13 @@ def validate_loop_configuration(env, identity_path, *, recipe, arm):
         require(all(not trial.is_relative_to(_path(p)) and not _path(p).is_relative_to(trial)
                     for trial in trials for p in protected), 'trial overlaps immutable input')
     # Shared setup and settings must agree; only declared output roots and arm differ.
-    first, second = (recipe['arms'][label] for label in ARMS)
-    for key in ('runtime', 'build', 'sequence', 'cwd', 'cmd', 'launcher', 'identity_tool'):
-        require(first[key] == second[key], 'cross-arm fixture differs: ' + key)
-    require({k: v for k, v in first['env'].items() if k not in {*PATH_ENV, 'SSBU_RB_NET'}} ==
-            {k: v for k, v in second['env'].items() if k not in {*PATH_ENV, 'SSBU_RB_NET'}}, 'cross-arm settings differ')
+    first = recipe['arms'][arms[0]]
+    for label in arms[1:]:
+        second = recipe['arms'][label]
+        for key in ('runtime', 'build', 'sequence', 'cwd', 'cmd', 'launcher', 'identity_tool'):
+            require(first[key] == second[key], 'cross-arm fixture differs: ' + key)
+        require({k: v for k, v in first['env'].items() if k not in {*PATH_ENV, 'SSBU_RB_NET'}} ==
+                {k: v for k, v in second['env'].items() if k not in {*PATH_ENV, 'SSBU_RB_NET'}}, 'cross-arm settings differ')
     selected = recipe['arms'][arm]
     require(env == selected['env'] and str(_path(identity_path)) == selected['identity_path'], 'configuration differs from frozen loop recipe')
 

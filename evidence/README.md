@@ -4,7 +4,11 @@ Start with the [ledger](../milestones/README.md) priorities/selected task and [c
 
 ## Current M1.14 evidence route
 
-- [Native packet components](2026-11-05-loop-packet-components.md): owned process/journal, identity and recipe components; separate calibration and lane-to-fighter proof required before final arms.
+- [Calibration and owned driver candidate](2026-11-09-loop-calibration-driver.md): complete integrated source freeze, proposed narrower whole-fighter comparison, separately admitted measured calibration and independent post gates; root review/adoption/package/native evidence required.
+
+- [Failed-exit observation increment](2026-11-09-loop-failed-exit-observation.md): prior trial's independent failure inventories/original exception/lease retention; integrated in the newer source candidate, historical trial freeze preserved.
+
+- [Native packet components](2026-11-05-loop-packet-components.md): original process/journal, identity and recipe freeze; attributed-v1 calibration/association requirements retained, proposed alternative scoped in the newer candidate.
 
 - [Native loop prerequisites](2026-11-05-loop-native-prerequisites.md): reviewed configuration/parser and speculative hash proof repairs; exact remaining mapping/identity/child-lifetime blockers.
 - [Loop witness preparation](2026-11-05-loop-witness-preparation.md): earlier source checkpoint; lifecycle review accepted, with later analyzer/speculative proof acceptance and remaining native gates in Native loop prerequisites.

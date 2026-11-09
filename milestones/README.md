@@ -306,11 +306,11 @@ Defer optional-mode/diagnostic expansion, public-lobby features, installer polis
 - Depends: M1.1, M1.3, M1.4, M7.3
 - Size: 3
 - Requirement: FSD-003, FSD-006, FSD-012
-- Evidence: evidence/2026-11-05-loop-packet-components.md
+- Evidence: evidence/2026-11-09-loop-calibration-driver.md
 - Acceptance: Production-connected tests prove the selected two-lane mismatch/load/replay schedule; correction-aware oracle rejects absent/wrong/incomplete correction evidence; verifier completion and admission recipe receive independent review. Deliver a safely runnable bounded native packet or an exact path-specific blocker. This preparation does not close formal M4.1/M4.2 or certify gameplay.
-- Owner: Astra integrator / native prerequisites, 2026-11-05T03:59:30.628083+00:00
-- Next: Integrate the implemented process/journal, identity and recipe components. Implement a separately admitted calibration-only policy and lane/profile-to-fighter association observation; freeze accepted mapping before either final arm. Complete driver/post gates, freeze/review/build and run new-package controls only when readiness holds.
-- Blocker: Final arms require independent native mapping first; the oracle cannot bootstrap its own prerequisite. Existing e=-1 witnesses do not establish lane/profile-to-fighter BOMA/slot association. Calibration observer/policy, complete driver/post gates and fresh package/controls remain missing; no native readiness or audio-closure prerequisite is claimed.
+- Owner: Astra shared integrator / implementation sub-agent source freeze, 2026-11-09T15:43:03Z
+- Next: Root arranges independent review of the integrated calibration/driver candidate and proposed ADR-0009 narrower whole-fighter multiset claim; v1 attribution requirements remain binding. After adoption, build/control an exact matching package, run the calibration-only policy through the owned driver, independently accept measured B/P/cadence/reads, and freeze/control a separate final declaration before both oracle/correction arms. Evidence gives exact root APIs/commands and required gates; failed comparison is useful and not a launch precondition.
+- Blocker: Source calibration, driver and separate post gates are implemented but not independently accepted or natively exercised. Native mapping/own-package controls remain absent; e=-1 supplies no lane/profile association, while proposed v2 explicitly excludes that claim and requires independent policy/calibration acceptance before either final arm. Review/adoption and root-owned package/native evidence are the resolving boundary; resolved=false, authoritative=0, native_ready=false. M1.13/formal M4.1/M4.2/integrated controls remain open.
 
 ## M2 - Controlled simulation
 

@@ -58,6 +58,13 @@ captures (including mutable inventories), even on comparison failure; integratio
 must persist these exclusively. No receipt
 here claims native readiness, loaded-code attestation or gameplay qualification.
 Fatal/reference/menu/RNG/sealed-trace gates remain separate driver obligations.
+
+For the owned boundary's failure_observer use a trusted callback binding
+observe_failed_exit(arm, error). It inventories independently of verify_after,
+persists failed-exit-observation.json exclusively, and retains partial results
+in failure_observations even if persistence fails. The boundary must prove the
+direct child's exit first; error attributes alone are not lifetime authority.
+This is failure collection, never postidentity acceptance or retry permission.
 """
 from contextlib import contextmanager
 import hashlib
@@ -84,6 +91,12 @@ CONTROL_GATES = {'admission', 'process_exit', 'fatal', 'original_reference',
                  'fixture_menu_rng', 'sealed_trace', 'postidentity'}
 PACKET_KEYS = ('format recipe source_root setup build_location trees files absent save_baseline '
                'graphics_cache original_reference analysis_recipe schema diagnostic_files deployments')
+UNORDERED_POLICY = 'unordered-selected-fighters-v1'
+
+
+def packet_arms(packet):
+    recipe = packet['recipe']
+    return ('loop-calibration',) if recipe.get('purpose') == 'loop-calibration' else ARMS
 
 
 def require(condition, message):
@@ -225,9 +238,10 @@ def prepare_identity(packet, arm):
     No readiness roots or prerequisite evidence are created or inferred here.
     """
     _keys(packet, PACKET_KEYS, 'provisional packet')
-    require(arm in ARMS, 'unknown arm')
     preparer = object.__new__(PacketIdentity)
     preparer._packet = json.loads(json.dumps(packet, allow_nan=False))
+    preparer.arms = packet_arms(packet)
+    require(arm in preparer.arms, 'unknown arm')
     return preparer.capture(arm)
 
 
@@ -240,13 +254,22 @@ class PacketIdentity:
         self.packet_sha256, self.readiness_sha256 = packet_sha256, readiness_sha256
         require(file_id(self.packet_path)['sha256'] == packet_sha256, 'frozen packet hash differs')
         self._packet = read_json(self.packet_path)
+        self.arms = packet_arms(self._packet)
+        self.prerequisites = dict(REQUIRED_PREREQUISITES)
+        if self.arms == ('loop-calibration',):
+            del self.prerequisites['native-mapping']
+            self.prerequisites['calibration-policy-review'] = 'independent-review'
+        elif read_json(self._packet['analysis_recipe']).get('comparison') == UNORDERED_POLICY:
+            self.prerequisites['comparison-policy-review'] = 'independent-review'
         self._pins = json.loads(json.dumps(prerequisite_pins, allow_nan=False))
-        require(type(self._pins) is dict and set(self._pins) == set(REQUIRED_PREREQUISITES),
+        require(type(self._pins) is dict and set(self._pins) == set(self.prerequisites),
                 'independently pinned prerequisite set required')
         require(inspect.isfunction(journal_guard) or inspect.ismethod(journal_guard), 'trusted journal guard required')
         self._journal_guard = journal_guard
         self._journal_source = str(checked_path(journal_guard.__code__.co_filename))
         self.postidentities = {}
+        self.failure_observations = {}
+        self._failure_inputs = {}
         self._before = {}
         self._validate_packet()
 
@@ -255,7 +278,7 @@ class PacketIdentity:
         _keys(p, PACKET_KEYS, 'packet')
         require(type(p['format']) is int and p['format'] == 1, 'packet format')
         require(type(p['recipe']) is dict and type(p['recipe'].get('arms')) is dict and
-                set(p['recipe']['arms']) == set(ARMS), 'two explicit recipe arms required')
+                set(p['recipe']['arms']) == set(self.arms), 'explicit policy arms required')
         require(type(p['trees']) is dict and p['trees'] and type(p['files']) is dict and p['files'],
                 'complete immutable inventories required')
         for path, tree in p['trees'].items():
@@ -337,7 +360,7 @@ class PacketIdentity:
                 require(any(parent.is_relative_to(root) for root in roots),
                         'controller/graphics sibling directory coverage missing')
         userdatas = [row['env']['SSBU_USERDATA'] for row in p['recipe']['arms'].values()]
-        require(len(set(userdatas)) == 2, 'fresh distinct userdata required')
+        require(len(set(userdatas)) == len(self.arms), 'fresh distinct userdata required')
         require(all(not Path(path).is_relative_to(Path(p['graphics_cache'])) for path in frozen),
                 'mutable cache cannot contain immutable inputs')
 
@@ -408,7 +431,7 @@ class PacketIdentity:
         files.update(evidence_files)
         analysis = self._analysis()
         frozen = self._immutable_files()
-        for kind, authority in REQUIRED_PREREQUISITES.items():
+        for kind, authority in self.prerequisites.items():
             path, wanted = self._ref(self._pins[kind])
             require(evidence_files.get(path) == wanted and path not in frozen,
                     'prerequisite must be in authenticated external evidence inventory')
@@ -428,15 +451,23 @@ class PacketIdentity:
                 files[item] = identity
             claims = receipt['claims']
             if kind == 'native-mapping':
-                _keys(claims, 'basis analysis_recipe mapping reads_per_lane lane_fighters', 'native mapping')
+                unordered = analysis.get('comparison') == UNORDERED_POLICY
+                _keys(claims, 'basis analysis_recipe mapping reads_per_lane ' +
+                      ('comparison calibration' if unordered else 'lane_fighters'), 'native mapping')
                 _id(claims['analysis_recipe'])
                 require(claims['basis'] == 'independent-precorrection-native-observation' and
                         claims['analysis_recipe'] == file_id(self._packet['analysis_recipe']) and
                         digest(claims['mapping']) == digest(analysis['mapping']) and
                         digest(claims['reads_per_lane']) == digest(analysis['reads_per_lane']), 'independent mapping differs')
-                require(type(claims['lane_fighters']) is list and len(claims['lane_fighters']) == 2 and
-                        all(type(n) is int and n >= 0 for n in claims['lane_fighters']) and
-                        len(set(claims['lane_fighters'])) == 2, 'independent lane/fighter association missing')
+                if unordered:
+                    require(claims['comparison'] == UNORDERED_POLICY, 'unordered mapping policy differs')
+                    require('calibration' in receipt['evidence'] and
+                            claims['calibration'] == receipt['evidence']['calibration'], 'separate calibration required')
+                    self._calibration(claims['calibration'], analysis, evidence_files)
+                else:
+                    require(type(claims['lane_fighters']) is list and len(claims['lane_fighters']) == 2 and
+                            all(type(n) is int and n >= 0 for n in claims['lane_fighters']) and
+                            len(set(claims['lane_fighters'])) == 2, 'independent lane/fighter association missing')
                 require({'observation', 'analysis', 'findings'} <= set(receipt['evidence']), 'native mapping evidence incomplete')
             elif kind.endswith('-control'):
                 self._control(kind, claims, receipt['evidence'])
@@ -446,7 +477,95 @@ class PacketIdentity:
                         'scoped independent review findings/freeze required')
         return files, tuple(ready['trees'])
 
+    def _calibration(self, ref, analysis, evidence_files):
+        """Check separately retained calibration, never fit to a final arm.
+
+        Independent authority still authenticates the observation and ordering;
+        these bytes/relations alone cannot establish authorship or approval.
+        """
+        path, _ = self._ref(ref)
+        value = read_json(path)
+        _keys(value, 'format kind comparison mapping reads_per_lane subject packet observation gates admission '
+              'journal native_ready authoritative resolved', 'calibration result')
+        require(type(value['format']) is int and value['format'] == 1 and
+                value['kind'] == 'loop-calibration-result' and value['comparison'] == UNORDERED_POLICY and
+                value['native_ready'] is False and type(value['authoritative']) is int and
+                value['authoritative'] == 0 and value['resolved'] is False and
+                digest(value['mapping']) == digest(analysis['mapping']) and
+                digest(value['reads_per_lane']) == digest(analysis['reads_per_lane']), 'calibration mapping/claims differ')
+        def retained(ref):
+            target, identity = self._ref(ref)
+            require(evidence_files.get(target) == identity, 'calibration companion coverage missing')
+            return read_json(target)
+        packet = retained(value['packet'])
+        require(packet['recipe'].get('purpose') == 'loop-calibration' and
+                set(packet['recipe']['arms']) == {'loop-calibration'}, 'final oracle cannot bootstrap calibration')
+        observation = retained(value['observation'])
+        require(observation['kind'] == 'loop-calibration-observation' and
+                digest(observation['mapping']) == digest(analysis['mapping']) and
+                digest(observation['reads_per_lane']) == digest(analysis['reads_per_lane']), 'raw calibration observation differs')
+        gates, admission = retained(value['gates']), retained(value['admission'])
+        require(gates['status'] == 'passed' and gates['errors'] == [] and
+                CONTROL_GATES <= set(gates['gates']) and
+                all(gates['gates'][k]['status'] == 'passed' for k in CONTROL_GATES) and
+                admission['arm'] == 'loop-calibration' and admission['child_exit_proven'] is True and
+                admission['postidentity_completed'] is True and type(admission['exit']) is int and admission['exit'] == 0,
+                'calibration independent gates not accepted')
+        require(type(value['journal']) is list and len(value['journal']) == 7, 'complete calibration journal required')
+        journal = [retained(ref) for ref in value['journal']]
+        require([r['event'] for r in journal] == ['created', 'begin', 'pass', 'begin', 'pass', 'begin', 'pass'] and
+                journal[0]['payload']['steps'] == ['disabled-control', 'enabled-sim-control', 'loop-calibration'] and
+                [r['payload']['step'] for r in journal[1:]] ==
+                ['disabled-control', 'disabled-control', 'enabled-sim-control', 'enabled-sim-control',
+                 'loop-calibration', 'loop-calibration'] and
+                all(r['binding_sha256'] == value['packet']['sha256'] for r in journal), 'calibration journal ordering differs')
+        process_path = str(Path(self._packet['source_root']) / 'tools/loop_native_process.py')
+        process = types.ModuleType('_calibration_journal_reader')
+        process.__file__ = process_path
+        prior = sys.modules.get(process.__name__)
+        sys.modules[process.__name__] = process
+        try:
+            self._exec(process, process_path)
+            state = process.BatchJournal.inspect(Path(value['journal'][0]['path']).parent)
+            require(state['status'] == 'complete' and state['binding_sha256'] == value['packet']['sha256'],
+                    'calibration journal chain/evidence incomplete')
+        finally:
+            if prior is None:
+                sys.modules.pop(process.__name__, None)
+            else:
+                sys.modules[process.__name__] = prior
+        trial = Path(packet['recipe']['arms']['loop-calibration']['identity_path']).parent
+        for key, name in (('observation', 'arm-observation.json'), ('gates', 'gates.json'),
+                          ('admission', 'native-admission-end.json')):
+            require(value[key]['path'] == str(trial / name) and
+                    journal[-1]['payload']['evidence'].get(str(trial / name)) == value[key]['sha256'],
+                    'calibration result not bound by consumed journal')
+        row = self._packet['recipe']['arms'][self.arms[0]]
+        subject = value['subject']
+        _keys(subject, 'runtime_manifest executable save_baseline sequence_file original_reference diagnostic_files', 'calibration subject')
+        require(subject['runtime_manifest'] == file_id(str(Path(row['runtime']) / 'manifest.json')) and
+                subject['executable'] == file_id(row['cmd'][0]) and
+                subject['save_baseline'] == self._packet['trees'][self._packet['save_baseline']] and
+                subject['sequence_file'] == file_id(row['sequence']) and
+                subject['original_reference'] == file_id(self._packet['original_reference']), 'calibration subject differs')
+        frozen = self._immutable_files()
+        source = Path(self._packet['source_root'])
+        for name in ('tools/loop_packet_driver.py', 'tools/loop_calibration.py', 'tools/loop_result_gates.py',
+                     'tools/loop_replay_admission.py', 'tools/loop_native_process.py', 'tools/loop_owned_boundary.py',
+                     'tools/loop_packet_identity.py', 'tools/loop_experiment_recipe.py', 'tools/analyze_loop_correction.py'):
+            target = str(source / name)
+            require(target in self._packet['diagnostic_files'] and
+                    subject['diagnostic_files'].get(target) == frozen.get(target) and target in frozen,
+                    'calibration diagnostic source differs: ' + name)
+
     def _analysis(self):
+        if self.arms == ('loop-calibration',):
+            analysis = read_json(self._packet['analysis_recipe'])
+            _keys(analysis, 'format kind schema_sha256 comparison work_on', 'calibration declaration')
+            require(digest(analysis) == digest(dict(format=1, kind='loop-calibration',
+                    schema_sha256=file_id(self._packet['schema'])['sha256'],
+                    comparison=UNORDERED_POLICY, work_on=0)), 'bounded calibration declaration differs')
+            return analysis
         path = str(Path(self._packet['source_root']) / 'tools/analyze_loop_correction.py')
         module = types.ModuleType('_loop_packet_analyzer')
         module.__file__ = path
@@ -458,7 +577,7 @@ class PacketIdentity:
     def _control(self, kind, claims, evidence):
         _keys(claims, 'runtime_manifest executable diagnostic_sha256 save_baseline sequence_file original_reference '
               'real_passes replay_depths settings gates predecessor', 'own-package control')
-        row = self._packet['recipe']['arms'][ARMS[0]]
+        row = self._packet['recipe']['arms'][self.arms[0]]
         frozen = self._immutable_files()
         for key in ('runtime_manifest', 'executable', 'sequence_file', 'original_reference'):
             _id(claims[key])
@@ -544,7 +663,7 @@ class PacketIdentity:
 
     def capture(self, arm):
         """Full inventory preparation only; never constitutes admission/readiness."""
-        require(arm in ARMS, 'unknown arm')
+        require(arm in self.arms, 'unknown arm')
         row = self._packet['recipe']['arms'][arm]
         sequence = checked_path(row['sequence']).read_text(encoding='utf-8')
         require(row['env']['SSBU_SEQ'] == ' '.join(line.strip() for line in sequence.splitlines()
@@ -560,7 +679,7 @@ class PacketIdentity:
 
     def validation_inputs(self, arm):
         """Declarations for ValidationInputs; no receipt/hash implies readiness."""
-        require(arm in ARMS, 'unknown arm')
+        require(arm in self.arms, 'unknown arm')
         files = self._immutable_files()
         files[self.packet_path] = file_id(self.packet_path)
         prerequisites, roots = self._prerequisites()
@@ -577,7 +696,7 @@ class PacketIdentity:
     def _context(self, context):
         _keys(context, 'recipe arm selected validation', 'admission callback context')
         arm = context['arm']
-        require(arm in ARMS and digest(context['recipe']) == digest(self._packet['recipe']) and
+        require(arm in self.arms and digest(context['recipe']) == digest(self._packet['recipe']) and
                 digest(context['selected']) == digest(self._packet['recipe']['arms'][arm]), 'callback recipe/arm differs')
         expected = self.validation_inputs(arm)
         actual = context['validation']
@@ -612,12 +731,70 @@ class PacketIdentity:
         game = str(Path(row['cwd']) / _relative(manifest['game_dll']))
         require(game in deployed and deployed[game] in self._packet['diagnostic_files'], 'diagnostic game image origin missing')
         self._before[arm] = saved
+        # Retain the already authenticated scope. Failure collection must not
+        # depend on readiness still validating after a failed child or bad disk.
+        self._failure_inputs[arm] = dict(files=tuple(context['validation'].files),
+                                        directories=tuple(context['validation'].directories))
+
+    def observe_failed_exit(self, arm, error):
+        """Collect a failed owned-child exit without validating/repairing it.
+
+        Called only by the trusted owned boundary after its real wait. Snapshot
+        each independent input even if immutable comparison, a prerequisite,
+        userdata, cache or the full capture fails. Never execute drifted helpers.
+        Both this module and the boundary/callback must be in the frozen packet.
+        """
+        require(arm in self._before and arm not in self.postidentities and
+                arm not in self.failure_observations, 'no matching unused failed-exit observation')
+        require(error.child_created is True and error.exit_proven is True and
+                type(error.returncode) is int, 'owned proven exit required for failure collection')
+        observed = dict(format=1, kind='failed-exit-observation', arm=arm,
+            packet_sha256=self.packet_sha256, status='failed', native_ready=False,
+            authoritative=0, resolved=False, failure=dict(phase=error.phase,
+                child_created=error.child_created, exit_proven=error.exit_proven,
+                returncode=error.returncode, receipt_failed=error.receipt_failed,
+                cleanup_failed=error.cleanup_failed), immutable={}, files={}, trees={}, errors=[])
+        # Publish before any read/write can fail. This record is kept apart from
+        # postidentities and cannot be consumed as a successful verify_after.
+        self.failure_observations[arm] = observed
+        def collect(section, key, action):
+            try:
+                observed[section][key] = action()
+            except Exception as failure:
+                observed['errors'].append(section + ' ' + key + ': ' + type(failure).__name__ + ': ' + str(failure))
+        try:
+            self._rehash(observed['immutable'])
+        except Exception as failure:
+            observed['errors'].append('immutable: ' + type(failure).__name__ + ': ' + str(failure))
+        # _rehash checks the frozen packet, but a bad prerequisite must not
+        # prevent observation of its surviving companions or mutable userdata.
+        inputs = self._failure_inputs[arm]
+        for path in inputs['files']:
+            collect('files', path, lambda path=path: file_id(path))
+        cache = self._packet['graphics_cache']
+        for path in inputs['directories']:
+            exclude = (cache,) if path in self._packet['trees'] else ()
+            collect('trees', path, lambda path=path, exclude=exclude: inventory_tree(path, exclude=exclude))
+        observed['capture'] = {}
+        collect('capture', 'identity', lambda: self.capture(arm))
+        collect('capture', 'graphics_cache', lambda: inventory_tree(cache) if checked_path(cache).exists() else {'absent': True})
+        output = Path(self._packet['recipe']['arms'][arm]['identity_path']).parent / 'failed-exit-observation.json'
+        try:
+            raw = (json.dumps(observed, sort_keys=True, allow_nan=False) + '\n').encode('utf-8')
+            with checked_path(str(output)).open('xb') as stream:
+                require(stream.write(raw) == len(raw), 'short failed-exit observation write')
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException as failure:
+            observed['errors'].append('persistence: ' + type(failure).__name__ + ': ' + str(failure))
+            raise
 
     def verify_after(self, context):
         # Rehash all immutable inputs even if a later capture/comparison fails.
         # Admission invokes this after attested nonzero exits too.
         arm = context['arm']
-        require(arm in self._before and arm not in self.postidentities, 'no matching unused preidentity validation')
+        require(arm in self._before and arm not in self.postidentities and
+                arm not in self.failure_observations, 'no matching unused preidentity validation')
         observed = dict(immutable={}, errors=[])
         self.postidentities[arm] = observed
         try:
@@ -626,14 +803,19 @@ class PacketIdentity:
         except Exception as error:
             observed['errors'].append(type(error).__name__ + ': ' + str(error))
             raise
-        after = self.capture(arm)
-        before = json.loads(json.dumps(self._before[arm]))
-        stable = json.loads(json.dumps(after))
-        for item in (before, stable):
-            item.pop('identity_sha256')
-            item['inputs'].pop('initial_userdata')
-        userdata = inventory_tree(row['env']['SSBU_USERDATA'])
-        cache = self._packet['graphics_cache']
-        observed.update(identity=after, userdata=userdata,
-            graphics_cache=inventory_tree(cache) if checked_path(cache).exists() else {'absent': True})
-        require(digest(before) == digest(stable), 'full postidentity changed beyond writable userdata')
+        try:
+            after = self.capture(arm)
+            before = json.loads(json.dumps(self._before[arm]))
+            stable = json.loads(json.dumps(after))
+            for item in (before, stable):
+                item.pop('identity_sha256')
+                item['inputs'].pop('initial_userdata')
+            userdata = inventory_tree(row['env']['SSBU_USERDATA'])
+            cache = self._packet['graphics_cache']
+            observed.update(identity=after, userdata=userdata,
+                graphics_cache=inventory_tree(cache) if checked_path(cache).exists() else {'absent': True})
+            require(digest(before) == digest(stable), 'full postidentity changed beyond writable userdata')
+        except Exception as error:
+            observed['errors'].append(type(error).__name__ + ': ' + str(error))
+            raise
+        observed['accepted'] = True

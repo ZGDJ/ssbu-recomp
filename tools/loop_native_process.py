@@ -31,6 +31,7 @@ import uuid
 
 
 STEPS = ('disabled-control', 'enabled-sim-control', 'loop-oracle', 'loop-correction')
+CALIBRATION_STEPS = ('disabled-control', 'enabled-sim-control', 'loop-calibration')
 _HELD_ATTEMPTS = {}  # No destructor: unknown lifetime must outlive stack unwinding.
 
 
@@ -395,7 +396,7 @@ def _read_journal(directory):
     _require(1 <= len(names) <= 10 and names == [f'{i:04d}.json' for i in range(len(names))],
              'malformed/incomplete journal file set')
     records, raw, active, passed, stopped, binding, owner = [], [], None, [], False, None, None
-    tokens = set()
+    tokens, steps = set(), STEPS
     for index, name in enumerate(names):
         path = _path(directory / name)
         _require(path.is_file() and path.stat().st_size <= 1024 * 1024, 'invalid journal record')
@@ -407,18 +408,19 @@ def _read_journal(directory):
                  row['sequence'] == index and row['previous_sha256'] == (_digest(raw[-1]) if raw else None),
                  'journal sequence/hash chain differs')
         payload, event = row['payload'], row['event']
-        _require(type(payload) is dict and not stopped and len(passed) < len(STEPS), 'journal already terminal')
+        _require(type(payload) is dict and not stopped and len(passed) < len(steps), 'journal already terminal')
         if index == 0:
             _require(event == 'created' and set(payload) == {'steps', 'owner_pid', 'token'} and
-                     payload['steps'] == list(STEPS) and type(payload['owner_pid']) is int and payload['owner_pid'] > 0 and
+                     payload['steps'] in (list(STEPS), list(CALIBRATION_STEPS)) and type(payload['owner_pid']) is int and payload['owner_pid'] > 0 and
                      type(payload['token']) is str and len(payload['token']) == 32 and
                      all(c in '0123456789abcdef' for c in payload['token']) and _sha(row['binding_sha256']),
                      'invalid consumed batch binding')
             binding, owner = row['binding_sha256'], payload
+            steps = tuple(payload['steps'])
         else:
             _require(row['binding_sha256'] == binding, 'journal binding changed')
             if event == 'begin':
-                _require(set(payload) == {'step', 'token'} and active is None and payload['step'] == STEPS[len(passed)] and
+                _require(set(payload) == {'step', 'token'} and active is None and payload['step'] == steps[len(passed)] and
                          type(payload['token']) is str and len(payload['token']) == 32 and
                          all(c in '0123456789abcdef' for c in payload['token']) and
                          payload['token'] not in tokens, 'out-of-order/duplicate step')
@@ -441,7 +443,7 @@ def _read_journal(directory):
         records.append(row)
         raw.append(data)
     return records, raw, dict(binding_sha256=binding, owner=owner, passed=passed, active=active,
-        status='stopped' if stopped else 'complete' if len(passed) == len(STEPS) else 'consumed')
+        status='stopped' if stopped else 'complete' if len(passed) == len(steps) else 'consumed')
 
 
 class BatchJournal:
@@ -455,6 +457,8 @@ class BatchJournal:
     poisons this object and best-effort records a permanent stop. inspect is
     read-only: even a valid partial journal never authorizes restart/resume.
     """
+    steps = STEPS
+
     def __init__(self, *args, **kwargs):
         raise TypeError('use BatchJournal.create; existing batches cannot resume')
 
@@ -467,7 +471,7 @@ class BatchJournal:
         obj.lock, obj.poisoned, obj.ticket = threading.Lock(), False, None
         obj.writer, obj.raw = _writer or _write_new, []
         obj.directory.mkdir()  # Existing, empty, stale and partial batches all refuse.
-        obj._append('created', dict(steps=list(STEPS), owner_pid=obj.owner_pid, token=obj.owner_token))
+        obj._append('created', dict(steps=list(obj.steps), owner_pid=obj.owner_pid, token=obj.owner_token))
         return obj
 
     @staticmethod
@@ -486,7 +490,7 @@ class BatchJournal:
         _require(not self.poisoned and self.owner_pid == os.getpid(), 'failed/foreign batch cannot advance')
         records, raw, state = _read_journal(self.directory)
         _require(raw == self.raw and state['binding_sha256'] == self.binding and
-                 state['owner'] == dict(steps=list(STEPS), owner_pid=self.owner_pid, token=self.owner_token),
+                 state['owner'] == dict(steps=list(self.steps), owner_pid=self.owner_pid, token=self.owner_token),
                  'stale/changed batch journal')
         _require(state['status'] == 'consumed', 'terminal batch cannot advance')
         for row in records:
@@ -519,7 +523,7 @@ class BatchJournal:
 
     def begin(self, step):
         with self._operation() as state:
-            _require(state['active'] is None and step == STEPS[len(state['passed'])], 'required preceding step gates absent')
+            _require(state['active'] is None and step == self.steps[len(state['passed'])], 'required preceding step gates absent')
             ticket = StepTicket(step, uuid.uuid4().hex)
             self._append('begin', dict(step=step, token=ticket.token))
             self.ticket = ticket
@@ -543,3 +547,8 @@ class BatchJournal:
             _require(type(reason) is str and 0 < len(reason) <= 4096, 'explicit bounded stop reason required')
             self._append('stop', dict(reason=reason))
             self.poisoned = True
+
+
+class CalibrationJournal(BatchJournal):
+    """Same consumed lifecycle; no correction/oracle step exists in this policy."""
+    steps = CALIBRATION_STEPS

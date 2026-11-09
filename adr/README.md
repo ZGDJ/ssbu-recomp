@@ -10,5 +10,6 @@ ADRs own decisions; [FSD](../docs/FSD.md) owns requirements; [milestones](../mil
 - [0006 GGPO contract and Slippi methods](0006-ggpo-contract-and-slippi-methods.md): ownership/research retained; GGPO-first assumption superseded by 0007.
 - [0007 OpenSmash adoption and hardening](0007-opensmash-adoption-and-hardening.md): adopted baseline/custom backend; qualification remains open.
 - [0008 Private pair sessions](0008-private-pair-sessions.md): direct private 1v1 on the versus simulation first; lobby membership separated from battle participation; four-member persistent lobby and mandatory delayed spectating follow baseline 1v1 proof.
+- [0009 Unordered loop research](0009-unordered-loop-research.md): proposed narrower per-frame whole-fighter multiset comparison and separate admitted calibration; independent review/adoption required, attributed v1 and formal gameplay gates retained.
 
 New ADRs need status/date, context, decision, alternatives, consequences and reconsideration trigger. Preserve superseded records with replacement links. Proposed does not mean implemented. Library/checkpoint choices require evidence.
