@@ -48,6 +48,13 @@ Choose complementary delegated roles for the task: disjoint implementations, own
 
 ## Cohesive delivery and parallel work
 
+Choose the smallest experiment that can distinguish correction-path execution, selected-state convergence and meaningful gameplay contrast. Before adding a prerequisite, observer, gate or abstraction, name the unsafe action, plausible false conclusion or required claim it addresses. Defer work that does not change this experiment's safety or interpretation. An admitted experiment may fail its gameplay comparison; expected agreement is not a launch prerequisite.
+
+Distinguish operational safety requirements from attribution and broader qualification claims. For mapping/calibration, explain which conclusion requires lane/profile-to-fighter association and whether existing stable fighter identity plus consumed-input evidence supports a narrower useful claim. Current packet requirements remain binding until a proposed replacement maps their obligations, is validated and receives applicable review; do not silently remove a gate. Separately admitted calibration means an explicit bounded policy and evidence boundary, not automatically a separate framework or duplicated driver/journal implementation. Reuse existing ownership mechanisms where their contracts fit.
+
+Once applicable review, readiness and package controls pass, execute the bounded experiment before adding broader coverage or general-purpose infrastructure. Missing in-scope implementation is work to finish. Stop for unavailable inputs, user-owned recovery, external dependencies, demonstrated unsafe execution, or a consequential scope/architecture decision that cannot be resolved within the authorized batch; name the evidence and resolving action. A known implementation TODO alone is not a blocker delivery.
+
+
 Batch related prerequisites toward one observable gameplay outcome. Avoid ending a delivery after each small repair, review response or test run when the next authorized implementation step is already known. Commit checkpoints when useful, then continue the batch. An exact blocker should identify why progress cannot safely proceed and the resolving action; missing code within the authorized batch should normally be implemented, not repeatedly inventoried.
 
 For the bounded changed-input native package, use three complementary workstreams when delegation helps:
