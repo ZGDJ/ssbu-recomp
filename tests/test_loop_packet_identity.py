@@ -595,6 +595,26 @@ class IdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'complete raw source coverage missing'):
             m.prepare_identity(self.f.packet, a.ARMS[0])
 
+    def test_normal_failure_retains_independent_postinventories(self):
+        v, context = self.before()
+        with patch.object(v, '_context', side_effect=ValueError('changed prerequisite')):
+            with self.assertRaisesRegex(ValueError, 'changed prerequisite'):
+                v.verify_after(context)
+        report = v.postidentities[a.ARMS[0]]
+        for key in ('userdata', 'graphics_cache', 'identity', 'files', 'trees'):
+            self.assertIn(key, report)
+        self.assertNotIn('accepted', report)
+
+    def test_capture_failure_retains_mutable_postinventories(self):
+        v, context = self.before()
+        with patch.object(v, 'capture', side_effect=ValueError('capture unavailable')):
+            with self.assertRaisesRegex(ValueError, 'capture unavailable'):
+                v.verify_after(context)
+        report = v.postidentities[a.ARMS[0]]
+        self.assertIn('userdata', report)
+        self.assertIn('graphics_cache', report)
+        self.assertNotIn('accepted', report)
+
     def test_after_without_prevalidation_cannot_report_success(self):
         v = self.f.validator()
         with self.assertRaisesRegex(ValueError, 'no matching unused preidentity'):

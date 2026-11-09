@@ -1,6 +1,6 @@
 # ADR-0009: Unordered fighter projection for bounded loop research
 
-- Status: proposed; independent root review/adoption required before native use
+- Status: accepted for bounded M1.14 research by root integration, 2026-11-09; native packet readiness remains separate
 - Date: 2026-11-09
 - Scope: M1.14 preparation only; no backend, FSD or capability-gate change
 
@@ -10,7 +10,7 @@ The two-lane witness observes HID lane consumption and correction execution. Fig
 
 This association is unnecessary for the smaller question: after the exact mismatch/load/replay, does the **unordered pair of whole captured fighter records** equal the independently declared all-correct pair on each finalized frame 1..64? The fixture has two human Mario records. This is a useful limited selected-state observation, without player ownership or persistent cross-arm fighter identity.
 
-## Proposed decision
+## Decision
 
 Keep v1 and its association obligation intact. Add explicit analyzer v2 `comparison=unordered-selected-fighters-v1`, admitted only with an independently pinned `comparison-policy-review`. Compare a multiset of entire records per frame, including every captured raw field except ordinal/slot/entry and including the joined full 64-bit RNG value. Preserve original ordered divergences separately. Do not sort individual columns, infer a trajectory or associate the differing lane with a fighter. Compare the multiset of declared gameplay fields at wrong R11 against oracle11 for meaningful contrast; pads or hashes alone cannot establish it. Corrected S11 remains final11.
 

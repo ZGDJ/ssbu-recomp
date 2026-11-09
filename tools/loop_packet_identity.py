@@ -790,32 +790,46 @@ class PacketIdentity:
             raise
 
     def verify_after(self, context):
-        # Rehash all immutable inputs even if a later capture/comparison fails.
-        # Admission invokes this after attested nonzero exits too.
+        # Use the authenticated pre-run scope even when later validation fails.
         arm = context['arm']
         require(arm in self._before and arm not in self.postidentities and
                 arm not in self.failure_observations, 'no matching unused preidentity validation')
-        observed = dict(immutable={}, errors=[])
+        observed = dict(immutable={}, files={}, trees={}, errors=[])
         self.postidentities[arm] = observed
-        try:
-            self._rehash(observed['immutable'])
-            arm, row = self._context(context)
-        except Exception as error:
-            observed['errors'].append(type(error).__name__ + ': ' + str(error))
-            raise
-        try:
-            after = self.capture(arm)
-            before = json.loads(json.dumps(self._before[arm]))
-            stable = json.loads(json.dumps(after))
-            for item in (before, stable):
-                item.pop('identity_sha256')
-                item['inputs'].pop('initial_userdata')
-            userdata = inventory_tree(row['env']['SSBU_USERDATA'])
-            cache = self._packet['graphics_cache']
-            observed.update(identity=after, userdata=userdata,
-                graphics_cache=inventory_tree(cache) if checked_path(cache).exists() else {'absent': True})
-            require(digest(before) == digest(stable), 'full postidentity changed beyond writable userdata')
-        except Exception as error:
-            observed['errors'].append(type(error).__name__ + ': ' + str(error))
-            raise
+        failures = []
+        def attempt(label, action, target=None, key=None):
+            try:
+                value = action()
+                if target is not None:
+                    target[key] = value
+                return value
+            except Exception as error:
+                failures.append(error)
+                observed['errors'].append(label + ': ' + type(error).__name__ + ': ' + str(error))
+        attempt('immutable', lambda: self._rehash(observed['immutable']))
+        attempt('context', lambda: self._context(context))
+        inputs = self._failure_inputs[arm]
+        for path in inputs['files']:
+            attempt('file ' + path, lambda path=path: file_id(path), observed['files'], path)
+        cache = self._packet['graphics_cache']
+        for path in inputs['directories']:
+            exclude = (cache,) if path in self._packet['trees'] else ()
+            attempt('tree ' + path, lambda path=path, exclude=exclude: inventory_tree(path, exclude=exclude), observed['trees'], path)
+        row = self._packet['recipe']['arms'][arm]
+        attempt('userdata', lambda: inventory_tree(row['env']['SSBU_USERDATA']), observed, 'userdata')
+        attempt('graphics_cache', lambda: inventory_tree(cache) if checked_path(cache).exists() else {'absent': True}, observed, 'graphics_cache')
+        # capture verifies helper bytes before executing them; failures never
+        # authorize executing a changed helper or accepting partial evidence.
+        after = attempt('capture', lambda: self.capture(arm), observed, 'identity')
+        if after is not None:
+            def compare():
+                before = json.loads(json.dumps(self._before[arm]))
+                stable = json.loads(json.dumps(after))
+                for item in (before, stable):
+                    item.pop('identity_sha256')
+                    item['inputs'].pop('initial_userdata')
+                require(digest(before) == digest(stable), 'full postidentity changed beyond writable userdata')
+            attempt('comparison', compare)
+        if failures:
+            raise failures[0]
         observed['accepted'] = True
