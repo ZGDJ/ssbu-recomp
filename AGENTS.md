@@ -21,6 +21,9 @@ For rollback milestone implementation, use the project skill [.agents/skills/ope
 ## Execute and verify
 
 - Work autonomously within acceptance criteria; ordinary local edits/tests need no reconfirmation.
+- Carry authorized work through the observable batch outcome. Orientation, confirming a known blocker, passing tests, a small repair or starting a process are intermediate steps, not delivery boundaries. Use progress updates while continuing; do not require repeated user prompts to proceed.
+- Recover ordinary build/tool failures within scope while preserving failed attempts. Native stopped-batch/restart restrictions still apply to native trials; do not apply them automatically to compilation. Reuse accepted unchanged checks/reviews. If a tool requires yielding, state that boundary accurately and resume on its completion event; never claim background monitoring or completion without evidence.
+- Hand control back for a completed outcome, a necessary user decision, or an evidenced external/safety/tool boundary that prevents further authorized progress. Name what prevents action and what resolves it; missing in-scope implementation alone is not such a boundary.
 - Inspect the inherited implementation first; name the violated invariant or unresolved ownership decision and trace the relevant callers.
 - Establish battle boundaries and state ownership with bounded source analysis and the smallest decisive experiment.
 - Before adding or running a diagnostic, state how its likely outcomes change the correction, required validation or next gameplay experiment. Reuse existing observations when they answer that decision.
